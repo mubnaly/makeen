@@ -21,7 +21,7 @@
   import Trash from './components/Trash.svelte';
   import { getCurrentUser } from './lib/auth.js';
   import { createSidecarStore, fileBridge, listCaptures, listCards, putCapture, putCard, deleteCaptureById, deleteCardById, clearCaptures, clearCards, clearTasks, migrateLocalCollections, listTasks } from './lib/storage.js';
-  import { savePdfBytes, deleteFileBytes } from './lib/storage.js';
+  import { savePdfBytes, deleteFileBytes, loadPdfAutosaveSettings, savePdfAutosaveSettings } from './lib/storage.js';
   import { imagesToPdf, deliverBytes } from './lib/export.js';
   import { labelPng } from './lib/labels.js';
   import { sheetToXlsx } from './lib/xlsx.js';
@@ -108,6 +108,7 @@
   let activeDeck = $state('');
   let exportingDeck = $state('');
   let srsSettings = $state(loadSrsSettings());
+  let pdfAutosave = $state(loadPdfAutosaveSettings());
   let reminderTimer = null;
   let cardSetEditor = $state(''); // card id whose set editor is open
   let newSetName = $state('');
@@ -1887,6 +1888,36 @@
             <button onclick={testReminder}>{t('settings.testReminder')}</button>
           </div>
           <p class="muted" style="font-size:12px">{t('settings.reminderHint', { n: dueCards.length })}</p>
+
+          <div class="section-title mt">{t('settings.pdfAutosave')}</div>
+          <p class="muted" style="font-size:13px">{t('settings.pdfAutosaveHelp')}</p>
+          <label class="checkbox-label" style="display:flex; align-items:center; gap:8px; margin-bottom:8px">
+            <input type="checkbox" checked={pdfAutosave.enabled} onchange={(e) => {
+              pdfAutosave.enabled = e.currentTarget.checked;
+              savePdfAutosaveSettings(pdfAutosave);
+              notify(t('settings.saved'), 'ok');
+            }} />
+            <span>{t('settings.pdfAutosaveToggle')}</span>
+          </label>
+          {#if pdfAutosave.enabled}
+            <div class="hstack" style="gap:10px; margin-bottom:8px">
+              <span>{t('settings.pdfAutosaveInterval')}:</span>
+              <select
+                value={pdfAutosave.interval}
+                onchange={(e) => {
+                  pdfAutosave.interval = Number(e.currentTarget.value);
+                  savePdfAutosaveSettings(pdfAutosave);
+                  notify(t('settings.saved'), 'ok');
+                }}
+              >
+                <option value="5">5 {t('common.minutes')}</option>
+                <option value="10">10 {t('common.minutes')}</option>
+                <option value="15">15 {t('common.minutes')} ({t('settings.default')})</option>
+                <option value="30">30 {t('common.minutes')}</option>
+                <option value="60">60 {t('common.minutes')}</option>
+              </select>
+            </div>
+          {/if}
 
           <div class="section-title mt">{t('settings.trash')}</div>
           <p class="muted" style="font-size:13px">{t('settings.trashHelp')}</p>

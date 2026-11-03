@@ -7,7 +7,7 @@ import {
 
 test('layout values default safely', () => {
   assert.deepEqual(READER_LAYOUTS, ['continuous', 'single', 'spread']);
-  assert.deepEqual(READING_MODES, ['normal', 'paper', 'aqua', 'grey', 'dark']);
+  assert.deepEqual(READING_MODES, ['normal', 'paper', 'amber', 'aqua', 'grey', 'darkgray', 'dark']);
   assert.equal(normalizeLayout('spread'), 'spread');
   assert.equal(normalizeLayout('nope'), 'continuous');
   assert.equal(normalizeReadingMode('dark'), 'dark');

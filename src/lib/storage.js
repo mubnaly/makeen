@@ -443,3 +443,23 @@ export async function migrateLocalCollections(localStorage) {
   }
   return moved;
 }
+
+// --- PDF autosave settings ----------------------------------------------------
+export function loadPdfAutosaveSettings(localStorage = globalThis.localStorage) {
+  try {
+    const ls = localStorage || globalThis.localStorage;
+    const enabled = ls?.getItem('studyos.pdf.autosave.enabled') === 'true';
+    const interval = Number(ls?.getItem('studyos.pdf.autosave.interval')) || 15;
+    return { enabled, interval: Math.max(1, interval) };
+  } catch {
+    return { enabled: false, interval: 15 };
+  }
+}
+
+export function savePdfAutosaveSettings({ enabled, interval }, localStorage = globalThis.localStorage) {
+  try {
+    const ls = localStorage || globalThis.localStorage;
+    ls?.setItem('studyos.pdf.autosave.enabled', String(!!enabled));
+    ls?.setItem('studyos.pdf.autosave.interval', String(Math.max(1, Number(interval) || 15)));
+  } catch {}
+}

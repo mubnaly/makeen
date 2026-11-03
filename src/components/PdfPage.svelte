@@ -109,8 +109,21 @@
       if (inView) queueMicrotask(() => renderPage());
     };
     pdfCanvas?.addEventListener('contextrestored', onRestore);
+
+    const onScroll = () => {
+      if (cursorPoint) {
+        cursorPoint = null;
+        drawCursor();
+      }
+    };
+    const scrollTarget = scrollRoot || wrap?.closest('.stage') || window;
+    scrollTarget?.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('scroll', onScroll, { passive: true });
+
     return () => {
       pdfCanvas?.removeEventListener('contextrestored', onRestore);
+      scrollTarget?.removeEventListener('scroll', onScroll);
+      window.removeEventListener('scroll', onScroll);
       if (currentRenderTask) {
         try { currentRenderTask.cancel(); } catch {}
         currentRenderTask = null;

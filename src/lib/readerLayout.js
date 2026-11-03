@@ -7,7 +7,7 @@
 // Page numbers always increase in reading order; only the visual slots swap.
 
 export const READER_LAYOUTS = ['continuous', 'single', 'spread'];
-export const READING_MODES = ['normal', 'paper', 'aqua', 'grey', 'dark'];
+export const READING_MODES = ['normal', 'paper', 'amber', 'aqua', 'grey', 'darkgray', 'dark'];
 
 export function normalizeLayout(value) {
   return READER_LAYOUTS.includes(value) ? value : 'continuous';

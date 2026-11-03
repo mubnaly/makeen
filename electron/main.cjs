@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Notification, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, Notification, dialog, Menu } = require('electron');
 const fs = require('fs/promises');
 const path = require('path');
 const { safeFileName } = require('./fsnames.cjs');
@@ -115,6 +115,7 @@ async function atomicWrite(target, text) {
 }
 
 function createWindow() {
+  Menu.setApplicationMenu(null);
   const win = new BrowserWindow({
     width: 1440,
     height: 920,
@@ -122,12 +123,18 @@ function createWindow() {
     minHeight: 680,
     backgroundColor: '#f7f7fb',
     title: 'StudyOS',
+    autoHideMenuBar: true,
+    icon: path.join(__dirname, '..', 'public', 'icon.png'),
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
       preload: path.join(__dirname, 'preload.cjs')
     }
   });
+  win.removeMenu();
+  win.setMenuBarVisibility(false);
+  win.on('enter-full-screen', () => win.setMenuBarVisibility(false));
+  win.on('leave-full-screen', () => win.setMenuBarVisibility(false));
   mainWindow = win;
   // base './' in the Vite build makes this work over file://.
   win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));

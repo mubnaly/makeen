@@ -51,6 +51,7 @@
       "!node_modules/**/*"
     ],
     "win": {
+      "icon": "public/icon.ico",
       "target": [
         {
           "target": "nsis",

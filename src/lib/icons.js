@@ -88,6 +88,9 @@ export const ICONS = {
 
   // Pointer (laser target), fullscreen in/out, and the list view counterpart of
   // the grid icon — all outline-only like every other icon here.
+  sidebar: [['rect', 3, 3, 18, 18, 2], ['line', 9, 3, 9, 21], ['line', 13, 8, 18, 8], ['line', 13, 12, 18, 12]],
+  pin: [['line', 12, 17, 12, 22], ['path', 'M5 17h14l-2-6V4h1V2H6v2h1v7l-2 6z']],
+  'pin-off': [['line', 2, 2, 22, 22], ['line', 12, 17, 12, 22], ['path', 'M9 17h10l-2-6V7M7 7l-2 10']],
   pointer: [['circle', 12, 12, 7], ['circle', 12, 12, 1.6], ['line', 12, 1.5, 12, 4.5], ['line', 12, 19.5, 12, 22.5], ['line', 1.5, 12, 4.5, 12], ['line', 19.5, 12, 22.5, 12]],
   maximize: [['polyline', '15 3 21 3 21 9'], ['polyline', '9 21 3 21 3 15'], ['line', 21, 3, 14, 10], ['line', 3, 21, 10, 14]],
   minimize: [['polyline', '4 14 10 14 10 20'], ['polyline', '20 10 14 10 14 4'], ['line', 14, 10, 21, 3], ['line', 10, 14, 3, 21]],

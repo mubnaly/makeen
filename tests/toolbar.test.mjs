@@ -49,6 +49,6 @@ test('remove drops one item and barOrderMap reflects order', () => {
   const after = removeBarItem(defaultBarOrder(), 'status');
   assert.ok(!after.includes('status'));
   const map = barOrderMap(after);
-  assert.equal(map.prev, 8);
-  assert.equal(map.save > map.prev, true);
+  assert.equal(map.prev, 6);
+  assert.equal(map.search > map.prev, true);
 });

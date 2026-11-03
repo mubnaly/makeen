@@ -9,7 +9,7 @@
   import { createTransform, displaySize } from '../lib/geometry.js';
   import { renderAnnotations, hitTest } from '../lib/annotations.js';
   import { buildSidecar, serializeSidecar } from '../lib/sidecar.js';
-  import { readPdfBytes } from '../lib/storage.js';
+  import { readPdfBytes, loadPdfAutosaveSettings } from '../lib/storage.js';
   import { annotatedCopyPdf, excerptsPdf, imagesToPdf, deliverBytes } from '../lib/export.js';
   import { labelPng } from '../lib/labels.js';
   import { canvasCapture } from '../lib/imageQuality.js';
@@ -138,7 +138,9 @@
   let readingDir = $state(normalizeReadingDirection(loadPref(PREFS.direction, 'rtl')));
   let readingMode = $state(normalizeReadingMode(loadPref(PREFS.mode, 'normal')));
   let sideOpen = $state(false);
-  let sideTab = $state('pages');
+  let sideTab = $state('bookmarks');
+  let fullscreenAutoHide = $state(false);
+  let fsHovered = $state(false);
   let imagePreview = $state(null);
   let bookmarks = $state([]);
   let activeBookmark = $state('');
@@ -197,7 +199,7 @@
   const prevIcon = $derived(readingDir === 'rtl' ? 'chevron-right' : 'chevron-left');
   const nextIcon = $derived(readingDir === 'rtl' ? 'chevron-left' : 'chevron-right');
   const layoutIcon = $derived(layout === 'spread' ? 'columns' : layout === 'single' ? 'single-page' : 'scroll');
-  const modeIcon = $derived(readingMode === 'dark' ? 'moon' : readingMode === 'grey' ? 'contrast' : readingMode === 'paper' ? 'sun' : 'eye');
+  const modeIcon = $derived(readingMode === 'dark' ? 'moon' : readingMode === 'grey' || readingMode === 'darkgray' ? 'contrast' : readingMode === 'paper' || readingMode === 'amber' ? 'sun' : 'eye');
   const scrubPercent = $derived(numPages > 1 ? ((pageNum - 1) / (numPages - 1)) * 100 : 0);
   const handCursor = $derived(handCursorFor(color));
 
@@ -273,7 +275,17 @@
   // --- lifecycle -------------------------------------------------------------
   onMount(() => {
     dpr = window.devicePixelRatio || 1;
+    const handleWheel = (e) => {
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        const delta = e.deltaY < 0 ? 0.15 : -0.15;
+        const next = clamp(Math.round((scale + delta) * 100) / 100, 0.3, 5.0);
+        setZoom(next);
+      }
+    };
+    stage?.addEventListener('wheel', handleWheel, { passive: false });
     return () => {
+      stage?.removeEventListener('wheel', handleWheel);
       teardown();
       if (positionTimer) clearTimeout(positionTimer);
       if (scrollFrame) cancelAnimationFrame(scrollFrame);
@@ -345,6 +357,7 @@
         isRestoringScroll = false;
       }
       persistPosition();
+      setupAutosave();
     } catch (e) {
       if (token !== loadToken) return;
       loadError = tr('reader.couldNotOpen', { message: e.message });
@@ -373,7 +386,13 @@
       clearTimeout(positionTimer);
       positionTimer = null;
     }
-    persistPosition();
+    if (autosaveTimer) {
+      clearInterval(autosaveTimer);
+      autosaveTimer = null;
+    }
+    if (loadedDocId && !loading && loadedDocId === doc?.id) {
+      persistPosition();
+    }
     if (redPenTimer) clearTimeout(redPenTimer);
     redPenTimer = null;
     if (scrollFrame) { cancelAnimationFrame(scrollFrame); scrollFrame = null; }
@@ -570,10 +589,15 @@
     if (e.key === 'Enter') { e.preventDefault(); onPageInput(e); e.currentTarget.blur(); }
   }
 
-  function scrollToPage(n, behavior = 'smooth') {
+  function scrollToPage(n, behavior = 'smooth', retry = 0) {
     if (!stage) return;
     const el = stage.querySelector(`.page-wrap[data-page="${n}"]`);
-    if (!el) return;
+    if (!el) {
+      if (retry < 12) {
+        requestAnimationFrame(() => scrollToPage(n, behavior, retry + 1));
+      }
+      return;
+    }
     const stageRect = stage.getBoundingClientRect();
     const elRect = el.getBoundingClientRect();
     const top = stage.scrollTop + (elRect.top - stageRect.top) - 12;
@@ -666,7 +690,7 @@
   }
 
   function persistPosition() {
-    if (!doc?.id) return;
+    if (!loadedDocId || loading || !doc?.id || loadedDocId !== doc.id) return;
     try {
       doc.lastPage = pageNum;
       doc.lastZoom = scale;
@@ -833,7 +857,7 @@
     if (spanU < 0.004 && spanV < 0.004) {
       const u = points[0][0];
       const v = points[0][1];
-      return { mode: 'horizontal', points: [[Math.max(0, u - 0.025), v], [Math.min(1, u + 0.025), v]] };
+      return { mode: 'point', points: [[u, v], [u, v]] };
     }
     if (spanU >= spanV) {
       const vMid = (minV + maxV) / 2;
@@ -1017,10 +1041,10 @@
     });
   }
 
-  async function saveAnnotatedToLibrary() {
+  async function saveAnnotatedToLibrary({ silent = false } = {}) {
     if (!doc || savingCopy) return;
     savingCopy = true;
-    barMenu = '';
+    if (!silent) barMenu = '';
     try {
       if (typeof onSaveAnnotated !== 'function') throw new Error('library handler unavailable');
       const bytes = await readPdfBytes(doc.id);
@@ -1029,10 +1053,14 @@
         sourceBytes: bytes, annotations, renderTextImage: renderTextAnnotationImage
       });
       await onSaveAnnotated(out, `${baseName()} — annotated.pdf`);
-      notify(tr('reader.savedCopy'), 'ok');
-      if (stats.skipped.length) notify(tr('toast.skippedItems', { n: stats.skipped.length, items: stats.skipped.join('; ') }), 'error');
+      if (silent) {
+        notify(tr('reader.autosavedNotice'), 'ok');
+      } else {
+        notify(tr('reader.savedCopy'), 'ok');
+        if (stats.skipped.length) notify(tr('toast.skippedItems', { n: stats.skipped.length, items: stats.skipped.join('; ') }), 'error');
+      }
     } catch (e) {
-      notify(tr('reader.saveCopyFailed', { message: e.message }), 'error');
+      if (!silent) notify(tr('reader.saveCopyFailed', { message: e.message }), 'error');
     } finally {
       savingCopy = false;
     }
@@ -1363,6 +1391,28 @@
     saveToolbarConfig({ ...toolbarConfig, order: list });
   }
 
+  let autosaveTimer = null;
+  function setupAutosave() {
+    if (autosaveTimer) {
+      clearInterval(autosaveTimer);
+      autosaveTimer = null;
+    }
+    const config = loadPdfAutosaveSettings();
+    if (!config.enabled || !config.interval) return;
+    const ms = Math.max(1, config.interval) * 60 * 1000;
+    autosaveTimer = setInterval(async () => {
+      if (loading || !doc || savingCopy) return;
+      try {
+        await saveAnnotatedToLibrary({ silent: true });
+      } catch { /* background autosave silently */ }
+    }, ms);
+  }
+
+  function toggleSidebar() {
+    sideOpen = !sideOpen;
+    if (sideOpen && !sideTab) sideTab = 'bookmarks';
+  }
+
   function presetTitle(preset) {
     const size = `${preset.size}`;
     return preset.tool === 'shape'
@@ -1494,9 +1544,7 @@
 
     <button style={addBarOrder('undo')} onclick={undo} disabled={!undoState.u} title={tr('reader.undo')} aria-label={tr('reader.undo')}><Icon name="undo" /></button>
     <button style={addBarOrder('redo')} onclick={redo} disabled={!undoState.r} title={tr('reader.redo')} aria-label={tr('reader.redo')}><Icon name="redo" /></button>
-    <button style={addBarOrder('bookmark-page')} onclick={addPageBookmark} title={tr('reader.bookmarkPage')} aria-label={tr('reader.bookmarkPage')}><Icon name="bookmark" /></button>
-    <button style={addBarOrder('save')} onclick={saveAnnotatedToLibrary} disabled={savingCopy}
-      title={savingCopy ? tr('reader.savingCopy') : tr('reader.saveCopy')} aria-label={tr('reader.saveCopy')}><Icon name="download" /></button>
+
 
     <button style={addBarOrder('search')} class={barMenu === 'search' ? 'active' : ''} onclick={toggleSearch}
       title={tr('reader.search')} aria-label={tr('reader.search')} aria-expanded={barMenu === 'search'}><Icon name="search" /></button>
@@ -1539,8 +1587,10 @@
       {#each [
         { id: 'normal', icon: 'eye', label: 'reader.modeNormal' },
         { id: 'paper', icon: 'sun', label: 'reader.modePaper' },
+        { id: 'amber', icon: 'sun', label: 'reader.modeAmber' },
         { id: 'aqua', icon: 'eye', label: 'reader.modeAqua' },
         { id: 'grey', icon: 'contrast', label: 'reader.modeGrey' },
+        { id: 'darkgray', icon: 'contrast', label: 'reader.modeDarkGray' },
         { id: 'dark', icon: 'moon', label: 'reader.modeDark' }
       ] as option}
         <button role="menuitemradio" aria-checked={readingMode === option.id} class={readingMode === option.id ? 'active' : ''} onclick={() => setReadingMode(option.id)}>

@@ -74,14 +74,21 @@ function drawStrokeSegs(ctx, strokes, width, style) {
   ctx.save();
   ctx.globalAlpha = style.opacity ?? 1;
   ctx.strokeStyle = style.color || '#F4D03F';
+  ctx.fillStyle = style.color || '#F4D03F';
   ctx.lineWidth = width;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
   for (const [a, b] of strokes) {
-    ctx.beginPath();
-    ctx.moveTo(a.x, a.y);
-    ctx.lineTo(b.x, b.y);
-    ctx.stroke();
+    if (Math.abs(b.x - a.x) < 0.2 && Math.abs(b.y - a.y) < 0.2) {
+      ctx.beginPath();
+      ctx.arc(a.x, a.y, Math.max(1, width / 2), 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+      ctx.stroke();
+    }
   }
   ctx.restore();
 }

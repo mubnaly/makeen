@@ -5,9 +5,7 @@
 export const DEFAULT_BAR_ITEMS = [
   { id: 'tabs', label: 'reader.tabs', kind: 'action' },
   { id: 'fullscreen', label: 'reader.fullscreen', kind: 'action' },
-  { id: 'side-images', label: 'side.images', kind: 'action' },
-  { id: 'side-pages', label: 'side.pages', kind: 'action' },
-  { id: 'side-bookmarks', label: 'side.bookmarks', kind: 'action' },
+  { id: 'sidebar', label: 'side.title', kind: 'action' },
   { id: 'direction', label: 'reader.readingDirection', kind: 'menu' },
   { id: 'layout', label: 'reader.layout', kind: 'menu' },
   { id: 'mode', label: 'reader.readingMode', kind: 'menu' },
@@ -35,8 +33,6 @@ export const DEFAULT_BAR_ITEMS = [
   { id: 'shapes', label: 'tool.shape', kind: 'group' },
   { id: 'undo', label: 'reader.undo', kind: 'action' },
   { id: 'redo', label: 'reader.redo', kind: 'action' },
-  { id: 'bookmark-page', label: 'reader.bookmarkPage', kind: 'action' },
-  { id: 'save', label: 'reader.saveCopy', kind: 'action' },
   { id: 'search', label: 'reader.search', kind: 'action' },
   { id: 'display', label: 'reader.display', kind: 'menu' },
   { id: 'export', label: 'common.export', kind: 'menu' },
@@ -44,6 +40,7 @@ export const DEFAULT_BAR_ITEMS = [
   { id: 'status', label: 'reader.saved', kind: 'status' }
 ];
 
+export const LEGACY_BAR_ITEM_IDS = ['side-images', 'side-pages', 'side-bookmarks', 'bookmark-page', 'save'];
 export const BAR_ITEM_IDS = DEFAULT_BAR_ITEMS.map((item) => item.id);
 const DEFAULT_ORDER = [...BAR_ITEM_IDS];
 
@@ -54,7 +51,7 @@ export function defaultBarOrder() {
 // Keep every built-in item exactly once and append custom items that are still
 // present. Unknown ids from an older build are dropped without losing the rest.
 export function normalizeBarOrder(saved, customIds = []) {
-  const valid = new Set([...BAR_ITEM_IDS, ...customIds]);
+  const valid = new Set([...BAR_ITEM_IDS, ...LEGACY_BAR_ITEM_IDS, ...customIds]);
   const out = [];
   const seen = new Set();
   if (Array.isArray(saved)) {
