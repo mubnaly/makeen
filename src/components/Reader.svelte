@@ -1275,7 +1275,38 @@
     if (imagePreview && event.key === 'Escape') { event.preventDefault(); imagePreview = null; return; }
     if (toolbarSettingsOpen && event.key === 'Escape') { event.preventDefault(); closeToolbarSettings(); return; }
     if (barMenu && event.key === 'Escape') { event.preventDefault(); barMenu = ''; return; }
-    if (event.ctrlKey || event.metaKey || event.altKey) return;
+
+    const isCtrlOrCmd = event.ctrlKey || event.metaKey;
+
+    if (isCtrlOrCmd) {
+      const key = event.key.toLowerCase();
+      // Ctrl+S / Cmd+S: Save PDF
+      if (key === 's') {
+        event.preventDefault();
+        saveAnnotatedToLibrary();
+        return;
+      }
+      // Ctrl+Z / Cmd+Z: Undo (or Redo if Shift is held)
+      if (key === 'z') {
+        if (!isTypingTarget(event.target)) {
+          event.preventDefault();
+          if (event.shiftKey) redo();
+          else undo();
+          return;
+        }
+      }
+      // Ctrl+Y / Cmd+Y: Redo
+      if (key === 'y') {
+        if (!isTypingTarget(event.target)) {
+          event.preventDefault();
+          redo();
+          return;
+        }
+      }
+      return;
+    }
+
+    if (event.altKey) return;
     if (imagePreview) return;
     if (isTypingTarget(event.target)) return;
     if (document.querySelector('[role="dialog"]')) return;

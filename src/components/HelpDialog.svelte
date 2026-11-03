@@ -15,6 +15,9 @@
     { key: 'review', icon: 'flashcards', title: 'help.reviewTitle', text: 'help.reviewText' }
   ];
   const SHORTCUTS = [
+    { keys: ['Ctrl', 'S'], label: 'help.shortcutSave' },
+    { keys: ['Ctrl', 'Z'], label: 'help.shortcutUndo' },
+    { keys: ['Ctrl', 'Y'], label: 'help.shortcutRedo' },
     { keys: ['Ctrl', 'O'], label: 'help.shortcutImport' },
     { keys: ['/'], label: 'help.shortcutSearch' },
     { keys: ['?'], label: 'help.shortcutHelp' },
