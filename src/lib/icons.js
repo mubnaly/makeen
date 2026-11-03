@@ -1,0 +1,119 @@
+// Icon geometry for the whole app (plan §6.1 chrome). Every icon is a 24×24
+// outline drawn with `currentColor` and no fills, so icons inherit the text
+// colour, stay readable in light/dark, and never look like coloured emoji.
+//
+// Kept as plain data (no Svelte) so it can be unit-tested and shared: each entry
+// is a list of primitives — ['path', d], ['line', x1, y1, x2, y2],
+// ['circle', cx, cy, r], ['rect', x, y, w, h, rx], ['polyline'|'polygon', pts].
+
+export const ICONS = {
+  // --- navigation rail -------------------------------------------------------
+  today: [['path', 'M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'], ['path', 'M9 22V12h6v10']],
+  library: [['path', 'M4 19.5A2.5 2.5 0 0 1 6.5 17H20'], ['path', 'M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z']],
+  burger: [['line', 3, 12, 21, 12], ['line', 3, 6, 21, 6], ['line', 3, 18, 21, 18]],
+  menu: [['line', 3, 12, 21, 12], ['line', 3, 6, 21, 6], ['line', 3, 18, 21, 18]],
+  activity: [['polyline', '22 12 18 12 15 21 9 3 6 12 2 12']],
+  eyeOff: [['path', 'M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24'], ['line', 1, 1, 23, 23]],
+  projects: [['path', 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'], ['line', 3, 11, 21, 11]],
+  project: [['path', 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'], ['line', 3, 11, 21, 11]],
+  reader: [['path', 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z'], ['path', 'M14 2v6h6'], ['line', 16, 13, 8, 13], ['line', 16, 17, 8, 17], ['line', 10, 9, 8, 9]],
+  planner: [['rect', 3, 4, 18, 18, 2], ['line', 16, 2, 16, 6], ['line', 8, 2, 8, 6], ['line', 3, 10, 21, 10]],
+  gallery: [['rect', 3, 3, 18, 18, 2], ['circle', 8.5, 8.5, 1.5], ['path', 'M21 15l-5-5L5 21']],
+  flashcards: [['path', 'M12 2 2 7l10 5 10-5z'], ['path', 'm2 17 10 5 10-5'], ['path', 'm2 12 10 5 10-5']],
+  video: [['rect', 2, 2, 20, 20, 2], ['line', 7, 2, 7, 22], ['line', 17, 2, 17, 22], ['line', 2, 12, 22, 12], ['line', 2, 7, 7, 7], ['line', 2, 17, 7, 17], ['line', 17, 17, 22, 17], ['line', 17, 7, 22, 7]],
+  settings: [
+    ['circle', 12, 12, 3],
+    ['path', 'M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z']
+  ],
+
+  // --- chrome ----------------------------------------------------------------
+  'chevrons-left': [['polyline', '11 17 6 12 11 7'], ['polyline', '18 17 13 12 18 7']],
+  'chevrons-right': [['polyline', '13 17 18 12 13 7'], ['polyline', '6 17 11 12 6 7']],
+  'chevron-left': [['polyline', '15 18 9 12 15 6']],
+  'chevron-right': [['polyline', '9 18 15 12 9 6']],
+  'chevron-down': [['polyline', '6 9 12 15 18 9']],
+  'chevron-up': [['polyline', '18 15 12 9 6 15']],
+  search: [['circle', 11, 11, 8], ['line', 21, 21, 16.65, 16.65]],
+  // Help / shortcuts: a question mark inside a ring.
+  help: [['circle', 12, 12, 10], ['path', 'M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3'], ['line', 12, 17, 12.01, 17]],
+  globe: [['circle', 12, 12, 10], ['line', 2, 12, 22, 12], ['path', 'M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z']],
+  tabs: [['rect', 3, 5, 18, 16, 2], ['line', 3, 10, 21, 10], ['line', 9, 10, 9, 21]],
+  'arrow-left': [['line', 19, 12, 5, 12], ['polyline', '12 19 5 12 12 5']],
+  'arrow-left-right': [['line', 4, 8, 20, 8], ['polyline', '7 5 4 8 7 11'], ['line', 20, 16, 4, 16], ['polyline', '17 13 20 16 17 19']],
+  columns: [['rect', 3, 4, 7.5, 16, 1], ['rect', 13.5, 4, 7.5, 16, 1]],
+  scroll: [['path', 'M7 3h10a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z'], ['line', 9, 8, 15, 8], ['line', 9, 12, 15, 12], ['line', 9, 16, 13, 16]],
+  'single-page': [['rect', 4, 3, 16, 18, 2], ['line', 8, 8, 16, 8], ['line', 8, 12, 16, 12], ['line', 8, 16, 13, 16]],
+  eye: [['path', 'M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z'], ['circle', 12, 12, 3]],
+  sun: [['circle', 12, 12, 4], ['line', 12, 2, 12, 4], ['line', 12, 20, 12, 22], ['line', 4.93, 4.93, 6.34, 6.34], ['line', 17.66, 17.66, 19.07, 19.07], ['line', 2, 12, 4, 12], ['line', 20, 12, 22, 12], ['line', 4.93, 19.07, 6.34, 17.66], ['line', 17.66, 6.34, 19.07, 4.93]],
+  moon: [['path', 'M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z']],
+  contrast: [['circle', 12, 12, 10], ['path', 'M12 2v20A10 10 0 0 0 12 2z'], ['rect', 6, 5, 3, 3, 0.5], ['rect', 15, 17, 3, 3, 0.5]],
+  grip: [['circle', 8, 6, 1], ['circle', 8, 12, 1], ['circle', 8, 18, 1], ['circle', 16, 6, 1], ['circle', 16, 12, 1], ['circle', 16, 18, 1]],
+  upload: [['path', 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4'], ['polyline', '17 8 12 3 7 8'], ['line', 12, 3, 12, 15]],
+  download: [['path', 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4'], ['polyline', '7 10 12 15 17 10'], ['line', 12, 15, 12, 3]],
+  headphones: [['path', 'M3 18v-6a9 9 0 0 1 18 0v6'], ['path', 'M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z']],
+  plus: [['line', 12, 5, 12, 19], ['line', 5, 12, 19, 12]],
+  minus: [['line', 5, 12, 19, 12]],
+  x: [['line', 18, 6, 6, 18], ['line', 6, 6, 18, 18]],
+  check: [['polyline', '20 6 9 17 4 12']],
+  trash: [['polyline', '3 6 5 6 21 6'], ['path', 'M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2']],
+  grid: [['rect', 3, 3, 7, 7, 1], ['rect', 14, 3, 7, 7, 1], ['rect', 3, 14, 7, 7, 1], ['rect', 14, 14, 7, 7, 1]],
+  alert: [['path', 'M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z'], ['line', 12, 9, 12, 13], ['line', 12, 17, 12.01, 17]],
+  clock: [['circle', 12, 12, 10], ['polyline', '12 6 12 12 16 14']],
+  repeat: [['polyline', '17 1 21 5 17 9'], ['path', 'M3 11V9a4 4 0 0 1 4-4h14'], ['polyline', '7 23 3 19 7 15'], ['path', 'M21 13v2a4 4 0 0 1-4 4H3']],
+  'check-square': [['polyline', '9 11 12 14 22 4'], ['path', 'M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11']],
+  bookmark: [['path', 'M19 21 12 16.5 5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z']],
+  // Rename (a pencil) and merge (two branches joining one set).
+  pencil: [['path', 'M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z']],
+  merge: [['circle', 6, 6, 3], ['circle', 18, 18, 3], ['path', 'M6 21V9a9 9 0 0 0 9 9']],
+
+  // --- reader toolbar --------------------------------------------------------
+  'rotate-left': [['polyline', '1 4 1 10 7 10'], ['path', 'M3.51 15a9 9 0 1 0 2.13-9.36L1 10']],
+  'rotate-right': [['polyline', '23 4 23 10 17 10'], ['path', 'M20.49 15a9 9 0 1 1-2.12-9.36L23 10']],
+  fit: [['path', 'M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3']],
+  undo: [['polyline', '9 14 4 9 9 4'], ['path', 'M20 20v-7a4 4 0 0 0-4-4H4']],
+  redo: [['polyline', '15 14 20 9 15 4'], ['path', 'M4 20v-7a4 4 0 0 1 4-4h12']],
+  thumbnails: [['rect', 3, 3, 18, 18, 2], ['line', 9, 3, 9, 21]],
+  select: [['path', 'M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z'], ['path', 'M13 13l6 6']],
+  hand: [
+    ['path', 'M18 11V6a2 2 0 0 0-2-2 2 2 0 0 0-2 2M14 10V4a2 2 0 0 0-2-2 2 2 0 0 0-2 2v2M10 10.5V6a2 2 0 0 0-2-2 2 2 0 0 0-2 2v8'],
+    ['path', 'M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15']
+  ],
+  text: [['polyline', '4 7 4 4 20 4 20 7'], ['line', 9, 20, 15, 20], ['line', 12, 4, 12, 20]],
+  marker: [['path', 'M17.5 2.5 21.5 6.5 10 18H6v-4z'], ['path', 'M14.5 5.5 18.5 9.5']],
+  shape: [['rect', 3, 3, 18, 18, 2]],
+  pen: [['path', 'M12 19l7-7 3 3-7 7-3-3z'], ['path', 'M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z'], ['path', 'M2 2l7.6 7.6'], ['circle', 11, 11, 2]],
+  eraser: [['path', 'M18 20H8L3.6 15.6a2 2 0 0 1 0-2.8l7.6-7.6a2 2 0 0 1 2.8 0l6.4 6.4a2 2 0 0 1 0 2.8L12 20']],
+  scissors: [['circle', 6, 6, 3], ['circle', 6, 18, 3], ['line', 20, 4, 8.12, 15.88], ['line', 14.47, 14.48, 20, 20], ['line', 8.12, 8.12, 12, 12]],
+  camera: [['path', 'M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z'], ['circle', 12, 13, 4]],
+
+  // Pointer (laser target), fullscreen in/out, and the list view counterpart of
+  // the grid icon — all outline-only like every other icon here.
+  pointer: [['circle', 12, 12, 7], ['circle', 12, 12, 1.6], ['line', 12, 1.5, 12, 4.5], ['line', 12, 19.5, 12, 22.5], ['line', 1.5, 12, 4.5, 12], ['line', 19.5, 12, 22.5, 12]],
+  maximize: [['polyline', '15 3 21 3 21 9'], ['polyline', '9 21 3 21 3 15'], ['line', 21, 3, 14, 10], ['line', 3, 21, 10, 14]],
+  minimize: [['polyline', '4 14 10 14 10 20'], ['polyline', '20 10 14 10 14 4'], ['line', 14, 10, 21, 3], ['line', 10, 14, 3, 21]],
+  list: [['line', 8, 6, 21, 6], ['line', 8, 12, 21, 12], ['line', 8, 18, 21, 18], ['circle', 3.5, 6, 1], ['circle', 3.5, 12, 1], ['circle', 3.5, 18, 1]],
+  indent: [['line', 21, 6, 11, 6], ['line', 21, 12, 11, 12], ['line', 21, 18, 11, 18], ['polyline', '3 8 7 12 3 16']],
+  outdent: [['line', 21, 6, 11, 6], ['line', 21, 12, 11, 12], ['line', 21, 18, 11, 18], ['polyline', '7 8 3 12 7 16']],
+  'file-text': [['path', 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z'], ['polyline', '14 2 14 8 20 8'], ['line', 16, 13, 8, 13], ['line', 16, 17, 8, 17], ['line', 10, 9, 8, 9]],
+  dualStudio: [['rect', 2, 3, 20, 18, 2], ['line', 12, 3, 12, 21], ['polygon', '5 8 9 10.5 5 13 5 8'], ['line', 15, 8, 19, 8], ['line', 15, 12, 19, 12]],
+  user: [['path', 'M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2'], ['circle', 12, 7, 4]],
+  google: [['circle', 12, 12, 9], ['path', 'M12 12h5a5 5 0 0 1-5 5 5 5 0 0 1 0-10c2.5 0 4 1.5 4 1.5']],
+  'log-out': [['path', 'M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4'], ['polyline', '16 17 21 12 16 7'], ['line', 21, 12, 9, 12]],
+  'log-in': [['path', 'M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4'], ['polyline', '10 17 15 12 10 7'], ['line', 15, 12, 3, 12]],
+
+  // --- media -----------------------------------------------------------------
+  play: [['polygon', '5 3 19 12 5 21 5 3']],
+  pause: [['rect', 6, 4, 4, 16, 1], ['rect', 14, 4, 4, 16, 1]],
+  rewind: [['polygon', '11 19 2 12 11 5 11 19'], ['polygon', '22 19 13 12 22 5 22 19']],
+  forward: [['polygon', '13 19 22 12 13 5 13 19'], ['polygon', '2 19 11 12 2 5 2 19']],
+  volume: [['path', 'M11 5 6 9H2v6h4l5 4z'], ['path', 'M15.54 8.46a5 5 0 0 1 0 7.07']],
+  mute: [['path', 'M11 5 6 9H2v6h4l5 4z'], ['line', 16, 9, 22, 15], ['line', 22, 9, 16, 15]]
+};
+
+export const ICON_NAMES = Object.keys(ICONS);
+
+// Icons whose geometry is a filled primitive (a triangle for Play) still render
+// with the outline style; only 'polygon' gets a fill so play/rewind read well.
+export function iconFill(prim) {
+  return prim[0] === 'polygon';
+}

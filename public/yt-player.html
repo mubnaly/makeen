@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>StudyOS player</title>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; background: #000; overflow: hidden; }
+      #player, #player iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+    </style>
+  </head>
+  <body>
+    <div id="player"></div>
+    <script>
+      // This page is served from http://127.0.0.1:<port> by the desktop shell (or
+      // by Vite in the browser preview). YouTube refuses to initialise its
+      // player inside a file:// document, which is why the app embeds this page
+      // instead of creating the player itself.
+      //
+      // The parent app talks to it with postMessage:
+      //   parent -> frame: { source: 'studyos-yt-parent', command, args }
+      //   frame -> parent: { source: 'studyos-yt', type, ...snapshot }
+      (function () {
+        'use strict';
+
+        var params = new URLSearchParams(location.search);
+        var session = (params.get('session') || '').trim();
+        var videoId = (params.get('videoId') || '').trim();
+        var list = (params.get('list') || '').trim();
+        var isList = params.get('type') === 'playlist' || (!videoId && !!list);
+        var startAt = Math.max(0, Number(params.get('start')) || 0);
+        var startMuted = params.get('muted') === '1';
+        var startRate = Math.min(2, Math.max(0.25, Number(params.get('rate')) || 1));
+        var showControls = params.get('controls') === '1';
+
+        var player = null;
+        var tick = null;
+        var apiTimer = null;
+        var initialApplied = false;
+
+        function post(type, extra) {
+          if (window.parent === window) return;
+          var message = { source: 'studyos-yt', type: type, session: session };
+          var snap = snapshot();
+          for (var key in snap) message[key] = snap[key];
+          if (extra) for (var k in extra) message[k] = extra[k];
+          try {
+            window.parent.postMessage(message, '*');
+          } catch (error) {
+            // The app window may be closing.
+          }
+        }
+
+        function snapshot() {
+          if (!player || typeof player.getCurrentTime !== 'function') {
+            return {
+              current: 0, duration: 0, state: -1, videoId: '', title: '', author: '',
+              qualities: [], quality: '', muted: startMuted, rate: startRate
+            };
+          }
+          var data = {};
+          try { data = player.getVideoData() || {}; } catch (error) { data = {}; }
+          var duration = 0;
+          var current = 0;
+          var state = -1;
+          var qualities = [];
+          var quality = '';
+          var muted = false;
+          var rate = 1;
+          var playlist = [];
+          try { current = Number(player.getCurrentTime()) || 0; } catch (error) {}
+          try { duration = Number(player.getDuration()) || 0; } catch (error) {}
+          try { state = Number(player.getPlayerState()); } catch (error) {}
+          try { qualities = player.getAvailableQualityLevels() || []; } catch (error) {}
+          if (!qualities || !qualities.length) {
+            qualities = ['highres', 'hd1080', 'hd720', 'large', 'medium', 'small', 'tiny'];
+          }
+          try { quality = String(player.getPlaybackQuality() || ''); } catch (error) {}
+          try { muted = !!player.isMuted(); } catch (error) {}
+          try { rate = Number(player.getPlaybackRate()) || 1; } catch (error) {}
+          try {
+            if (typeof player.getPlaylist === 'function') playlist = player.getPlaylist() || [];
+          } catch (error) {}
+          return {
+            current: current,
+            duration: duration,
+            state: Number.isFinite(state) ? state : -1,
+            videoId: String(data.video_id || ''),
+            title: String(data.title || ''),
+            author: String(data.author || ''),
+            qualities: qualities,
+            quality: quality,
+            muted: muted,
+            rate: rate,
+            playlist: playlist
+          };
+        }
+
+        function startTicking() {
+          if (tick) return;
+          tick = setInterval(function () {
+            if (!player) return;
+            post('tick');
+          }, 300);
+        }
+
+        function applyInitial() {
+          if (!player || initialApplied) return;
+          initialApplied = true;
+          try {
+            var d = Number(player.getDuration()) || 0;
+            if (startAt > 0) player.seekTo(d > 0 ? Math.min(startAt, d - 0.1) : startAt, true);
+            if (startMuted) player.mute();
+            if (startRate !== 1) player.setPlaybackRate(startRate);
+            player.setVolume(100);
+          } catch (error) {
+            // A playlist item may still be loading; the parent can retry.
+          }
+        }
+
+        function postState() {
+          post('state');
+        }
+
+        window.onYouTubeIframeAPIReady = function () {
+          if (apiTimer) { clearTimeout(apiTimer); apiTimer = null; }
+          if (!videoId && !list) {
+            post('error', { code: 'noVideo' });
+            return;
+          }
+          var config = {
+            width: '100%',
+            height: '100%',
+            playerVars: {
+              origin: location.origin,
+              enablejsapi: 1,
+              rel: 0,
+              modestbranding: 1,
+              controls: showControls ? 1 : 0,
+              disablekb: showControls ? 0 : 1,
+              fs: 0,
+              iv_load_policy: 3,
+              playsinline: 1,
+              cc_load_policy: 1,
+              cc_lang_pref: 'ar'
+            },
+            events: {
+              onReady: function () {
+                applyInitial();
+                post('ready');
+                startTicking();
+              },
+              onStateChange: function () {
+                postState();
+              },
+              onError: function (event) {
+                var code = event && event.data != null ? String(event.data) : 'unknown';
+                post('error', { code: code });
+              }
+            }
+          };
+          if (isList) {
+            config.playerVars.listType = 'playlist';
+            config.playerVars.list = list;
+          } else {
+            config.videoId = videoId;
+          }
+          try {
+            player = new YT.Player('player', config);
+          } catch (error) {
+            post('error', { code: 'player', message: String((error && error.message) || error) });
+          }
+        };
+
+        window.addEventListener('message', function (event) {
+          if (event.source !== window.parent) return;
+          var data = event.data;
+          if (!data || data.source !== 'studyos-yt-parent' || !player) return;
+          try {
+            switch (data.command) {
+              case 'loadVideo': {
+                var targetVid = typeof data.args === 'object' ? data.args.videoId : data.args;
+                var startSec = typeof data.args === 'object' ? Number(data.args.start || 0) : 0;
+                if (targetVid && typeof player.loadVideoById === 'function') {
+                  player.loadVideoById({ videoId: String(targetVid).trim(), startSeconds: startSec });
+                  post('state');
+                }
+                break;
+              }
+              case 'play':
+                player.playVideo();
+                // A playVideo() that arrives the instant the player becomes
+                // ready can be swallowed while YouTube finishes starting up.
+                setTimeout(function () {
+                  try {
+                    if (player && Number(player.getPlayerState()) !== 1) player.playVideo();
+                  } catch (error) {
+                    // The player was replaced.
+                  }
+                }, 450);
+                break;
+              case 'pause':
+                player.pauseVideo();
+                break;
+              case 'seek':
+                player.seekTo(Math.max(0, Number(data.args) || 0), true);
+                break;
+              case 'mute':
+                player.mute();
+                break;
+              case 'unmute':
+                player.unMute();
+                break;
+              case 'rate':
+                player.setPlaybackRate(Math.min(2, Math.max(0.25, Number(data.args) || 1)));
+                break;
+              case 'quality': {
+                var q = String(data.args || 'default');
+                try {
+                  if (typeof player.setPlaybackQualityRange === 'function') {
+                    player.setPlaybackQualityRange(q, q);
+                  }
+                  if (typeof player.setPlaybackQuality === 'function') {
+                    player.setPlaybackQuality(q);
+                  }
+                  if (q && q !== 'default' && q !== 'auto') {
+                    var curTime = 0;
+                    var curState = 1;
+                    try { curTime = Number(player.getCurrentTime()) || 0; } catch (e) {}
+                    try { curState = Number(player.getPlayerState()); } catch (e) {}
+                    var dataObj = {};
+                    try { dataObj = player.getVideoData() || {}; } catch (e) {}
+                    var targetId = dataObj.video_id || videoId;
+                    if (targetId && typeof player.loadVideoById === 'function') {
+                      player.loadVideoById({
+                        videoId: targetId,
+                        startSeconds: curTime,
+                        suggestedQuality: q
+                      });
+                      if (curState === 2 && typeof player.pauseVideo === 'function') {
+                        setTimeout(function () {
+                          try { player.pauseVideo(); } catch (e) {}
+                        }, 250);
+                      }
+                    }
+                  }
+                } catch (error) {}
+                break;
+              }
+              case 'time':
+                post('time');
+                return;
+              default:
+                return;
+            }
+          } catch (error) {
+            post('error', { code: 'command', message: String((error && error.message) || error) });
+            return;
+          }
+          // Give the player a beat to reflect the command, then report state.
+          setTimeout(function () { if (player) postState(); }, 80);
+        });
+
+        // If the API script never arrives, tell the app instead of leaving it
+        // on an endless loading overlay.
+        apiTimer = setTimeout(function () {
+          if (!window.YT) post('error', { code: 'api' });
+        }, 45000);
+
+        var script = document.createElement('script');
+        script.src = 'https://www.youtube.com/iframe_api';
+        script.async = true;
+        script.onerror = function () { post('error', { code: 'api' }); };
+        document.head.appendChild(script);
+      })();
+    </script>
+  </body>
+</html>

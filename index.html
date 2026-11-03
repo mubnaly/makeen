@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Inline brand mark: no extra request, so the console stays clean and the
+         tab keeps its identity in the browser and the desktop shell. -->
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232F6FED'/%3E%3Cpath d='M9 8.5h9.5A4.5 4.5 0 0 1 23 13v10.5h-9.5A4.5 4.5 0 0 1 9 19z' fill='none' stroke='%23fff' stroke-width='2.2' stroke-linejoin='round'/%3E%3Cpath d='M13 13h6M13 17h6' stroke='%23fff' stroke-width='2.2' stroke-linecap='round'/%3E%3C/svg%3E" />
+    <title>StudyOS</title>
+    <!-- Arabic & Latin Web Fonts for Study Annotations -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Almarai:wght@400;700&family=Amiri:ital,wght@0,400;0,700;1,400&family=Cairo:wght@400;600;700;800&family=Changa:wght@500;700&family=Scheherazade+New:wght@400;700&family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet" />
+    <!-- The saved language is applied before the app mounts so there is no flash
+         of the wrong direction. The dictionary itself lives in src/lib/i18n.js. -->
+    <script>
+      (function () {
+        try {
+          var code = localStorage.getItem('studyos.lang') === 'en' ? 'en' : 'ar';
+          document.documentElement.lang = code;
+          document.documentElement.dir = code === 'ar' ? 'rtl' : 'ltr';
+          // Theme before first paint so switching palettes never flashes white.
+          var themes = ['light', 'sand', 'mint', 'sky', 'rose', 'dark', 'midnight', 'forest', 'plum', 'graphite'];
+          var dark = ['dark', 'midnight', 'forest', 'plum', 'graphite'];
+          var theme = localStorage.getItem('studyos.theme') || 'light';
+          if (themes.indexOf(theme) === -1) theme = 'light';
+          var mode = dark.indexOf(theme) >= 0 ? 'dark' : 'light';
+          document.documentElement.dataset.theme = theme;
+          document.documentElement.dataset.themeMode = mode;
+          document.documentElement.style.colorScheme = mode;
+        } catch (e) { /* private mode: the defaults already apply */ }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

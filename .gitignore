@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build and distribution
+dist/
+dist-ssr/
+release/
+*.local
+
+# Downloaded study media
+downloads/
+
+# Electron & Test artifacts
+.probe-*
+.e2e-*
+.freebuff/
+*.log
+*.vtt
+
+# Editor & OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+.restore-window.ps1
+xlsxcheck.xlsx

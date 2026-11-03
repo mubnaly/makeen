@@ -1,0 +1,62 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [4 0 R 5 0 R 6 0 R] /Count 3 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+4 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 7 0 R /Resources << /Font << /F1 3 0 R >> >> >>
+endobj
+5 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 8 0 R /Resources << /Font << /F1 3 0 R >> >> >>
+endobj
+6 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 9 0 R /Resources << /Font << /F1 3 0 R >> >> >>
+endobj
+7 0 obj
+<< /Length 249 >>
+stream
+BT /F1 24 Tf 60 780 Td (StudyOS fixture page 1) Tj ET
+BT /F1 14 Tf 60 740 Td (Cell division overview) Tj ET
+BT /F1 14 Tf 60 700 Td (Mitosis and meiosis stages follow.) Tj ET
+0.9 0.2 0.2 rg 100 101 200 49 re f
+BT /F1 12 Tf 104 118 Td (LANDMARK) Tj ET
+endstream
+endobj
+8 0 obj
+<< /Length 173 >>
+stream
+BT /F1 24 Tf 60 780 Td (StudyOS fixture page 2) Tj ET
+BT /F1 14 Tf 60 740 Td (Cell division overview) Tj ET
+BT /F1 14 Tf 60 700 Td (Mitosis and meiosis stages follow.) Tj ET
+endstream
+endobj
+9 0 obj
+<< /Length 173 >>
+stream
+BT /F1 24 Tf 60 780 Td (StudyOS fixture page 3) Tj ET
+BT /F1 14 Tf 60 740 Td (Cell division overview) Tj ET
+BT /F1 14 Tf 60 700 Td (Mitosis and meiosis stages follow.) Tj ET
+endstream
+endobj
+xref
+0 10
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000127 00000 n 
+0000000197 00000 n 
+0000000323 00000 n 
+0000000449 00000 n 
+0000000575 00000 n 
+0000000875 00000 n 
+0000001099 00000 n 
+trailer
+<< /Size 10 /Root 1 0 R >>
+startxref
+1323
+%%EOF
