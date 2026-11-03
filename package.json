@@ -33,6 +33,14 @@
     "productName": "StudyOS",
     "compression": "maximum",
     "electronLanguages": ["en", "ar"],
+    "fileAssociations": [
+      {
+        "ext": "pdf",
+        "name": "PDF Document",
+        "description": "PDF Document",
+        "role": "Viewer"
+      }
+    ],
     "directories": {
       "output": "release"
     },

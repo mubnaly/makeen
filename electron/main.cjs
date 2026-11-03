@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Notification } = require('electron');
+const { app, BrowserWindow, ipcMain, Notification, dialog } = require('electron');
 const fs = require('fs/promises');
 const path = require('path');
 const { safeFileName } = require('./fsnames.cjs');
@@ -7,6 +7,64 @@ const { fetchTranscriptFromPage } = require('./transcript-window.cjs');
 const ytHelper = require('./yt-helper.cjs');
 const { startPlayerServer, stopPlayerServer, getPlayerOrigin } = require('./player-server.cjs');
 const { spawn } = require('child_process');
+
+function findPdfArg(argv) {
+  if (!Array.isArray(argv)) return null;
+  for (const arg of argv) {
+    if (typeof arg === 'string' && /\.pdf$/i.test(arg.trim())) {
+      return arg.trim().replace(/^"|"$/g, '');
+    }
+  }
+  return null;
+}
+
+async function loadPdfPayload(filePath) {
+  try {
+    const stat = await fs.stat(filePath);
+    if (!stat.isFile()) return { ok: false, error: 'Not a file' };
+    const buffer = await fs.readFile(filePath);
+    return {
+      ok: true,
+      name: path.basename(filePath),
+      path: filePath,
+      bytes: new Uint8Array(buffer)
+    };
+  } catch (err) {
+    return { ok: false, error: String(err?.message || err) };
+  }
+}
+
+let mainWindow = null;
+let pendingInitialPdfPath = findPdfArg(process.argv);
+
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  app.quit();
+} else {
+  app.on('second-instance', async (_event, commandLine) => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+      const pdfPath = findPdfArg(commandLine);
+      if (pdfPath) {
+        const payload = await loadPdfPayload(pdfPath);
+        if (payload.ok) mainWindow.webContents.send('open-pdf-file', payload);
+      }
+    }
+  });
+}
+
+app.on('open-file', async (event, filePath) => {
+  event.preventDefault();
+  if (/\.pdf$/i.test(filePath)) {
+    if (mainWindow && mainWindow.webContents) {
+      const payload = await loadPdfPayload(filePath);
+      if (payload.ok) mainWindow.webContents.send('open-pdf-file', payload);
+    } else {
+      pendingInitialPdfPath = filePath;
+    }
+  }
+});
 
 // A study window is often behind another app while a lecture keeps playing, and
 // YouTube frame capture reads the compositor. Without these switches Chromium
@@ -70,9 +128,37 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.cjs')
     }
   });
+  mainWindow = win;
   // base './' in the Vite build makes this work over file://.
   win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
 }
+
+ipcMain.handle('get-initial-pdf', async () => {
+  if (pendingInitialPdfPath) {
+    const p = pendingInitialPdfPath;
+    pendingInitialPdfPath = null;
+    return await loadPdfPayload(p);
+  }
+  return null;
+});
+
+ipcMain.handle('read-pdf-file', async (_e, filePath) => {
+  return await loadPdfPayload(filePath);
+});
+
+ipcMain.handle('pick-local-pdf', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Open PDF Document',
+    filters: [
+      { name: 'PDF Documents (*.pdf)', extensions: ['pdf'] }
+    ],
+    properties: ['openFile']
+  });
+  if (result.canceled || !result.filePaths || !result.filePaths.length) {
+    return { canceled: true };
+  }
+  return await loadPdfPayload(result.filePaths[0]);
+});
 
 app.whenReady().then(async () => {
   // Production loads over file://, which YouTube rejects as a player origin.

@@ -195,7 +195,28 @@
     try { captures = await listCaptures(); } catch (e) { notify(t('toast.loadCapturesFailed'), 'error'); }
     try { cards = await listCards(); } catch (e) { notify(t('toast.loadCardsFailed'), 'error'); }
     startDueReminderLoop();
-    return () => stopDueReminderLoop();
+
+    // Desktop integration: Open PDF from command-line argument, file association, or double-click
+    if (typeof window !== 'undefined' && window.studyos?.getInitialPdf) {
+      window.studyos.getInitialPdf().then((initial) => {
+        if (initial && initial.ok && initial.bytes) {
+          importPdfBytes(initial.name, initial.bytes, { open: true });
+        }
+      });
+    }
+    let unsubscribeOpenPdf = null;
+    if (typeof window !== 'undefined' && window.studyos?.onOpenPdf) {
+      unsubscribeOpenPdf = window.studyos.onOpenPdf((payload) => {
+        if (payload && payload.ok && payload.bytes) {
+          importPdfBytes(payload.name, payload.bytes, { open: true });
+        }
+      });
+    }
+
+    return () => {
+      stopDueReminderLoop();
+      unsubscribeOpenPdf?.();
+    };
   });
 
   // The home page reads tasks freshly every time it is shown (the Planner edits
@@ -402,8 +423,48 @@
 
   const isPdfFile = (file) => file?.type === 'application/pdf' || /\.pdf$/i.test(file?.name || '');
 
-  function pickPdf() { pdfInput?.click(); }
+  async function pickPdf() {
+    if (typeof window !== 'undefined' && window.studyos?.pickLocalPdf) {
+      try {
+        const res = await window.studyos.pickLocalPdf();
+        if (res && res.ok && res.bytes) {
+          await importPdfBytes(res.name, res.bytes, { open: true });
+          return;
+        }
+        if (res?.canceled) return;
+      } catch (err) {
+        console.warn('Native PDF picker fallback:', err);
+      }
+    }
+    pdfInput?.click();
+  }
+
   function pickVideo() { videoInput?.click(); }
+
+  async function importPdfBytes(filename, bytes, { open = true, quiet = false } = {}) {
+    try {
+      const u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+      const data = new TextEncoder().encode(`${filename}|${u8.byteLength}`);
+      const buf = await crypto.subtle.digest('SHA-1', data);
+      const id = [...new Uint8Array(buf)].slice(0, 16).map((b) => b.toString(16).padStart(2, '0')).join('');
+      await savePdfBytes(id, u8.buffer);
+      const doc = library.upsertDocument({
+        id,
+        kind: 'pdf',
+        title: filename,
+        filename,
+        size: u8.byteLength,
+        missing: false
+      });
+      docs = library.listDocuments();
+      if (!quiet) notify(t('toast.imported', { name: filename }), 'ok');
+      if (open) openDoc(doc);
+      return doc;
+    } catch (e) {
+      notify(t('toast.importFailed', { message: e?.message || String(e) }), 'error');
+      return null;
+    }
+  }
 
   async function importPdfFile(file, { open = true, quiet = false } = {}) {
     if (!isPdfFile(file)) { notify(t('toast.importFailed', { message: file?.name || '' }), 'error'); return null; }

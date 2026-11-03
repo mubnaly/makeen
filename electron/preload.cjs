@@ -21,5 +21,15 @@ contextBridge.exposeInMainWorld('studyos', {
   youtubeCaptureFrame: (payload) => ipcRenderer.invoke('youtube-capture-frame', payload),
   downloadVideo: (payload) => ipcRenderer.invoke('video-download', payload),
   exportTranscriptPdf: (payload) => ipcRenderer.invoke('export-transcript-pdf', payload),
-  captureRegion: (rect, quality) => ipcRenderer.invoke('capture-region', { rect, quality })
+  captureRegion: (rect, quality) => ipcRenderer.invoke('capture-region', { rect, quality }),
+
+  // PDF opening on Desktop: startup args, "Open With", and native file dialog
+  getInitialPdf: () => ipcRenderer.invoke('get-initial-pdf'),
+  onOpenPdf: (callback) => {
+    const handler = (_event, data) => callback(data);
+    ipcRenderer.on('open-pdf-file', handler);
+    return () => ipcRenderer.removeListener('open-pdf-file', handler);
+  },
+  pickLocalPdf: () => ipcRenderer.invoke('pick-local-pdf'),
+  readPdfFile: (filePath) => ipcRenderer.invoke('read-pdf-file', filePath)
 });
