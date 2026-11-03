@@ -73,6 +73,12 @@ app.on('open-file', async (event, filePath) => {
 app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
 app.commandLine.appendSwitch('disable-renderer-backgrounding');
 
+// Memory optimizations: cap V8 heap to prevent runaway memory usage, enforce 1 renderer process, disable spare renderers
+app.commandLine.appendSwitch('js-flags', '--max-old-space-size=256');
+app.commandLine.appendSwitch('renderer-process-limit', '1');
+app.commandLine.appendSwitch('disable-site-isolation-trials');
+app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion,SpareRendererForSitePerProcess');
+
 // StudyOSData/ layout (plan §7.2, §11.1).
 function dataRoot() {
   return path.join(app.getPath('documents'), 'StudyOSData');

@@ -13,7 +13,10 @@
     "preview": "vite preview",
     "test": "node --test tests/*.test.mjs",
     "desktop": "npm run build && electron .",
-    "installer": "npm run build && electron-builder --win nsis"
+    "installer": "npm run build && electron-builder --win nsis",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
   },
   "dependencies": {
     "pdf-lib": "^1.17.1",

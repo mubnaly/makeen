@@ -132,8 +132,8 @@
   });
 
   // Keep rendered pages intact during continuous scrolling:
-  // Pages outside the extended viewport pause heavy re-renders, but NEVER destroy
-  // an existing rendered canvas (wiping canvas.width=1 previously caused blank white pages).
+  // Pages outside the extended viewport release heavy canvas backing stores
+  // but keep their placeholder element so scroll position is rock solid.
   $effect(() => {
     if (!wrap) return;
     if (!lazy || active) { inView = true; return; }
@@ -147,9 +147,35 @@
           inView = entry.isIntersecting;
         }
       }
-    }, { root: rootEl, rootMargin: '2400px 0px' });
+    }, { root: rootEl, rootMargin: '600px 0px' });
     io.observe(wrap);
     return () => io.disconnect();
+  });
+
+  // Reclaim uncompressed bitmap memory when page moves out of view
+  $effect(() => {
+    if (!inView && !active && ready) {
+      if (currentRenderTask) {
+        try { currentRenderTask.cancel(); } catch {}
+        currentRenderTask = null;
+      }
+      rendering = false;
+      ready = false;
+      renderedScale = 0;
+      renderedRotation = 0;
+      renderedDoc = null;
+      if (pdfCanvas) {
+        pdfCanvas.width = 1;
+        pdfCanvas.height = 1;
+      }
+      shrinkOverlay(annCanvas);
+      shrinkOverlay(markerCanvas);
+      shrinkOverlay(redpenCanvas);
+      shrinkOverlay(cursorCanvas);
+      if (textLayerEl) {
+        textLayerEl.textContent = '';
+      }
+    }
   });
 
   // Track the scale and rotation that the canvas currently displays
@@ -206,7 +232,7 @@
       renderedRotation = currentRotation;
       renderedDoc = currentDoc;
 
-      sizeOverlays();
+      ensureOverlayCssSizes();
       // The page is usable as soon as the canvas is painted. Text selection is
       // layered on afterwards and must never hold the page in a loading state
       // (some PDF.js builds keep a text stream open on image-only pages).
@@ -244,6 +270,15 @@
     }
   }
 
+  function ensureOverlayCssSizes() {
+    const w = `${Math.round(display.width)}px`;
+    const h = `${Math.round(display.height)}px`;
+    if (annCanvas) { annCanvas.style.width = w; annCanvas.style.height = h; }
+    if (markerCanvas) { markerCanvas.style.width = w; markerCanvas.style.height = h; }
+    if (redpenCanvas) { redpenCanvas.style.width = w; redpenCanvas.style.height = h; }
+    if (cursorCanvas) { cursorCanvas.style.width = w; cursorCanvas.style.height = h; }
+  }
+
   function sizeOverlay(canvas) {
     if (!canvas || !inView) return;
     const maxDim = Math.max(display.width, display.height);
@@ -256,11 +291,14 @@
     canvas.style.height = `${Math.round(display.height)}px`;
   }
 
-  function sizeOverlays() {
-    sizeOverlay(annCanvas);
-    sizeOverlay(markerCanvas);
-    sizeOverlay(redpenCanvas);
-    sizeOverlay(cursorCanvas);
+  function shrinkOverlay(canvas) {
+    if (!canvas) return;
+    if (canvas.width > 1 || canvas.height > 1) {
+      canvas.width = 1;
+      canvas.height = 1;
+    }
+    canvas.style.width = `${Math.round(display.width)}px`;
+    canvas.style.height = `${Math.round(display.height)}px`;
   }
 
   // Annotation-only changes must redraw, not re-render the PDF.
@@ -282,20 +320,42 @@
 
   function drawAnnotations() {
     if (!annCanvas) return;
-    sizeOverlays();
-    const ctx = annCanvas.getContext('2d');
-    if (!ctx) return;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, annCanvas.width, annCanvas.height);
-    const markerCtx = markerCanvas?.getContext('2d');
-    if (markerCtx) {
-      markerCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      markerCtx.clearRect(0, 0, markerCanvas.width, markerCanvas.height);
-      renderAnnotations(markerCtx, annotations.filter((a) => a.type === 'marker'), pageNumber, transform, { filter: viewFilter });
+    ensureOverlayCssSizes();
+
+    const markerItems = (annotations || []).filter((a) => a.type === 'marker');
+    const hasMarkerDraft = pageDraft && pageDraft.type === 'marker' && draftVisible('marker');
+    if (markerCanvas) {
+      if (!markerItems.length && !hasMarkerDraft) {
+        shrinkOverlay(markerCanvas);
+      } else {
+        sizeOverlay(markerCanvas);
+        const markerCtx = markerCanvas.getContext('2d');
+        if (markerCtx) {
+          markerCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+          markerCtx.clearRect(0, 0, markerCanvas.width, markerCanvas.height);
+          renderAnnotations(markerCtx, markerItems, pageNumber, transform, { filter: viewFilter });
+          if (hasMarkerDraft) {
+            drawDraft(markerCtx, pageDraft, transform);
+          }
+        }
+      }
     }
-    renderAnnotations(ctx, annotations.filter((a) => a.type !== 'marker'), pageNumber, transform, { filter: viewFilter });
-    if (pageDraft && draftVisible(pageDraft.type)) {
-      drawDraft(pageDraft.type === 'marker' && markerCtx ? markerCtx : ctx, pageDraft, transform);
+
+    const otherItems = (annotations || []).filter((a) => a.type !== 'marker');
+    const hasOtherDraft = pageDraft && pageDraft.type !== 'marker' && draftVisible(pageDraft.type);
+    if (!otherItems.length && !hasOtherDraft) {
+      shrinkOverlay(annCanvas);
+    } else {
+      sizeOverlay(annCanvas);
+      const ctx = annCanvas.getContext('2d');
+      if (ctx) {
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.clearRect(0, 0, annCanvas.width, annCanvas.height);
+        renderAnnotations(ctx, otherItems, pageNumber, transform, { filter: viewFilter });
+        if (hasOtherDraft) {
+          drawDraft(ctx, pageDraft, transform);
+        }
+      }
     }
   }
 
@@ -361,11 +421,17 @@
 
   function drawRedPen() {
     if (!redpenCanvas) return;
+    const strokes = (redPen || []).filter((s) => s.page === pageNumber);
+    if (!strokes.length) {
+      shrinkOverlay(redpenCanvas);
+      return;
+    }
+    sizeOverlay(redpenCanvas);
     const ctx = redpenCanvas.getContext('2d');
     if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, redpenCanvas.width, redpenCanvas.height);
-    for (const stroke of (redPen || []).filter((s) => s.page === pageNumber)) {
+    for (const stroke of strokes) {
       const pts = (stroke.points || []).map((p) => transform.toLocal(p[0], p[1]));
       if (!pts.length) continue;
       ctx.save();
@@ -387,11 +453,15 @@
 
   function drawCursor() {
     if (!cursorCanvas) return;
+    if (!cursorPoint || !interactive || !pointerShowsSize() || editor) {
+      shrinkOverlay(cursorCanvas);
+      return;
+    }
+    sizeOverlay(cursorCanvas);
     const ctx = cursorCanvas.getContext('2d');
     if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, cursorCanvas.width, cursorCanvas.height);
-    if (!cursorPoint || !interactive || !pointerShowsSize() || editor) return;
     const { lx, ly } = cursorPoint;
     const eraser = tool === 'eraser';
     const radius = eraser ? 7 : Math.max(1.5, sizePx / 2);
