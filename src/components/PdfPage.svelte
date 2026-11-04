@@ -343,18 +343,16 @@
 
     const otherItems = (annotations || []).filter((a) => a.type !== 'marker');
     const hasOtherDraft = pageDraft && pageDraft.type !== 'marker' && draftVisible(pageDraft.type);
-    if (!otherItems.length && !hasOtherDraft) {
-      shrinkOverlay(annCanvas);
-    } else {
-      sizeOverlay(annCanvas);
-      const ctx = annCanvas.getContext('2d');
-      if (ctx) {
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        ctx.clearRect(0, 0, annCanvas.width, annCanvas.height);
+    sizeOverlay(annCanvas);
+    const ctx = annCanvas.getContext('2d');
+    if (ctx) {
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, annCanvas.width, annCanvas.height);
+      if (otherItems.length) {
         renderAnnotations(ctx, otherItems, pageNumber, transform, { filter: viewFilter });
-        if (hasOtherDraft) {
-          drawDraft(ctx, pageDraft, transform);
-        }
+      }
+      if (hasOtherDraft) {
+        drawDraft(ctx, pageDraft, transform);
       }
     }
   }
@@ -627,6 +625,7 @@
     onpointerdown={onPointerDown}
     onpointermove={onPointerMove}
     onpointerup={onPointerUp}
+    onpointercancel={onPointerUp}
     onpointerleave={onPointerLeave}></canvas>
 
   {#each pageBookmarks as b (b.id)}

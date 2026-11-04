@@ -842,10 +842,32 @@
   // failed write surfaces an error toast.
   // The Reader can flatten annotations into a fresh PDF and keep that copy in
   // the library, so "saved with changes" needs no separate download step.
-  async function saveAnnotatedCopy(bytes, filename) {
-    const id = crypto.randomUUID();
-    // Copy exactly this view, never a possibly larger backing buffer.
+  async function saveAnnotatedCopy(bytes, filename, { docId = activeDoc?.id } = {}) {
     const raw = bytes instanceof Uint8Array ? bytes.slice().buffer : bytes;
+    const targetDoc = (docId && docs.find((d) => d.id === docId)) || activeDoc;
+    if (targetDoc) {
+      // Replace the current PDF in storage, avoiding creating duplicate documents
+      await savePdfBytes(targetDoc.id, raw);
+      const updated = library.upsertDocument({
+        ...targetDoc,
+        size: bytes.byteLength || 0,
+        missing: false
+      });
+      // If opened from a local file on PC in Desktop mode, replace the file directly on disk
+      if (targetDoc.filePath && window.studyos?.writePdfFile) {
+        try {
+          await window.studyos.writePdfFile(targetDoc.filePath, new Uint8Array(raw));
+        } catch (e) {
+          console.warn('Failed to overwrite local desktop PDF file:', e);
+        }
+      }
+      docs = library.listDocuments();
+      if (activeDoc?.id === targetDoc.id) {
+        activeDoc = { ...updated };
+      }
+      return updated;
+    }
+    const id = crypto.randomUUID();
     await savePdfBytes(id, raw);
     const doc = library.upsertDocument({
       id, kind: 'pdf', title: filename, filename,

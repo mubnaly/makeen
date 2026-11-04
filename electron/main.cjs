@@ -159,6 +159,17 @@ ipcMain.handle('read-pdf-file', async (_e, filePath) => {
   return await loadPdfPayload(filePath);
 });
 
+ipcMain.handle('write-pdf-file', async (_e, { filePath, bytes }) => {
+  try {
+    if (!filePath) return { ok: false, error: 'Missing file path' };
+    const buf = Buffer.from(bytes);
+    await fs.writeFile(filePath, buf);
+    return { ok: true, path: filePath };
+  } catch (err) {
+    return { ok: false, error: String(err?.message || err) };
+  }
+});
+
 ipcMain.handle('pick-local-pdf', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
     title: 'Open PDF Document',

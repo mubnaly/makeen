@@ -59,11 +59,11 @@
     { key: 'grey', value: '#9AA0A6' }
   ];
   const TOOLS = [
-    { id: 'select', icon: 'select', label: 'tool.select' },
     { id: 'hand', icon: 'hand', label: 'tool.hand' },
     { id: 'text', icon: 'text', label: 'tool.text' },
     { id: 'marker', icon: 'marker', label: 'tool.marker' },
     { id: 'shape', icon: 'shape', label: 'tool.shape' },
+    { id: 'shapeFill', icon: 'shape-fill', label: 'tool.shapeFill' },
     { id: 'pen', icon: 'pen', label: 'tool.pen' },
     { id: 'pointer', icon: 'pointer', label: 'tool.pointer' },
     { id: 'eraser', icon: 'eraser', label: 'tool.eraser' },
@@ -75,7 +75,8 @@
   const ERASER_RADIUS = 7;
   const MARKER_MIN = 5, MARKER_MAX = 100, MARKER_STEP = 5;
   const PEN_MIN = 1, PEN_MAX = 30, PEN_STEP = 1;
-  const SIZE_TOOLS = new Set(['marker', 'shape', 'pen', 'pointer']);
+  const HAND_MIN = 12, HAND_MAX = 72, HAND_STEP = 2;
+  const SIZE_TOOLS = new Set(['marker', 'shape', 'shapeFill', 'pen', 'pointer', 'hand']);
   const GRID_STYLES = [
     { id: '', label: 'reader.gridOff' },
     { id: 'lines', label: 'reader.gridLines' },
@@ -127,9 +128,10 @@
   let markerPx = $state(25);
   let penPx = $state(5);
   let shapePx = $state(5);
+  let handPx = $state(24);
   let shape = $state('rectangle');
-  let fillColor = $state('');
-  let fillOpacity = $state(0.12);
+  let fillColor = $state('#3498DB');
+  let fillOpacity = $state(0.35);
 
   let viewFilter = $state('all');
   let pageRender = $state('pdf');
@@ -182,13 +184,25 @@
     r: doc ? undoManager.canRedo(doc.id) : false,
     _v: undoVersion
   });
-  const sizePx = $derived(tool === 'marker' ? markerPx : tool === 'shape' ? shapePx : penPx);
+  const sizePx = $derived(
+    tool === 'marker' ? markerPx
+      : (tool === 'shape' || tool === 'shapeFill') ? shapePx
+      : tool === 'hand' ? handPx
+      : penPx
+  );
   const sizeBounds = $derived(
     tool === 'marker'
       ? { min: MARKER_MIN, max: MARKER_MAX, step: MARKER_STEP }
-      : { min: PEN_MIN, max: PEN_MAX, step: PEN_STEP }
+      : tool === 'hand'
+        ? { min: HAND_MIN, max: HAND_MAX, step: HAND_STEP }
+        : { min: PEN_MIN, max: PEN_MAX, step: PEN_STEP }
   );
-  const sizeLabelKey = $derived(tool === 'marker' ? 'tool.markerSize' : tool === 'shape' ? 'tool.shapeSize' : 'tool.penSize');
+  const sizeLabelKey = $derived(
+    tool === 'marker' ? 'tool.markerSize'
+      : (tool === 'shape' || tool === 'shapeFill') ? 'tool.shapeSize'
+      : tool === 'hand' ? 'tool.handSize'
+      : 'tool.penSize'
+  );
   const docCaptures = $derived((captures || []).filter((c) => c.documentId === doc?.id));
   const sortedBookmarks = $derived([...bookmarks].sort((a, b) => (a.page - b.page) || String(a.createdAt || '').localeCompare(String(b.createdAt || ''))));
   const displayBookmarks = $derived(flattenBookmarkTree(bookmarks));
@@ -201,7 +215,7 @@
   const layoutIcon = $derived(layout === 'spread' ? 'columns' : layout === 'single' ? 'single-page' : 'scroll');
   const modeIcon = $derived(readingMode === 'dark' ? 'moon' : readingMode === 'grey' || readingMode === 'darkgray' ? 'contrast' : readingMode === 'paper' || readingMode === 'amber' ? 'sun' : 'eye');
   const scrubPercent = $derived(numPages > 1 ? ((pageNum - 1) / (numPages - 1)) * 100 : 0);
-  const handCursor = $derived(handCursorFor(color));
+  const handCursor = $derived(handCursorFor(color, handPx));
 
   let toolbarConfig = $state(loadToolbarConfig());
   const barOrder = $derived(toolbarConfig.order);
@@ -246,10 +260,13 @@
   }
 
   // A filled hand, drawn in the current ink colour with no black outline, replaces
-  // the operating-system grab cursor. The hotspot is the fingertip.
-  function handCursorFor(ink) {
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24"><path fill="${ink}" d="M8.2 12.2V5.7a1.55 1.55 0 0 1 3.1 0V11h.6V4.3a1.55 1.55 0 0 1 3.1 0V11h.6V6a1.55 1.55 0 0 1 3.1 0v6h.6V8.6a1.5 1.5 0 0 1 3 0v7.1c0 4.2-3.1 7.6-7.2 7.6h-1.2c-2.4 0-4.3-1.2-5.5-3l-2.2-3.5a1.7 1.7 0 0 1 2.6-2.1l2.2 2.1z"/></svg>`;
-    return `url("data:image/svg+xml,${encodeURIComponent(svg)}") 9 3, grab`;
+  // the operating-system grab cursor. The hotspot is the fingertip, scaled with hand size.
+  function handCursorFor(ink, size = handPx) {
+    const s = Math.round(size || 24);
+    const hotX = Math.round((s * 9) / 24);
+    const hotY = Math.round((s * 3) / 24);
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${s}" height="${s}" viewBox="0 0 24 24"><path fill="${ink}" d="M8.2 12.2V5.7a1.55 1.55 0 0 1 3.1 0V11h.6V4.3a1.55 1.55 0 0 1 3.1 0V11h.6V6a1.55 1.55 0 0 1 3.1 0v6h.6V8.6a1.5 1.5 0 0 1 3 0v7.1c0 4.2-3.1 7.6-7.2 7.6h-1.2c-2.4 0-4.3-1.2-5.5-3l-2.2-3.5a1.7 1.7 0 0 1 2.6-2.1l2.2 2.1z"/></svg>`;
+    return `url("data:image/svg+xml,${encodeURIComponent(svg)}") ${hotX} ${hotY}, grab`;
   }
 
   function pageSize(page) {
@@ -284,8 +301,32 @@
       }
     };
     stage?.addEventListener('wheel', handleWheel, { passive: false });
+
+    const handleWindowPointerUp = () => {
+      if (capturing && captureRect) finishCapture();
+      else if (capturing) { capturing = false; captureRect = null; }
+      if (panning) endPan();
+      if (draft) {
+        const finished = draft;
+        draft = null;
+        if (finished?.points?.length > 1 && finished.page) {
+          const ann = finalizeAnnotation(finished, finished.page);
+          if (ann) {
+            annotations = [...annotations, ann];
+            undoManager.recordAdd(doc.id, ann);
+            undoVersion++;
+            commitAnnotations();
+          }
+        }
+      }
+    };
+    window.addEventListener('pointerup', handleWindowPointerUp);
+    window.addEventListener('pointercancel', handleWindowPointerUp);
+
     return () => {
       stage?.removeEventListener('wheel', handleWheel);
+      window.removeEventListener('pointerup', handleWindowPointerUp);
+      window.removeEventListener('pointercancel', handleWindowPointerUp);
       teardown();
       if (positionTimer) clearTimeout(positionTimer);
       if (scrollFrame) cancelAnimationFrame(scrollFrame);
@@ -580,9 +621,14 @@
 
   function onPageInput(e) {
     const input = e.currentTarget;
-    const value = Math.round(Number(input.value));
-    if (Number.isFinite(value) && value >= 1) goPage(value);
-    else input.value = pageNum;
+    const raw = String(input.value || '').trim();
+    const match = raw.match(/^(\d+)/);
+    const value = match ? Math.round(Number(match[1])) : NaN;
+    if (Number.isFinite(value) && value >= 1) {
+      goPage(value);
+    } else {
+      input.value = `${pageNum}/${numPages || 1}`;
+    }
   }
 
   function onPageKey(e) {
@@ -661,7 +707,8 @@
     const { min, max, step } = sizeBounds;
     const next = clamp(sizePx + dir * step, min, max);
     if (tool === 'marker') markerPx = next;
-    else if (tool === 'shape') shapePx = next;
+    else if (tool === 'shape' || tool === 'shapeFill') shapePx = next;
+    else if (tool === 'hand') handPx = next;
     else penPx = next;
   }
 
@@ -742,6 +789,15 @@
     if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') { e.preventDefault(); goPage(pageNum - 1); }
   }
 
+  function setTool(nextTool) {
+    tool = nextTool;
+    draft = null;
+    capturing = false;
+    captureRect = null;
+    textRequest = null;
+    if (panning) endPan();
+  }
+
   // --- pointer dispatch ------------------------------------------------------
   function baseStyle(page) {
     const size = pageSize(page);
@@ -750,7 +806,11 @@
       opacity,
       thickness: clamp(sizePx / Math.max(1, size.height * scale), 0.001, 0.2)
     };
-    if (tool === 'shape' && fillColor) style.fill_color = hexToRgba(fillColor, fillOpacity);
+    if (tool === 'shapeFill') {
+      style.fill_color = hexToRgba(fillColor || '#3498DB', fillOpacity || 0.35);
+    } else if (tool === 'shape' && fillColor) {
+      style.fill_color = hexToRgba(fillColor, fillOpacity);
+    }
     return style;
   }
 
@@ -779,7 +839,7 @@
         };
         return;
       }
-      if (tool === 'shape') {
+      if (tool === 'shape' || tool === 'shapeFill') {
         draft = {
           type: 'shape', page: p.page, start: [p.u, p.v],
           geometry: { shape, points: [[p.u, p.v], [p.u, p.v]] },
@@ -1052,11 +1112,11 @@
       const { bytes: out, stats } = await annotatedCopyPdf({
         sourceBytes: bytes, annotations, renderTextImage: renderTextAnnotationImage
       });
-      await onSaveAnnotated(out, `${baseName()} — annotated.pdf`);
+      await onSaveAnnotated(out, `${baseName()} — annotated.pdf`, { docId: doc.id });
       if (silent) {
         notify(tr('reader.autosavedNotice'), 'ok');
       } else {
-        notify(tr('reader.savedCopy'), 'ok');
+        notify(tr('reader.saved'), 'ok');
         if (stats.skipped.length) notify(tr('toast.skippedItems', { n: stats.skipped.length, items: stats.skipped.join('; ') }), 'error');
       }
     } catch (e) {
@@ -1513,9 +1573,14 @@
 
     <button style={addBarOrder('prev')} onclick={prevPage} disabled={pageNum <= 1}
       title={tr('reader.previousPage')} aria-label={tr('reader.previousPage')}><Icon name={prevIcon} /></button>
-    <input class="fs-page-input" style={addBarOrder('page')} type="number" min="1" max={numPages || 1}
-      value={pageNum} onchange={onPageInput} onkeydown={onPageKey}
-      title={tr('reader.jumpPage')} aria-label={tr('reader.jumpPage')} />
+    <input class="fs-page-input" style="{addBarOrder('page')}; width: 68px; text-align: center; font-variant-numeric: tabular-nums;"
+      type="text"
+      value="{pageNum}/{numPages || 1}"
+      onchange={onPageInput}
+      onkeydown={onPageKey}
+      onfocus={(e) => e.currentTarget.select()}
+      title={tr('reader.jumpPage')}
+      aria-label={tr('reader.jumpPage')} />
     <button style={addBarOrder('next')} onclick={nextPage} disabled={pageNum >= numPages}
       title={tr('reader.nextPage')} aria-label={tr('reader.nextPage')}><Icon name={nextIcon} /></button>
 
@@ -1527,7 +1592,7 @@
     <button style={addBarOrder('rotate-right')} onclick={() => setRotation(rotation + 90)} title={tr('reader.rotateRight')} aria-label={tr('reader.rotateRight')}><Icon name="rotate-right" /></button>
 
     {#each TOOLS as def}
-      <button style={addBarOrder(`tool-${def.id}`)} class={tool === def.id ? 'active' : ''} onclick={() => (tool = def.id)}
+      <button style={addBarOrder(`tool-${def.id}`)} class={tool === def.id ? 'active' : ''} onclick={() => setTool(def.id)}
         title={tr(def.label)} aria-label={tr(def.label)} aria-pressed={tool === def.id}><Icon name={def.icon} size={17} /></button>
     {/each}
 
@@ -1548,11 +1613,11 @@
       </span>
     {/if}
 
-    {#if tool === 'shape'}
+    {#if tool === 'shape' || tool === 'shapeFill'}
       <span class="bar-group" style={addBarOrder('shapes')}>
         {#each SHAPES as s}
           <button class="shape-opt {shape === s ? 'active' : ''}" aria-pressed={shape === s} onclick={() => (shape = s)} title={shapeLabel(s)} aria-label={shapeLabel(s)}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill={tool === 'shapeFill' && (s === 'rectangle' || s === 'ellipse') ? 'currentColor' : 'none'} fill-opacity={tool === 'shapeFill' ? '0.28' : '0'} stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               {#if s === 'rectangle'}<rect x="3" y="5.5" width="18" height="13" rx="1.5" />
               {:else if s === 'ellipse'}<ellipse cx="12" cy="12" rx="9" ry="6.5" />
               {:else if s === 'line'}<line x1="4" y1="19" x2="20" y2="5" />
@@ -1563,6 +1628,11 @@
           </button>
         {/each}
       </span>
+      {#if tool === 'shapeFill'}
+        <span class="bar-group" style="{addBarOrder('shapes')}; display:inline-flex; align-items:center; gap:4px; padding: 2px 6px;">
+          <input type="color" bind:value={fillColor} title={tr('tool.fillColor')} aria-label={tr('tool.fillColor')} style="width:24px; height:24px; padding:0; border:none; border-radius:4px; cursor:pointer;" />
+        </span>
+      {/if}
     {/if}
 
     {#each customPresets as preset (preset.id)}

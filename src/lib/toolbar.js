@@ -18,11 +18,11 @@ export const DEFAULT_BAR_ITEMS = [
   { id: 'fit', label: 'reader.fitWidth', kind: 'action' },
   { id: 'rotate-left', label: 'reader.rotateLeft', kind: 'action' },
   { id: 'rotate-right', label: 'reader.rotateRight', kind: 'action' },
-  { id: 'tool-select', label: 'tool.select', kind: 'tool' },
   { id: 'tool-hand', label: 'tool.hand', kind: 'tool' },
   { id: 'tool-text', label: 'tool.text', kind: 'tool' },
   { id: 'tool-marker', label: 'tool.marker', kind: 'tool', repeat: 'marker' },
   { id: 'tool-shape', label: 'tool.shape', kind: 'tool', repeat: 'shape' },
+  { id: 'tool-shapeFill', label: 'tool.shapeFill', kind: 'tool', repeat: 'shape' },
   { id: 'tool-pen', label: 'tool.pen', kind: 'tool', repeat: 'pen' },
   { id: 'tool-pointer', label: 'tool.pointer', kind: 'tool' },
   { id: 'tool-eraser', label: 'tool.eraser', kind: 'tool' },
@@ -40,7 +40,7 @@ export const DEFAULT_BAR_ITEMS = [
   { id: 'status', label: 'reader.saved', kind: 'status' }
 ];
 
-export const LEGACY_BAR_ITEM_IDS = ['side-images', 'side-pages', 'side-bookmarks', 'bookmark-page', 'save'];
+export const LEGACY_BAR_ITEM_IDS = ['tool-select', 'side-images', 'side-pages', 'side-bookmarks', 'bookmark-page', 'save'];
 export const BAR_ITEM_IDS = DEFAULT_BAR_ITEMS.map((item) => item.id);
 const DEFAULT_ORDER = [...BAR_ITEM_IDS];
 

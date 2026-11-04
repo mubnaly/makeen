@@ -31,5 +31,6 @@ contextBridge.exposeInMainWorld('studyos', {
     return () => ipcRenderer.removeListener('open-pdf-file', handler);
   },
   pickLocalPdf: () => ipcRenderer.invoke('pick-local-pdf'),
-  readPdfFile: (filePath) => ipcRenderer.invoke('read-pdf-file', filePath)
+  readPdfFile: (filePath) => ipcRenderer.invoke('read-pdf-file', filePath),
+  writePdfFile: (filePath, bytes) => ipcRenderer.invoke('write-pdf-file', { filePath, bytes })
 });
