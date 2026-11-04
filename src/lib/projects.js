@@ -22,6 +22,46 @@ export function makeProjectId() {
   return `project-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
+export function makeFolderId() {
+  return `folder-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+export function makeFolderItemId() {
+  return `item-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+export function normalizeFolderItem(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const id = String(raw.id || makeFolderItemId());
+  const type = ['pdf', 'video', 'youtube', 'deck', 'image', 'link'].includes(raw.type) ? raw.type : 'pdf';
+  const title = text(raw.title || raw.name, 200) || 'Resource';
+  return {
+    id,
+    type,
+    refId: String(raw.refId || raw.docId || raw.videoId || raw.id || ''),
+    title,
+    url: String(raw.url || ''),
+    addedAt: Number(raw.addedAt) || now()
+  };
+}
+
+export function normalizeFolder(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const id = String(raw.id || makeFolderId());
+  const name = text(raw.name || raw.title, PROJECT_NAME_MAX) || 'Folder';
+  const color = String(raw.color || '#3b82f6');
+  const items = (Array.isArray(raw.items) ? raw.items : [])
+    .map(normalizeFolderItem)
+    .filter(Boolean);
+  return {
+    id,
+    name,
+    color,
+    createdAt: Number(raw.createdAt) || now(),
+    items
+  };
+}
+
 export function normalizeComposerEntry(raw) {
   if (!raw || typeof raw.id !== 'string') return null;
   if (raw.type === 'image' && typeof raw.captureId === 'string' && raw.captureId) {
@@ -64,6 +104,10 @@ export function normalizeProject(raw) {
     .filter(Boolean);
   const studyList = uniqueStrings(raw.studyList || channelVideos.filter((v) => v.inStudyList).map((v) => v.id));
 
+  const folders = (Array.isArray(raw.folders) ? raw.folders : [])
+    .map(normalizeFolder)
+    .filter(Boolean);
+
   return {
     id: raw.id,
     name,
@@ -71,6 +115,7 @@ export function normalizeProject(raw) {
     docs: uniqueStrings(raw.docs),
     videos: uniqueStrings(raw.videos),
     sets: uniqueStrings(raw.sets),
+    folders,
     composer,
     channel,
     channelVideos,
@@ -91,6 +136,7 @@ export function createProject(name, description = '') {
     docs: [],
     videos: [],
     sets: [],
+    folders: [],
     composer: [],
     channel: null,
     channelVideos: [],
@@ -199,6 +245,76 @@ export function updateProject(project, patch = {}) {
   const base = normalizeProject(project);
   if (!base) return null;
   return normalizeProject({ ...base, ...patch, id: base.id, createdAt: base.createdAt, updatedAt: now() });
+}
+
+// --- project folders & resources -------------------------------------------
+
+export function createProjectFolder(project, name, color = '#3b82f6') {
+  const base = normalizeProject(project);
+  if (!base) return base;
+  const cleanName = text(name, PROJECT_NAME_MAX) || 'New Folder';
+  const folder = normalizeFolder({
+    id: makeFolderId(),
+    name: cleanName,
+    color: String(color || '#3b82f6'),
+    createdAt: now(),
+    items: []
+  });
+  return { ...base, folders: [...base.folders, folder], updatedAt: now() };
+}
+
+export function updateProjectFolder(project, folderId, patch = {}) {
+  const base = normalizeProject(project);
+  if (!base || !folderId) return base;
+  const folders = base.folders.map((f) => {
+    if (f.id !== folderId) return f;
+    return normalizeFolder({ ...f, ...patch, id: f.id, createdAt: f.createdAt }) || f;
+  });
+  return { ...base, folders, updatedAt: now() };
+}
+
+export function removeProjectFolder(project, folderId) {
+  const base = normalizeProject(project);
+  if (!base || !folderId) return base;
+  return { ...base, folders: base.folders.filter((f) => f.id !== folderId), updatedAt: now() };
+}
+
+export function addResourceToFolder(project, folderId, resource) {
+  const base = normalizeProject(project);
+  if (!base || !folderId) return base;
+  const item = normalizeFolderItem(resource);
+  if (!item) return base;
+  const folders = base.folders.map((f) => {
+    if (f.id !== folderId) return f;
+    return { ...f, items: [...f.items, item] };
+  });
+  return { ...base, folders, updatedAt: now() };
+}
+
+export function removeResourceFromFolder(project, folderId, itemId) {
+  const base = normalizeProject(project);
+  if (!base || !folderId) return base;
+  const folders = base.folders.map((f) => {
+    if (f.id !== folderId) return f;
+    return { ...f, items: f.items.filter((it) => it.id !== itemId) };
+  });
+  return { ...base, folders, updatedAt: now() };
+}
+
+export function moveResourceInFolder(project, folderId, itemId, delta) {
+  const base = normalizeProject(project);
+  if (!base || !folderId) return base;
+  const folders = base.folders.map((f) => {
+    if (f.id !== folderId) return f;
+    const index = f.items.findIndex((it) => it.id === itemId);
+    const target = index + (Number(delta) || 0);
+    if (index < 0 || target < 0 || target >= f.items.length) return f;
+    const items = [...f.items];
+    const [entry] = items.splice(index, 1);
+    items.splice(target, 0, entry);
+    return { ...f, items };
+  });
+  return { ...base, folders, updatedAt: now() };
 }
 
 // --- linked sources ---------------------------------------------------------
@@ -315,11 +431,15 @@ export function projectCounts(project, captures = [], docs = []) {
   const allDocs = Array.isArray(docs) ? docs : [];
   const docCount = project?.docs?.filter((id) => allDocs.some((d) => d.id === id && d.kind !== 'video')).length || 0;
   const videoCount = project?.videos?.filter((id) => allDocs.some((d) => d.id === id && d.kind === 'video')).length || 0;
+  const folders = project?.folders || [];
+  const folderResources = folders.reduce((sum, f) => sum + (Array.isArray(f.items) ? f.items.length : 0), 0);
   return {
     docs: docCount,
     videos: videoCount,
     sets: project?.sets?.length || 0,
     images: capturesForProject(project, captures).length,
-    blocks: project?.composer?.length || 0
+    blocks: project?.composer?.length || 0,
+    folders: folders.length,
+    folderResources
   };
 }

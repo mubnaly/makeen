@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Notification, dialog, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, Notification, dialog, Menu, session } = require('electron');
 // Completely disable and destroy the default application menu before app is ready
 // so "File Edit View Window Help" is never created or displayed.
 Menu.setApplicationMenu(null);
@@ -195,6 +195,32 @@ ipcMain.handle('pick-local-pdf', async () => {
 });
 
 app.whenReady().then(async () => {
+  // Fix for embedded YouTube playback (Image 1: error 101/150 "video unavailable / private / embedding disabled"):
+  // YouTube checks Referer and Origin headers to allow or block embedded playback.
+  // Rewriting Referer to https://www.youtube.com/ allows videos with external embedding restrictions to play smoothly.
+  try {
+    session.defaultSession.webRequest.onBeforeSendHeaders(
+      { urls: ['*://*.youtube.com/*', '*://*.youtube-nocookie.com/*', '*://*.googlevideo.com/*'] },
+      (details, callback) => {
+        details.requestHeaders['Referer'] = 'https://www.youtube.com/';
+        details.requestHeaders['Origin'] = 'https://www.youtube.com';
+        callback({ cancel: false, requestHeaders: details.requestHeaders });
+      }
+    );
+
+    session.defaultSession.webRequest.onHeadersReceived(
+      { urls: ['*://*.youtube.com/*', '*://*.youtube-nocookie.com/*', '*://*.googlevideo.com/*'] },
+      (details, callback) => {
+        const responseHeaders = { ...details.responseHeaders };
+        delete responseHeaders['x-frame-options'];
+        delete responseHeaders['X-Frame-Options'];
+        callback({ cancel: false, responseHeaders });
+      }
+    );
+  } catch (err) {
+    console.warn('Failed to attach YouTube request interceptors:', err);
+  }
+
   // Production loads over file://, which YouTube rejects as a player origin.
   // Serve only the player page on loopback so the iframe has an http origin.
   try {

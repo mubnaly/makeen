@@ -5,7 +5,9 @@ import {
   capturesForProject, clearComposer, composerPlan, createProject, linkSource,
   listProjects, makeProjectId, moveComposerEntry, normalizeProject, projectCounts,
   removeComposerEntry, removeProject, saveProjects, unlinkSource, updateComposerEntry,
-  upsertProject, createChannelProject, toggleChannelVideoInStudyList, setAllChannelVideosInStudyList
+  upsertProject, createChannelProject, toggleChannelVideoInStudyList, setAllChannelVideosInStudyList,
+  createProjectFolder, updateProjectFolder, removeProjectFolder, addResourceToFolder,
+  removeResourceFromFolder, moveResourceInFolder
 } from '../src/lib/projects.js';
 
 function memoryStorage() {
@@ -127,7 +129,7 @@ test('projectCounts counts real linked PDFs and videos only', () => {
     { id: 'd1', kind: 'pdf' },
     { id: 'v1', kind: 'video' }
   ]);
-  assert.deepEqual(counts, { docs: 1, videos: 1, sets: 1, images: 2, blocks: 0 });
+  assert.deepEqual(counts, { docs: 1, videos: 1, sets: 1, images: 2, blocks: 0, folders: 0, folderResources: 0 });
 });
 
 test('saveProjects normalizes the whole list', () => {
@@ -171,4 +173,56 @@ test('createChannelProject creates project with channel metadata and video study
   const allDisabled = setAllChannelVideosInStudyList(project, false);
   assert.deepEqual(allDisabled.studyList, []);
   assert.ok(allDisabled.channelVideos.every((v) => !v.inStudyList));
+});
+
+test('project folders: create, add resources, move, remove and count', () => {
+  let project = createProject('Physics Term 1');
+  assert.deepEqual(project.folders, []);
+
+  // Add folder
+  project = createProjectFolder(project, 'Chapter 1: Kinematics', '#10b981');
+  assert.equal(project.folders.length, 1);
+  const folderId = project.folders[0].id;
+  assert.equal(project.folders[0].name, 'Chapter 1: Kinematics');
+  assert.equal(project.folders[0].color, '#10b981');
+
+  // Add resources
+  project = addResourceToFolder(project, folderId, {
+    type: 'pdf',
+    refId: 'doc-123',
+    title: 'Lecture 1 Notes.pdf'
+  });
+  project = addResourceToFolder(project, folderId, {
+    type: 'youtube',
+    refId: 'yt-vid-456',
+    title: 'Velocity and Acceleration',
+    url: 'https://youtube.com/watch?v=12345678901'
+  });
+  project = addResourceToFolder(project, folderId, {
+    type: 'deck',
+    refId: 'Kinematics Formulas',
+    title: 'Kinematics Formulas'
+  });
+  assert.equal(project.folders[0].items.length, 3);
+  assert.equal(project.folders[0].items[0].type, 'pdf');
+  assert.equal(project.folders[0].items[1].type, 'youtube');
+  assert.equal(project.folders[0].items[2].type, 'deck');
+
+  // Reorder resource
+  const itemId = project.folders[0].items[0].id;
+  project = moveResourceInFolder(project, folderId, itemId, 1);
+  assert.equal(project.folders[0].items[1].id, itemId);
+
+  // Remove one resource
+  project = removeResourceFromFolder(project, folderId, itemId);
+  assert.equal(project.folders[0].items.length, 2);
+
+  // Counts
+  const counts = projectCounts(project, [], []);
+  assert.equal(counts.folders, 1);
+  assert.equal(counts.folderResources, 2);
+
+  // Remove folder
+  project = removeProjectFolder(project, folderId);
+  assert.equal(project.folders.length, 0);
 });

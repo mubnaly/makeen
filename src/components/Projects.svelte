@@ -8,12 +8,15 @@
   import { labelPng } from '../lib/labels.js';
   import { safeBaseName } from '../lib/filenames.js';
   import { formatTimecode } from '../lib/media.js';
+  import { parseYouTube } from '../lib/youtube.js';
   import {
     capturesForProject, composerPlan, projectCounts,
     linkSource, unlinkSource, addComposerImage, addComposerText,
     addAllProjectImages, updateComposerEntry, removeComposerEntry,
     moveComposerEntry, clearComposer,
-    createChannelProject, toggleChannelVideoInStudyList, setAllChannelVideosInStudyList
+    createChannelProject, toggleChannelVideoInStudyList, setAllChannelVideosInStudyList,
+    createProjectFolder, updateProjectFolder, removeProjectFolder,
+    addResourceToFolder, removeResourceFromFolder, moveResourceInFolder
   } from '../lib/projects.js';
   import { t as tr } from '../lib/lang.svelte.js';
 
@@ -56,6 +59,102 @@
   let channelError = $state('');
   let fetchedChannel = $state(null);
   let channelSearchQuery = $state('');
+
+  // Folder states & management
+  let creatingFolder = $state(false);
+  let newFolderName = $state('');
+  let newFolderColor = $state('#3b82f6');
+  let activeFolderForAdd = $state(null);
+  let addResourceType = $state('pdf');
+  let addDocPick = $state('');
+  let addVideoPick = $state('');
+  let addDeckPick = $state('');
+  let addImagePick = $state('');
+  let addYoutubeUrl = $state('');
+  let addResourceTitle = $state('');
+  let collapsedFolders = $state(new Set());
+
+  const projectFolders = $derived(activeProject?.folders || []);
+
+  function toggleFolder(folderId) {
+    const next = new Set(collapsedFolders);
+    if (next.has(folderId)) next.delete(folderId);
+    else next.add(folderId);
+    collapsedFolders = next;
+  }
+
+  function handleCreateFolder() {
+    const name = newFolderName.trim();
+    if (!name || !activeProject) return;
+    onUpdate(createProjectFolder(activeProject, name, newFolderColor));
+    newFolderName = '';
+    creatingFolder = false;
+  }
+
+  function handleDeleteFolder(folderId) {
+    if (!activeProject || !folderId) return;
+    onUpdate(removeProjectFolder(activeProject, folderId));
+  }
+
+  function handleAddResource(folderId) {
+    if (!activeProject || !folderId) return;
+    let item = null;
+    if (addResourceType === 'pdf') {
+      const d = docs.find((x) => x.id === addDocPick);
+      if (!d) return;
+      item = { type: 'pdf', refId: d.id, title: d.title };
+    } else if (addResourceType === 'video') {
+      const v = videos.find((x) => x.id === addVideoPick);
+      if (!v) return;
+      item = { type: 'video', refId: v.id, title: v.title };
+    } else if (addResourceType === 'youtube') {
+      const raw = addYoutubeUrl.trim();
+      if (!raw) return;
+      const parsed = parseYouTube(raw);
+      const ytId = parsed ? parsed.id : raw;
+      const title = addResourceTitle.trim() || `YouTube: ${ytId}`;
+      item = { type: 'youtube', refId: ytId, title, url: parsed?.url || raw };
+    } else if (addResourceType === 'deck') {
+      if (!addDeckPick) return;
+      item = { type: 'deck', refId: addDeckPick, title: addDeckPick };
+    } else if (addResourceType === 'image') {
+      const c = captures.find((x) => x.id === addImagePick);
+      if (!c) return;
+      item = { type: 'image', refId: c.id, title: c.name || 'Screenshot' };
+    }
+    if (item) {
+      onUpdate(addResourceToFolder(activeProject, folderId, item));
+      activeFolderForAdd = null;
+      addDocPick = '';
+      addVideoPick = '';
+      addDeckPick = '';
+      addImagePick = '';
+      addYoutubeUrl = '';
+      addResourceTitle = '';
+    }
+  }
+
+  function handleRemoveResource(folderId, itemId) {
+    if (!activeProject) return;
+    onUpdate(removeResourceFromFolder(activeProject, folderId, itemId));
+  }
+
+  function openFolderResource(item) {
+    if (!item) return;
+    if (item.type === 'pdf') {
+      onOpenSource('pdf', item.refId);
+    } else if (item.type === 'video') {
+      onOpenSource('video', item.refId);
+    } else if (item.type === 'youtube') {
+      if (typeof onPlayChannelVideo === 'function') {
+        onPlayChannelVideo({ id: item.refId, title: item.title, url: item.url }, activeProject);
+      } else {
+        onOpenSource('video', item.refId);
+      }
+    } else if (item.type === 'deck') {
+      onOpenSet(item.refId);
+    }
+  }
 
   const projectCaptures = $derived(capturesForProject(activeProject, captures));
   const counts = $derived(projectCounts(activeProject, captures, [...docs, ...videos]));
@@ -468,6 +567,157 @@
         {/if}
       </div>
     {/if}
+
+    <!-- Folders & Resources Section -->
+    <div class="card mt folders-card">
+      <div class="hstack" style="justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+        <div class="hstack" style="gap:8px; align-items:center;">
+          <Icon name="folder" size={20} />
+          <div class="section-title" style="margin:0">{tr('projects.folders')} ({projectFolders.length})</div>
+        </div>
+        <button class="primary small" onclick={() => (creatingFolder = true)}>
+          <Icon name="folderPlus" size={15} /><span>{tr('projects.addFolder')}</span>
+        </button>
+      </div>
+
+      {#if creatingFolder}
+        <div class="create-folder-panel mt">
+          <div class="hstack" style="gap:8px; flex-wrap:wrap;">
+            <input
+              type="text"
+              placeholder={tr('projects.folderNamePlaceholder')}
+              bind:value={newFolderName}
+              class="grow"
+              onkeydown={(e) => e.key === 'Enter' && handleCreateFolder()}
+            />
+            <input type="color" bind:value={newFolderColor} title="Folder Color" style="width:40px; height:34px; padding:2px; border-radius:6px; cursor:pointer;" />
+            <button class="primary small" onclick={handleCreateFolder} disabled={!newFolderName.trim()}>
+              <Icon name="check" size={14} /><span>{tr('projects.createFolder')}</span>
+            </button>
+            <button class="small" onclick={() => { creatingFolder = false; newFolderName = ''; }}>
+              <Icon name="x" size={14} /><span>{tr('video.discard')}</span>
+            </button>
+          </div>
+        </div>
+      {/if}
+
+      {#if projectFolders.length === 0}
+        <div class="empty muted mt" style="padding:24px; text-align:center;">
+          {tr('projects.noFolderItems')}
+        </div>
+      {:else}
+        <div class="folders-grid mt">
+          {#each projectFolders as folder (folder.id)}
+            {@const isCollapsed = collapsedFolders.has(folder.id)}
+            <div class="folder-block" style="--folder-clr:{folder.color || '#3b82f6'};">
+              <div class="folder-head hstack" style="justify-content:space-between; align-items:center;">
+                <button class="folder-title-btn hstack grow" onclick={() => toggleFolder(folder.id)}>
+                  <Icon name={isCollapsed ? 'chevron-right' : 'chevron-down'} size={15} />
+                  <span class="folder-icon" style="color:{folder.color || '#3b82f6'};"><Icon name="folder" size={18} /></span>
+                  <span class="folder-name">{folder.name}</span>
+                  <span class="badge" style="font-size:11px;">{folder.items?.length || 0}</span>
+                </button>
+                <div class="hstack" style="gap:4px;">
+                  <button class="small" onclick={() => (activeFolderForAdd = activeFolderForAdd === folder.id ? null : folder.id)} title={tr('projects.addResource')}>
+                    <Icon name="plus" size={13} /><span>{tr('projects.addResource')}</span>
+                  </button>
+                  <button class="icon-btn" onclick={() => handleDeleteFolder(folder.id)} title={tr('projects.deleteFolder')}>
+                    <Icon name="trash" size={14} />
+                  </button>
+                </div>
+              </div>
+
+              {#if activeFolderForAdd === folder.id}
+                <div class="add-resource-panel">
+                  <div class="hstack" style="gap:8px; margin-bottom:8px; flex-wrap:wrap;">
+                    <span class="muted" style="font-size:12px;">{tr('projects.resourceType')}:</span>
+                    <button class="small {addResourceType === 'pdf' ? 'primary' : ''}" onclick={() => addResourceType = 'pdf'}>
+                      <Icon name="reader" size={12} /><span>{tr('projects.resourcePdf')}</span>
+                    </button>
+                    <button class="small {addResourceType === 'youtube' ? 'primary' : ''}" onclick={() => addResourceType = 'youtube'}>
+                      <Icon name="play" size={12} /><span>{tr('projects.resourceVideo')}</span>
+                    </button>
+                    <button class="small {addResourceType === 'deck' ? 'primary' : ''}" onclick={() => addResourceType = 'deck'}>
+                      <Icon name="flashcards" size={12} /><span>{tr('projects.resourceDeck')}</span>
+                    </button>
+                    <button class="small {addResourceType === 'image' ? 'primary' : ''}" onclick={() => addResourceType = 'image'}>
+                      <Icon name="gallery" size={12} /><span>{tr('projects.resourceImage')}</span>
+                    </button>
+                  </div>
+
+                  <div class="hstack" style="gap:8px; flex-wrap:wrap;">
+                    {#if addResourceType === 'pdf'}
+                      <select bind:value={addDocPick} class="grow" aria-label={tr('projects.resourcePdf')}>
+                        <option value="">{tr('projects.addPdf')}</option>
+                        {#each docs as d (d.id)}<option value={d.id}>{d.title}</option>{/each}
+                      </select>
+                      <button class="primary small" onclick={() => handleAddResource(folder.id)} disabled={!addDocPick}>
+                        <Icon name="plus" size={13} /><span>{tr('common.add')}</span>
+                      </button>
+                    {:else if addResourceType === 'youtube'}
+                      <input type="text" placeholder={tr('projects.youtubePlaceholder')} bind:value={addYoutubeUrl} class="grow" />
+                      <input type="text" placeholder={tr('projects.resourceTitlePlaceholder')} bind:value={addResourceTitle} style="max-width:200px;" />
+                      <button class="primary small" onclick={() => handleAddResource(folder.id)} disabled={!addYoutubeUrl.trim()}>
+                        <Icon name="plus" size={13} /><span>{tr('common.add')}</span>
+                      </button>
+                    {:else if addResourceType === 'deck'}
+                      <select bind:value={addDeckPick} class="grow" aria-label={tr('projects.resourceDeck')}>
+                        <option value="">{tr('projects.addSet')}</option>
+                        {#each decks as name (name)}<option value={name}>{name}</option>{/each}
+                      </select>
+                      <button class="primary small" onclick={() => handleAddResource(folder.id)} disabled={!addDeckPick}>
+                        <Icon name="plus" size={13} /><span>{tr('common.add')}</span>
+                      </button>
+                    {:else if addResourceType === 'image'}
+                      <select bind:value={addImagePick} class="grow" aria-label={tr('projects.resourceImage')}>
+                        <option value="">{tr('projects.resourceImage')}</option>
+                        {#each captures as c (c.id)}<option value={c.id}>{c.name || c.id}</option>{/each}
+                      </select>
+                      <button class="primary small" onclick={() => handleAddResource(folder.id)} disabled={!addImagePick}>
+                        <Icon name="plus" size={13} /><span>{tr('common.add')}</span>
+                      </button>
+                    {/if}
+                    <button class="small" onclick={() => (activeFolderForAdd = null)}>
+                      <Icon name="x" size={13} />
+                    </button>
+                  </div>
+                </div>
+              {/if}
+
+              {#if !isCollapsed}
+                <div class="folder-items-list">
+                  {#if !folder.items || folder.items.length === 0}
+                    <div class="empty-folder-hint muted">{tr('projects.noFolderItems')}</div>
+                  {:else}
+                    {#each folder.items as item (item.id)}
+                      <div class="folder-item-row hstack" style="justify-content:space-between; align-items:center;">
+                        <button class="folder-item-click hstack grow" onclick={() => openFolderResource(item)}>
+                          <span class="resource-badge {item.type}">
+                            {#if item.type === 'pdf'}<Icon name="reader" size={14} />
+                            {:else if item.type === 'video' || item.type === 'youtube'}<Icon name="play" size={14} />
+                            {:else if item.type === 'deck'}<Icon name="flashcards" size={14} />
+                            {:else if item.type === 'image'}<Icon name="gallery" size={14} />
+                            {:else}<Icon name="link" size={14} />{/if}
+                          </span>
+                          <div class="item-info grow" style="text-align:start;">
+                            <div class="item-title">{item.title}</div>
+                            <div class="item-meta muted" style="font-size:11px;">{item.type.toUpperCase()}</div>
+                          </div>
+                          <span class="action-tag">{tr('projects.openSource')}</span>
+                        </button>
+                        <button class="icon-btn" onclick={() => handleRemoveResource(folder.id, item.id)} title={tr('projects.unlink')}>
+                          <Icon name="x" size={13} />
+                        </button>
+                      </div>
+                    {/each}
+                  {/if}
+                </div>
+              {/if}
+            </div>
+          {/each}
+        </div>
+      {/if}
+    </div>
 
     <div class="project-cols mt">
       <div class="card">

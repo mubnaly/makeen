@@ -37,6 +37,27 @@
         var tick = null;
         var apiTimer = null;
         var initialApplied = false;
+        var fallbackTried = false;
+
+        function tryFallbackEmbed() {
+          fallbackTried = true;
+          var container = document.getElementById('player');
+          if (!container) return;
+          container.innerHTML = '';
+          var iframe = document.createElement('iframe');
+          var targetSrc = isList
+            ? 'https://www.youtube.com/embed?listType=playlist&list=' + encodeURIComponent(list) + '&autoplay=1&enablejsapi=1&rel=0'
+            : 'https://www.youtube.com/embed/' + encodeURIComponent(videoId) + '?autoplay=1&enablejsapi=1&rel=0';
+          iframe.src = targetSrc;
+          iframe.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture';
+          iframe.allowFullscreen = true;
+          iframe.style.width = '100%';
+          iframe.style.height = '100%';
+          iframe.style.border = '0';
+          container.appendChild(iframe);
+          post('ready');
+          startTicking();
+        }
 
         function post(type, extra) {
           if (window.parent === window) return;
@@ -133,12 +154,13 @@
             height: '100%',
             playerVars: {
               origin: location.origin,
+              widget_referrer: 'https://www.youtube.com',
               enablejsapi: 1,
               rel: 0,
               modestbranding: 1,
-              controls: showControls ? 1 : 0,
-              disablekb: showControls ? 0 : 1,
-              fs: 0,
+              controls: 1,
+              disablekb: 0,
+              fs: 1,
               iv_load_policy: 3,
               playsinline: 1,
               cc_load_policy: 1,
@@ -155,6 +177,10 @@
               },
               onError: function (event) {
                 var code = event && event.data != null ? String(event.data) : 'unknown';
+                if ((code === '101' || code === '150' || code === '2' || code === '5' || code === '100') && !fallbackTried && (videoId || list)) {
+                  tryFallbackEmbed();
+                  return;
+                }
                 post('error', { code: code });
               }
             }
@@ -217,6 +243,13 @@
               case 'quality': {
                 var q = String(data.args || 'default');
                 try {
+                  try {
+                    localStorage.setItem('yt-player-quality', JSON.stringify({
+                      data: q,
+                      expiration: Date.now() + 30 * 86400000,
+                      creation: Date.now()
+                    }));
+                  } catch (e) {}
                   if (typeof player.setPlaybackQualityRange === 'function') {
                     player.setPlaybackQualityRange(q, q);
                   }

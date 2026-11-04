@@ -159,3 +159,29 @@ export function addVideoToPlaylist(playlistId, videoId) {
   }
   return pl;
 }
+
+export function removeVideoFromPlaylist(playlistId, videoId) {
+  const list = readPlaylists();
+  const pl = list.find((p) => p.id === playlistId);
+  if (!pl) return null;
+  pl.videoIds = pl.videoIds.filter((id) => id !== videoId);
+  pl.updatedAt = Date.now();
+  writePlaylists(list);
+  return pl;
+}
+
+export function moveVideoInPlaylist(playlistId, videoId, delta) {
+  const list = readPlaylists();
+  const pl = list.find((p) => p.id === playlistId);
+  if (!pl) return null;
+  const idx = pl.videoIds.indexOf(videoId);
+  const target = idx + (Number(delta) || 0);
+  if (idx < 0 || target < 0 || target >= pl.videoIds.length) return pl;
+  const ids = [...pl.videoIds];
+  const [removed] = ids.splice(idx, 1);
+  ids.splice(target, 0, removed);
+  pl.videoIds = ids;
+  pl.updatedAt = Date.now();
+  writePlaylists(list);
+  return pl;
+}

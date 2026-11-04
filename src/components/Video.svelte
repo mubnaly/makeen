@@ -11,7 +11,7 @@
   import { readPdfBytes } from '../lib/storage.js';
   import { SPEEDS, clampSeek, formatTimecode, frameCaptureRecord } from '../lib/media.js';
   import { canvasCapture, loadImageQuality } from '../lib/imageQuality.js';
-  import { setBookmarks, setPlaybackPosition, upsertDocument, listPlaylists, upsertPlaylist, removePlaylist } from '../lib/library.js';
+  import { setBookmarks, setPlaybackPosition, upsertDocument, listPlaylists, upsertPlaylist, removePlaylist, addVideoToPlaylist, removeVideoFromPlaylist, moveVideoInPlaylist } from '../lib/library.js';
   import { flattenBookmarkTree, indentBookmark, outdentBookmark, toggleBookmarkCollapse } from '../lib/bookmarks.js';
   import {
     parseYouTube, youtubeDocId,
@@ -239,12 +239,97 @@
     window.addEventListener('pointerup', onPointerUp);
   }
 
+  let activePlaylistId = $state('');
+  let playlistVideoAddOpen = $state(false);
+  let playlistVideoUrlInput = $state('');
+  let playlistVideoDocPick = $state('');
+  let playlistPlayingIndex = $state(-1);
+
   function handleCreatePlaylist() {
     if (!newPlaylistTitle.trim()) return;
-    upsertPlaylist({ title: newPlaylistTitle.trim() });
+    const pl = upsertPlaylist({ title: newPlaylistTitle.trim() });
     playlists = listPlaylists();
     newPlaylistTitle = '';
     creatingPlaylist = false;
+    activePlaylistId = pl.id;
+  }
+
+  function handleSelectPlaylist(plId) {
+    activePlaylistId = plId;
+  }
+
+  function handleAddVideoToActivePlaylist() {
+    if (!activePlaylistId) return;
+    if (playlistVideoUrlInput.trim()) {
+      const parsed = parseYouTube(playlistVideoUrlInput.trim());
+      if (!parsed) return;
+      const docId = youtubeDocId(parsed);
+      const existing = (videos || []).find((d) => d.id === docId);
+      const doc = existing || upsertDocument({
+        id: docId,
+        kind: 'video',
+        provider: 'youtube',
+        ytType: 'video',
+        ytId: parsed.id,
+        title: `YouTube: ${parsed.id}`,
+        filename: `YouTube: ${parsed.id}`,
+        url: parsed.url,
+        embedUrl: parsed.embedUrl,
+        size: 0,
+        mime: 'text/html',
+        missing: false
+      });
+      addVideoToPlaylist(activePlaylistId, doc.id);
+      refreshDocs?.();
+      playlists = listPlaylists();
+      playlistVideoUrlInput = '';
+      playlistVideoAddOpen = false;
+      notify(t('video.addToPlaylist'), 'ok');
+    } else if (playlistVideoDocPick) {
+      addVideoToPlaylist(activePlaylistId, playlistVideoDocPick);
+      playlists = listPlaylists();
+      playlistVideoDocPick = '';
+      playlistVideoAddOpen = false;
+      notify(t('video.addToPlaylist'), 'ok');
+    }
+  }
+
+  function handleRemoveFromPlaylist(plId, vidId) {
+    removeVideoFromPlaylist(plId, vidId);
+    playlists = listPlaylists();
+  }
+
+  function handleMoveInPlaylist(plId, vidId, delta) {
+    moveVideoInPlaylist(plId, vidId, delta);
+    playlists = listPlaylists();
+  }
+
+  function handlePlayAllPlaylist(pl) {
+    if (!pl || !pl.videoIds || !pl.videoIds.length) return;
+    activePlaylistId = pl.id;
+    playlistPlayingIndex = 0;
+    const firstVidId = pl.videoIds[0];
+    const target = videos.find((v) => v.id === firstVidId);
+    if (target) openVideo(target);
+  }
+
+  function playPlaylistIndex(pl, idx) {
+    if (!pl || !pl.videoIds || idx < 0 || idx >= pl.videoIds.length) return;
+    activePlaylistId = pl.id;
+    playlistPlayingIndex = idx;
+    const vidId = pl.videoIds[idx];
+    const target = videos.find((v) => v.id === vidId);
+    if (target) openVideo(target);
+  }
+
+  function checkPlaylistNext() {
+    if (!activePlaylistId || playlistPlayingIndex < 0) return;
+    const pl = playlists.find((p) => p.id === activePlaylistId);
+    if (!pl || !pl.videoIds) return;
+    const nextIdx = playlistPlayingIndex + 1;
+    if (nextIdx < pl.videoIds.length) {
+      playPlaylistIndex(pl, nextIdx);
+    }
   }
 
   function revoke() {
@@ -374,6 +459,7 @@
     }
     applyYtSnapshot(data);
     if (data.type === 'state' && (data.state === 2 || data.state === 0)) flushPosition();
+    if (data.type === 'state' && data.state === 0) checkPlaylistNext();
   }
 
   function ytPost(command, args) {
@@ -1221,9 +1307,16 @@
             {#if ytError}
               <div class="empty yt-error">
                 <span>{ytError}</span>
-                <button class="primary" onclick={retryYoutube}>
-                  <Icon name="repeat" size={15} /><span>{t('video.retry')}</span>
-                </button>
+                <div class="hstack" style="gap:8px; justify-content:center; flex-wrap:wrap;">
+                  <button class="primary" onclick={retryYoutube}>
+                    <Icon name="repeat" size={15} /><span>{t('video.retry')}</span>
+                  </button>
+                  {#if video?.url}
+                    <a class="button secondary" href={video.url} target="_blank" rel="noopener noreferrer" style="text-decoration:none; display:inline-flex; align-items:center; gap:6px;">
+                      <Icon name="play" size={14} /><span>{t('video.openInBrowser')}</span>
+                    </a>
+                  {/if}
+                </div>
               </div>
             {:else}
               <div class="yt-host" bind:this={ytHost}>
@@ -1235,12 +1328,6 @@
                   allow="autoplay; encrypted-media; picture-in-picture"
                   referrerpolicy="strict-origin-when-cross-origin"></iframe>
               </div>
-              {#if !ytShowNativeControls}
-                <button type="button" class="yt-shield" onclick={togglePlay}
-                  title={playing ? t('video.pause') : t('video.play')}
-                  aria-label={playing ? t('video.pause') : t('video.play')}
-                  tabindex="-1" onmousedown={(e) => e.preventDefault()}></button>
-              {/if}
             {/if}
             {#if loading}<div class="yt-loading">{t('video.loading')}</div>{/if}
           {:else}
@@ -1254,43 +1341,11 @@
               ontimeupdate={onTimeUpdate}
               onplay={() => playState(true)}
               onpause={() => { playState(false); flushPosition(); }}
-              onended={() => playState(false)}
+              onended={() => { playState(false); checkPlaylistNext(); }}
               onclick={togglePlay}
             ></video>
           {/if}
         </div>
-
-        <!-- Subtitles Area Under Video: highlighted active sentence following playback -->
-        {#if showSubtitles && !isFullscreen}
-          <div class="video-subtitles-bar" dir="auto">
-            {#if activeCue}
-              <button class="active-sentence" onclick={() => seekTo(activeCue.start)} title={formatTimecode(activeCue.start)}>
-                <span class="sub-time">[{formatTimecode(activeCue.start)}]</span>
-                <span class="sub-text highlight">{activeCue.text}</span>
-              </button>
-            {:else if transcriptLoading}
-              <div class="sub-text muted">{t('video.transcriptLoading')}</div>
-            {:else}
-              <div class="sub-text muted">{transcript ? '...' : t('video.transcriptHint')}</div>
-            {/if}
-          </div>
-        {/if}
-
-        <!-- Fullscreen: Subtitles ~25% bottom area with prominent active sentence highlight -->
-        {#if isFullscreen && showSubtitles}
-          <div class="fullscreen-subtitles-area" dir="auto">
-            {#if activeCue}
-              <div class="fs-active-sentence" role="button" tabindex="0" onclick={() => seekTo(activeCue.start)} onkeydown={(e) => e.key === 'Enter' && seekTo(activeCue.start)}>
-                <span class="fs-cue-time">[{formatTimecode(activeCue.start)}]</span>
-                <span class="fs-cue-text">{activeCue.text}</span>
-              </div>
-            {:else if transcriptLoading}
-              <div class="fs-cue-muted">{t('video.transcriptLoading')}</div>
-            {:else}
-              <div class="fs-cue-muted">{transcript ? '...' : t('video.transcriptHint')}</div>
-            {/if}
-          </div>
-        {/if}
 
         <!-- Controls Dock Toolbar (Auto-hides in fullscreen after 3s inactivity) -->
         <div class="controls" dir="ltr">
@@ -1366,6 +1421,10 @@
       <div class="sidebar-tabs-bar" role="tablist">
         <button class={sidebarTab === 'videos' ? 'active' : ''} onclick={() => (sidebarTab = 'videos')} title={t('video.drawerVideos')}>
           <Icon name="video" size={15} /><span>{t('video.drawerVideos')}</span>
+        </button>
+        <button class={sidebarTab === 'playlists' ? 'active' : ''} onclick={() => (sidebarTab = 'playlists')} title={t('video.playlists')}>
+          <Icon name="list" size={15} /><span>{t('video.playlists')}</span>
+          {#if playlists.length}<span class="tab-badge">{playlists.length}</span>{/if}
         </button>
         <button class={sidebarTab === 'chapters' ? 'active' : ''} onclick={() => (sidebarTab = 'chapters')} title={t('video.chapters')}>
           <Icon name="columns" size={15} /><span>{t('video.chapters')}</span>
@@ -1463,6 +1522,151 @@
                   </div>
                 {/each}
               </div>
+            {/if}
+          </div>
+
+        <!-- TAB: PLAYLISTS (Unlimited custom playlists & unlimited videos) -->
+        {:else if sidebarTab === 'playlists'}
+          <div class="tab-panel">
+            {#if activePlaylistId}
+              {@const currentPl = playlists.find((p) => p.id === activePlaylistId)}
+              {@const plVideoIds = currentPl?.videoIds || []}
+              {@const plVideos = plVideoIds.map((id) => videos.find((v) => v.id === id)).filter(Boolean)}
+              <div class="panel-header hstack" style="justify-content:space-between">
+                <button class="small hstack" onclick={() => (activePlaylistId = '')}>
+                  <Icon name="chevron-left" size={14} /><span>{t('projects.back')}</span>
+                </button>
+                <div class="hstack" style="gap:6px">
+                  <button class="primary small" onclick={() => handlePlayAllPlaylist(currentPl)} disabled={!plVideos.length}>
+                    <Icon name="play" size={13} /><span>{t('video.playAll')}</span>
+                  </button>
+                  <button class="icon-btn" onclick={() => { removePlaylist(currentPl.id); playlists = listPlaylists(); activePlaylistId = ''; }} title={t('video.deletePlaylist')}>
+                    <Icon name="trash" size={14} />
+                  </button>
+                </div>
+              </div>
+
+              <div class="pl-header-box mt" style="padding:10px 14px; background:var(--surface-2); border-radius:8px; margin-bottom:12px;">
+                <h4 style="margin:0 0 4px 0;">{currentPl?.title}</h4>
+                <div class="meta muted" style="font-size:12px;">{plVideos.length} {t('projects.videoCount', { n: plVideos.length })}</div>
+              </div>
+
+              <!-- Add Video to this playlist -->
+              <div class="add-section-box" style="margin-bottom:12px;">
+                <button class="toggle-add-btn hstack" onclick={() => (playlistVideoAddOpen = !playlistVideoAddOpen)} aria-expanded={playlistVideoAddOpen}>
+                  <Icon name={playlistVideoAddOpen ? 'chevron-up' : 'plus'} size={14} />
+                  <span>{t('video.addVideoToPlaylist')}</span>
+                </button>
+                {#if playlistVideoAddOpen}
+                  <div class="add-subcard">
+                    <div style="display:flex; flex-direction:column; gap:8px;">
+                      <div class="yt-add">
+                        <input type="text" placeholder={t('video.youtubePlaceholder')} bind:value={playlistVideoUrlInput}
+                          onkeydown={(e) => e.key === 'Enter' && handleAddVideoToActivePlaylist()} />
+                        <button class="primary small" onclick={handleAddVideoToActivePlaylist} disabled={!playlistVideoUrlInput.trim()}>
+                          <Icon name="plus" size={13} /><span>{t('common.add')}</span>
+                        </button>
+                      </div>
+                      {#if videos.length > 0}
+                        <div class="hstack" style="gap:6px;">
+                          <select bind:value={playlistVideoDocPick} class="grow" style="font-size:12px;">
+                            <option value="">{t('projects.addVideo')}</option>
+                            {#each videos.filter((v) => !plVideoIds.includes(v.id)) as v (v.id)}
+                              <option value={v.id}>{v.title}</option>
+                            {/each}
+                          </select>
+                          <button class="small" onclick={handleAddVideoToActivePlaylist} disabled={!playlistVideoDocPick}>
+                            <Icon name="plus" size={13} /><span>{t('common.add')}</span>
+                          </button>
+                        </div>
+                      {/if}
+                    </div>
+                  </div>
+                {/if}
+              </div>
+
+              <!-- Playlist Videos List -->
+              {#if plVideos.length === 0}
+                <div class="empty muted" style="margin-top:20px; text-align:center;">{t('video.noPlaylistVideos')}</div>
+              {:else}
+                <div class="sidebar-video-list">
+                  {#each plVideos as v, idx (v.id)}
+                    <div class="video-row {v.id === video?.id ? 'active' : ''}">
+                      <button class="video-click" onclick={() => playPlaylistIndex(currentPl, idx)}>
+                        <span class="chapter-idx">{idx + 1}</span>
+                        <Icon name={v.provider === 'youtube' ? 'play' : 'video'} size={15} />
+                        <div class="grow" style="text-align:start;">
+                          <div class="vrow-title">{v.title}</div>
+                          <div class="vrow-meta muted">{formatTimecode(v.durationSeconds)}</div>
+                        </div>
+                      </button>
+                      <div class="hstack" style="gap:2px;">
+                        <button class="icon-btn" onclick={() => handleMoveInPlaylist(currentPl.id, v.id, -1)} disabled={idx === 0} title="Move Up">
+                          <Icon name="chevron-up" size={13} />
+                        </button>
+                        <button class="icon-btn" onclick={() => handleMoveInPlaylist(currentPl.id, v.id, 1)} disabled={idx === plVideos.length - 1} title="Move Down">
+                          <Icon name="chevron-down" size={13} />
+                        </button>
+                        <button class="icon-btn" onclick={() => handleRemoveFromPlaylist(currentPl.id, v.id)} title={t('common.remove')}>
+                          <Icon name="x" size={13} />
+                        </button>
+                      </div>
+                    </div>
+                  {/each}
+                </div>
+              {/if}
+
+            {:else}
+              <!-- All Playlists View -->
+              <div class="panel-header hstack" style="justify-content:space-between">
+                <span class="section-title" style="margin:0">{t('video.playlists')} ({playlists.length})</span>
+                <button class="primary small" onclick={() => (creatingPlaylist = true)}>
+                  <Icon name="plus" size={14} /><span>{t('video.newPlaylist')}</span>
+                </button>
+              </div>
+
+              {#if creatingPlaylist}
+                <div class="add-subcard mt" style="margin-bottom:12px;">
+                  <div class="yt-add">
+                    <input type="text" placeholder={t('video.playlistNamePlaceholder')} bind:value={newPlaylistTitle}
+                      onkeydown={(e) => e.key === 'Enter' && handleCreatePlaylist()} />
+                    <button class="primary small" onclick={handleCreatePlaylist} disabled={!newPlaylistTitle.trim()}>
+                      <Icon name="check" size={13} /><span>{t('common.add')}</span>
+                    </button>
+                    <button class="small" onclick={() => { creatingPlaylist = false; newPlaylistTitle = ''; }}>
+                      <Icon name="x" size={13} />
+                    </button>
+                  </div>
+                </div>
+              {/if}
+
+              {#if playlists.length === 0}
+                <div class="empty muted" style="margin-top:20px; text-align:center;">{t('video.noPlaylists')}</div>
+              {:else}
+                <div class="sidebar-video-list mt">
+                  {#each playlists as pl (pl.id)}
+                    <div class="playlist-row card" style="padding:10px 14px; margin-bottom:8px; background:var(--surface-2); border:1px solid var(--border);">
+                      <div class="hstack" style="justify-content:space-between; align-items:center;">
+                        <button class="grow hstack" onclick={() => handleSelectPlaylist(pl.id)} style="background:transparent; border:none; cursor:pointer; text-align:start; gap:8px;">
+                          <Icon name="list" size={18} />
+                          <div>
+                            <div class="vrow-title" style="font-weight:600;">{pl.title}</div>
+                            <div class="meta muted" style="font-size:11px;">{pl.videoIds?.length || 0} {t('projects.videoCount', { n: pl.videoIds?.length || 0 })}</div>
+                          </div>
+                        </button>
+                        <div class="hstack" style="gap:4px;">
+                          <button class="small primary" onclick={() => handlePlayAllPlaylist(pl)} disabled={!pl.videoIds?.length} title={t('video.playAll')}>
+                            <Icon name="play" size={12} /><span>{t('video.playAll')}</span>
+                          </button>
+                          <button class="icon-btn" onclick={() => { removePlaylist(pl.id); playlists = listPlaylists(); }} title={t('video.deletePlaylist')}>
+                            <Icon name="trash" size={13} />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  {/each}
+                </div>
+              {/if}
             {/if}
           </div>
 
@@ -1960,38 +2164,6 @@
     text-align: center;
   }
 
-  /* Subtitles Bar under video in standard view */
-  .video-subtitles-bar {
-    padding: 10px 16px;
-    background: var(--surface-2, rgba(0, 0, 0, 0.03));
-    border-top: 1px solid var(--border);
-    border-bottom: 1px solid var(--border);
-    text-align: center;
-  }
-  .active-sentence {
-    display: inline-flex;
-    align-items: baseline;
-    gap: 8px;
-    background: transparent;
-    border: none;
-    cursor: pointer;
-    font-size: 15px;
-    line-height: 1.5;
-    text-align: center;
-  }
-  .active-sentence .sub-time {
-    font-size: 11px;
-    color: var(--muted);
-    font-family: monospace;
-  }
-  .active-sentence .sub-text.highlight {
-    background: linear-gradient(120deg, rgba(245, 158, 11, 0.25), rgba(245, 158, 11, 0.35));
-    border-radius: 4px;
-    padding: 2px 6px;
-    font-weight: 600;
-    color: var(--text);
-  }
-
   /* Controls */
   .controls {
     display: flex;
@@ -2168,10 +2340,6 @@
     flex: 1;
     height: 100%;
     width: 100%;
-  }
-  .video-workspace.is-fullscreen.has-subtitles .video-frame {
-    flex: 3;
-    height: 75vh;
   }
   .video-workspace.is-fullscreen .video-frame video,
   .video-workspace.is-fullscreen .yt-host {
