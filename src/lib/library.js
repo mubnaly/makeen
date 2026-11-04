@@ -22,8 +22,54 @@ function write(list) {
   return list;
 }
 
+export function isDocumentStarted(doc) {
+  if (!doc) return false;
+  if (doc.kind === 'video' || doc.provider === 'youtube') {
+    return Number(doc.lastSeconds) > 0 || Number(doc.timeSpentSeconds) > 0;
+  }
+  return Number(doc.lastPage) > 0 || Number(doc.timeSpentSeconds) > 0;
+}
+
 export function listDocuments() {
-  return read().sort((a, b) => (b.lastOpened || b.addedAt || 0) - (a.lastOpened || a.addedAt || 0));
+  const rawList = read();
+  // Deduplicate entries by unique file key: filePath || filename || id
+  const map = new Map();
+  for (const doc of rawList) {
+    const normName = String(doc.filename || doc.title || '').trim().toLowerCase();
+    const key = doc.filePath
+      ? `path:${doc.filePath.toLowerCase()}`
+      : (normName ? `${doc.kind || 'pdf'}:${normName}` : `id:${doc.id}`);
+
+    const existing = map.get(key);
+    if (!existing) {
+      map.set(key, doc);
+    } else {
+      // Pick the most recently updated/opened record, preserving highest progress
+      const existingTime = existing.lastOpened || existing.addedAt || 0;
+      const docTime = doc.lastOpened || doc.addedAt || 0;
+      const bestPage = Math.max(Number(existing.lastPage) || 0, Number(doc.lastPage) || 0);
+      const bestSeconds = Math.max(Number(existing.lastSeconds) || 0, Number(doc.lastSeconds) || 0);
+      const bestTimeSpent = Math.max(Number(existing.timeSpentSeconds) || 0, Number(doc.timeSpentSeconds) || 0);
+
+      const winner = docTime >= existingTime ? doc : existing;
+      const merged = {
+        ...existing,
+        ...doc,
+        id: existing.id, // keep stable ID
+        lastPage: bestPage || winner.lastPage || undefined,
+        lastSeconds: bestSeconds || winner.lastSeconds || undefined,
+        timeSpentSeconds: bestTimeSpent || winner.timeSpentSeconds || undefined,
+        lastOpened: Math.max(existing.lastOpened || 0, doc.lastOpened || 0) || undefined
+      };
+      map.set(key, merged);
+    }
+  }
+
+  const deduplicated = Array.from(map.values());
+  if (deduplicated.length < rawList.length) {
+    write(deduplicated);
+  }
+  return deduplicated.sort((a, b) => (b.lastOpened || b.addedAt || 0) - (a.lastOpened || a.addedAt || 0));
 }
 
 export function getDocument(id) {
@@ -32,8 +78,38 @@ export function getDocument(id) {
 
 export function upsertDocument(doc) {
   const list = read();
-  const idx = list.findIndex((d) => d.id === doc.id);
-  const merged = idx >= 0 ? { ...list[idx], ...doc } : { addedAt: Date.now(), ...doc };
+  const normName = String(doc.filename || doc.title || '').trim().toLowerCase();
+
+  // Find existing by ID OR by filePath OR by normalized filename of same kind
+  const idx = list.findIndex((d) => {
+    if (d.id === doc.id) return true;
+    if (doc.filePath && d.filePath && d.filePath.toLowerCase() === doc.filePath.toLowerCase()) return true;
+    if (normName && d.kind === doc.kind) {
+      const dNorm = String(d.filename || d.title || '').trim().toLowerCase();
+      if (dNorm && dNorm === normName) return true;
+    }
+    return false;
+  });
+
+  const targetId = idx >= 0 ? list[idx].id : (doc.id || crypto.randomUUID());
+  const existing = idx >= 0 ? list[idx] : null;
+
+  const merged = existing
+    ? {
+        ...existing,
+        ...doc,
+        id: targetId,
+        // Preserve and update highest progress values
+        lastPage: doc.lastPage !== undefined ? doc.lastPage : existing.lastPage,
+        lastSeconds: doc.lastSeconds !== undefined ? doc.lastSeconds : existing.lastSeconds,
+        lastOpened: doc.lastOpened || Date.now()
+      }
+    : {
+        addedAt: Date.now(),
+        ...doc,
+        id: targetId
+      };
+
   if (idx >= 0) list[idx] = merged;
   else list.push(merged);
   write(list);

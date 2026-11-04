@@ -432,7 +432,7 @@
       try {
         const res = await window.studyos.pickLocalPdf();
         if (res && res.ok && res.bytes) {
-          await importPdfBytes(res.name, res.bytes, { open: true });
+          await importPdfBytes(res.name, res.bytes, { open: true, filePath: res.path || '' });
           return;
         }
         if (res?.canceled) return;
@@ -445,18 +445,27 @@
 
   function pickVideo() { videoInput?.click(); }
 
-  async function importPdfBytes(filename, bytes, { open = true, quiet = false } = {}) {
+  async function importPdfBytes(filename, bytes, { open = true, quiet = false, filePath = '' } = {}) {
     try {
       const u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-      const data = new TextEncoder().encode(`${filename}|${u8.byteLength}`);
-      const buf = await crypto.subtle.digest('SHA-1', data);
-      const id = [...new Uint8Array(buf)].slice(0, 16).map((b) => b.toString(16).padStart(2, '0')).join('');
+      const existing = docs.find((d) =>
+        (filePath && d.filePath && d.filePath.toLowerCase() === filePath.toLowerCase()) ||
+        (d.kind === 'pdf' && d.filename && d.filename.toLowerCase() === filename.toLowerCase())
+      );
+      let id = existing?.id;
+      if (!id) {
+        const data = new TextEncoder().encode(`${filename}|${u8.byteLength}`);
+        const buf = await crypto.subtle.digest('SHA-1', data);
+        id = [...new Uint8Array(buf)].slice(0, 16).map((b) => b.toString(16).padStart(2, '0')).join('');
+      }
       await savePdfBytes(id, u8.buffer);
       const doc = library.upsertDocument({
+        ...(existing || {}),
         id,
         kind: 'pdf',
-        title: filename,
+        title: existing?.title || filename,
         filename,
+        filePath: filePath || existing?.filePath || undefined,
         size: u8.byteLength,
         missing: false
       });
@@ -474,9 +483,18 @@
     if (!isPdfFile(file)) { notify(t('toast.importFailed', { message: file?.name || '' }), 'error'); return null; }
     try {
       const bytes = new Uint8Array(await file.arrayBuffer());
-      const id = await hashId(file);
+      const existing = docs.find((d) => d.kind === 'pdf' && d.filename && d.filename.toLowerCase() === file.name.toLowerCase());
+      const id = existing?.id || (await hashId(file));
       await savePdfBytes(id, bytes.buffer);
-      const doc = library.upsertDocument({ id, kind: 'pdf', title: file.name, filename: file.name, size: file.size, missing: false });
+      const doc = library.upsertDocument({
+        ...(existing || {}),
+        id,
+        kind: 'pdf',
+        title: existing?.title || file.name,
+        filename: file.name,
+        size: file.size,
+        missing: false
+      });
       docs = library.listDocuments();
       if (!quiet) notify(t('toast.imported', { name: file.name }), 'ok');
       if (open) openDoc(doc);
@@ -777,15 +795,34 @@
     openDoc(library.getDocument(record.id));
   }
 
-  // The Library lists every material, filtered by the search box. The title and
-  // the stored filename both match, so “lecture-03.pdf” finds the imported file
-  // even after it was renamed in the app.
+  // The Library lists every material, filtered by the search box and active category filter.
+  // Defaults to 'started' so only opened/started documents appear by default, as requested.
+  let libraryFilter = $state('started'); // 'started' | 'all' | 'pdf' | 'video' | 'unstarted'
+
   const searchTerm = $derived(globalSearch.trim().toLowerCase());
   const recentDocs = $derived(
     docs.filter((d) => !searchTerm || [d.title, d.filename]
       .some((value) => String(value || '').toLowerCase().includes(searchTerm)))
   );
   const recentPdfs = $derived(recentDocs.filter((d) => kindOf(d) === 'pdf'));
+
+  const libraryCounts = $derived({
+    all: recentDocs.length,
+    started: recentDocs.filter(library.isDocumentStarted).length,
+    pdf: recentDocs.filter((d) => kindOf(d) === 'pdf').length,
+    video: recentDocs.filter((d) => kindOf(d) === 'video').length,
+    unstarted: recentDocs.filter((d) => !library.isDocumentStarted(d)).length
+  });
+
+  const filteredDocs = $derived(
+    recentDocs.filter((d) => {
+      if (libraryFilter === 'started') return library.isDocumentStarted(d);
+      if (libraryFilter === 'pdf') return kindOf(d) === 'pdf';
+      if (libraryFilter === 'video') return kindOf(d) === 'video';
+      if (libraryFilter === 'unstarted') return !library.isDocumentStarted(d);
+      return true;
+    })
+  );
 
   // --- first-run guide -------------------------------------------------------
   // Four concrete steps from an empty app to a reviewed card. Each one knows
@@ -1427,9 +1464,64 @@
             <button class={modeOf('library') === 'list' ? 'active' : ''} onclick={() => setMode('library', 'list')} title={t('common.listView')} aria-label={t('common.listView')} aria-pressed={modeOf('library') === 'list'}><Icon name="list" size={15} /></button>
           </div>
         </div>
+
+        <!-- Category and status filters: default to started/opened documents -->
+        <div class="library-filter-bar" role="tablist" aria-label="Library Filters">
+          <button
+            type="button"
+            class="filter-pill {libraryFilter === 'started' ? 'active' : ''}"
+            onclick={() => (libraryFilter = 'started')}
+          >
+            <Icon name="play" size={13} />
+            <span>{t('library.filterStarted')}</span>
+            <span class="pill-count">({libraryCounts.started})</span>
+          </button>
+          <button
+            type="button"
+            class="filter-pill {libraryFilter === 'all' ? 'active' : ''}"
+            onclick={() => (libraryFilter = 'all')}
+          >
+            <span>{t('library.filterAll')}</span>
+            <span class="pill-count">({libraryCounts.all})</span>
+          </button>
+          <button
+            type="button"
+            class="filter-pill {libraryFilter === 'pdf' ? 'active' : ''}"
+            onclick={() => (libraryFilter = 'pdf')}
+          >
+            <Icon name="reader" size={13} />
+            <span>{t('library.filterPdfs')}</span>
+            <span class="pill-count">({libraryCounts.pdf})</span>
+          </button>
+          <button
+            type="button"
+            class="filter-pill {libraryFilter === 'video' ? 'active' : ''}"
+            onclick={() => (libraryFilter = 'video')}
+          >
+            <Icon name="video" size={13} />
+            <span>{t('library.filterVideos')}</span>
+            <span class="pill-count">({libraryCounts.video})</span>
+          </button>
+          <button
+            type="button"
+            class="filter-pill {libraryFilter === 'unstarted' ? 'active' : ''}"
+            onclick={() => (libraryFilter = 'unstarted')}
+          >
+            <span>{t('library.filterUnstarted')}</span>
+            <span class="pill-count">({libraryCounts.unstarted})</span>
+          </button>
+        </div>
+
         <div class="mt">
-          {#if recentDocs.length === 0}
-            {#if searchTerm}
+          {#if filteredDocs.length === 0}
+            {#if recentDocs.length > 0}
+              <div class="empty muted" style="text-align:center; padding:36px 16px;">
+                <p>{t('library.noFilteredResults')}</p>
+                <button class="small" onclick={() => (libraryFilter = 'all')}>
+                  {t('library.filterAll')} ({libraryCounts.all})
+                </button>
+              </div>
+            {:else if searchTerm}
               <EmptyState icon="search" title={t('empty.noResultsTitle')}
                 hint={t('empty.noResultsHint', { query: globalSearch.trim() })}
                 actionLabel={t('topbar.clearSearch')} onaction={clearSearch} />
@@ -1440,14 +1532,14 @@
             {/if}
           {:else if modeOf('library') === 'grid'}
             <div class="grid cols-3">
-              {#each recentDocs as d}
+              {#each filteredDocs as d (d.id)}
                 <div class="card clickable" role="button" tabindex="0" onclick={() => openDoc(d)}
                   onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && openDoc(d)}>
-                  <div class="hstack">
-                    <span class="row-ico"><Icon name={kindOf(d) === 'video' ? 'video' : 'reader'} size={18} /></span>
-                    <div class="grow">
-                      <div class="title" style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap">{d.title}</div>
-                      <div class="meta muted" style="font-size:12px; margin-top:2px">{docMeta(d)}</div>
+                  <div class="hstack" style="min-width:0; overflow:hidden;">
+                    <span class="row-ico" style="flex-shrink:0"><Icon name={kindOf(d) === 'video' ? 'video' : 'reader'} size={18} /></span>
+                    <div class="grow" style="min-width:0; overflow:hidden;">
+                      <div class="title" title={d.title} style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:block;">{d.title}</div>
+                      <div class="meta muted" style="font-size:12px; margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{docMeta(d)}</div>
                     </div>
                   </div>
                   <div class="hstack" style="margin-top:10px; justify-content:space-between">
@@ -1461,13 +1553,13 @@
               {/each}
             </div>
           {:else}
-            {#each recentDocs as d}
+            {#each filteredDocs as d (d.id)}
               <div class="row clickable" style="margin-bottom:8px" role="button" tabindex="0"
                 onclick={() => openDoc(d)} onkeydown={(e) => onActivate(e, () => openDoc(d))}>
-                <span class="row-ico"><Icon name={kindOf(d) === 'video' ? 'video' : 'reader'} size={16} /></span>
-                <div class="grow">
-                  <div class="title">{d.title}</div>
-                  <div class="meta">{docMeta(d)}</div>
+                <span class="row-ico" style="flex-shrink:0"><Icon name={kindOf(d) === 'video' ? 'video' : 'reader'} size={16} /></span>
+                <div class="grow" style="min-width:0; overflow:hidden;">
+                  <div class="title" title={d.title} style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{d.title}</div>
+                  <div class="meta muted" style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{docMeta(d)}</div>
                 </div>
                 {#if d.missing}<span class="badge" style="color:var(--danger)">{t('library.missing')}</span>{/if}
                 <span class="badge">{kindOf(d) === 'video' ? t('library.badgeVideo') : t('library.badgePdf')}</span>
