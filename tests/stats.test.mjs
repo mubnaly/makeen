@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   loadUserAvatar, saveUserAvatar, recordStudyHeartbeat,
-  recordCardReview, computeStudySummary, loadStudyStats
+  recordCardReview, computeStudySummary, loadStudyStats,
+  recordCompletedPomodoro
 } from '../src/lib/stats.js';
 
 const storage = new Map();
@@ -31,4 +32,23 @@ test('recordStudyHeartbeat aggregates time per video and reading', () => {
   assert.equal(summary.totalReadingSec, 120);
   assert.equal(summary.totalPagesRead, 5);
   assert.ok(summary.studyScore > 0);
+});
+
+test('recordCompletedPomodoro records sessions and computes totals', () => {
+  storage.clear();
+  recordCompletedPomodoro({ mode: 'focus', durationMinutes: 25, title: 'Biology Chapter 1' });
+  recordCompletedPomodoro({ mode: 'focus', durationMinutes: 25, title: 'Calculus Notes' });
+  recordCompletedPomodoro({ mode: 'shortBreak', durationMinutes: 5, title: 'Break' });
+
+  const stats = loadStudyStats();
+  assert.equal(stats.pomodoros.totalCompleted, 2);
+  assert.equal(stats.pomodoros.totalFocusSec, 50 * 60);
+  assert.equal(stats.pomodoros.history.length, 3);
+  assert.equal(stats.pomodoros.history[0].title, 'Break');
+  assert.equal(stats.pomodoros.history[1].title, 'Calculus Notes');
+
+  const summary = computeStudySummary(stats);
+  assert.equal(summary.pomodorosCompleted, 2);
+  assert.equal(summary.pomodorosToday, 2);
+  assert.equal(summary.pomodoroFocusMinutes, 50);
 });

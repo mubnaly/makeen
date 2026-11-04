@@ -30,6 +30,7 @@
   // The page transform in this file is also called `t`, so the translator is
   // imported as `tr`.
   import { t as tr } from '../lib/lang.svelte.js';
+  import PomodoroWidget from './PomodoroWidget.svelte';
 
   let {
     doc,
@@ -1750,6 +1751,11 @@
 
   <div class="reader-body">
     <div class="stage-host">
+      <!-- Floating Top-Right Pomodoro Widget overlay -->
+      <div class="pdf-pomodoro-corner">
+        <PomodoroWidget materialTitle={doc?.title || doc?.name} compact={true} />
+      </div>
+
       <div class="stage {layout}" bind:this={stage} onscroll={onStageScroll} use:autoScrollbar>
         {#if loading}
           <div class="empty">{tr('reader.loading')}</div>

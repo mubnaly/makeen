@@ -99,6 +99,32 @@ export function recordCardReview(deckId, isCorrect = true) {
   persistStudyStats(stats);
 }
 
+// Record a completed Pomodoro session
+export function recordCompletedPomodoro({ mode = 'focus', durationMinutes = 25, title = '' } = {}) {
+  const stats = loadStudyStats();
+  const today = new Date().toISOString().slice(0, 10);
+  stats.pomodoros = stats.pomodoros || { totalCompleted: 0, totalFocusSec: 0, history: [] };
+  if (mode === 'focus') {
+    stats.pomodoros.totalCompleted = (stats.pomodoros.totalCompleted || 0) + 1;
+    stats.pomodoros.totalFocusSec = (stats.pomodoros.totalFocusSec || 0) + (durationMinutes * 60);
+    stats.days[today] = stats.days[today] || { readingSec: 0, videoSec: 0, reviewSec: 0, pomodoros: 0 };
+    stats.days[today].pomodoros = (stats.days[today].pomodoros || 0) + 1;
+  }
+  stats.pomodoros.history = stats.pomodoros.history || [];
+  stats.pomodoros.history.unshift({
+    id: `pomo-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    timestamp: Date.now(),
+    mode,
+    durationMinutes,
+    title: String(title || '').slice(0, 100)
+  });
+  if (stats.pomodoros.history.length > 100) {
+    stats.pomodoros.history = stats.pomodoros.history.slice(0, 100);
+  }
+  persistStudyStats(stats);
+  return stats.pomodoros;
+}
+
 export function computeStudySummary(stats = loadStudyStats(), docsList = [], videosList = []) {
   let totalVideoSec = 0;
   let totalReadingSec = 0;
@@ -135,6 +161,8 @@ export function computeStudySummary(stats = loadStudyStats(), docsList = [], vid
   score = Math.min(100, Math.max(0, score));
 
   const stars = Math.min(5, Math.max(1, Math.round(score / 20)));
+  const today = new Date().toISOString().slice(0, 10);
+  const pomodoros = stats.pomodoros || { totalCompleted: 0, totalFocusSec: 0, history: [] };
 
   return {
     totalStudySec,
@@ -151,6 +179,11 @@ export function computeStudySummary(stats = loadStudyStats(), docsList = [], vid
     cardRetentionRate,
     studyScore: score,
     studyStars: stars,
-    ratingLabel: score >= 90 ? 'ممتاز جداً (Elite Scholar)' : score >= 75 ? 'متفوق (High Achiever)' : score >= 50 ? 'جيد جداً (Steady Learner)' : 'في البداية (Getting Started)'
+    ratingLabel: score >= 90 ? 'ممتاز جداً (Elite Scholar)' : score >= 75 ? 'متفوق (High Achiever)' : score >= 50 ? 'جيد جداً (Steady Learner)' : 'في البداية (Getting Started)',
+    pomodorosCompleted: pomodoros.totalCompleted || 0,
+    pomodorosToday: stats.days?.[today]?.pomodoros || 0,
+    pomodoroFocusMinutes: Math.round((pomodoros.totalFocusSec || 0) / 60),
+    pomodoroFocusHours: +((pomodoros.totalFocusSec || 0) / 3600).toFixed(1),
+    pomodorosHistory: pomodoros.history || []
   };
 }

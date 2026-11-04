@@ -173,10 +173,43 @@
         <span class="metric-label">{t('profile.activeProjects')}</span>
       </div>
     </div>
+
+    <div class="metric-card" style="border-inline-start: 4px solid #ef4444;">
+      <div class="metric-icon" style="color: #ef4444;"><Icon name="clock" size={24} /></div>
+      <div class="metric-info">
+        <span class="metric-val">{summary.pomodorosCompleted}</span>
+        <span class="metric-unit">{t('pomodoro.completed')} ({summary.pomodoroFocusHours} {t('profile.hours')})</span>
+        <span class="metric-label">{t('pomodoro.today')}: {summary.pomodorosToday}</span>
+      </div>
+    </div>
   </div>
 
   <!-- Detailed Study Breakdown Sections -->
   <div class="details-section">
+    <!-- Pomodoro Sessions Breakdown -->
+    <div class="table-card" style="border-top: 3px solid #ef4444;">
+      <div class="table-head">
+        <h3><Icon name="clock" size={16} /> <span>{t('pomodoro.analytics')}</span></h3>
+        <span class="badge" style="background: rgba(239, 68, 68, 0.15); color: #ef4444;">{summary.pomodorosCompleted} {t('pomodoro.completed')}</span>
+      </div>
+      {#if !summary.pomodorosHistory || summary.pomodorosHistory.length === 0}
+        <div class="empty-state-small">{t('pomodoro.noHistory')}</div>
+      {:else}
+        <div class="stats-table">
+          {#each summary.pomodorosHistory.slice(0, 20) as session}
+            <div class="stats-row">
+              <span class="row-title" title={session.title || t(`pomodoro.${session.mode}`)}>
+                {session.title || t(`pomodoro.${session.mode}`)}
+              </span>
+              <span class="row-meta muted" style="font-size:11px;">
+                {new Date(session.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} • {new Date(session.timestamp).toLocaleDateString([], { month: 'numeric', day: 'numeric' })}
+              </span>
+              <span class="row-time">{session.durationMinutes} {t('profile.min')}</span>
+            </div>
+          {/each}
+        </div>
+      {/if}
+    </div>
     <!-- Videos Breakdown -->
     <div class="table-card">
       <div class="table-head">

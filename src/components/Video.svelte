@@ -25,6 +25,7 @@
   import { notesToPdf } from '../lib/studioPdfExport.js';
   import { recordStudyHeartbeat } from '../lib/stats.js';
   import { savePdfBytes } from '../lib/storage.js';
+  import PomodoroWidget from './PomodoroWidget.svelte';
 
   let {
     video = null,
@@ -62,9 +63,18 @@
   let ytSessionToken = 0;
   let ytReadyTimer = null;
   let ytError = $state('');
+  const PREFERRED_QUALITY_KEY = 'studyos.video.quality';
+  function loadPreferredQuality() {
+    try {
+      return localStorage.getItem(PREFERRED_QUALITY_KEY) || 'small';
+    } catch {
+      return 'small';
+    }
+  }
+
   let ytQualities = $state([]);
-  let ytQuality = $state('auto');
-  let userSelectedQuality = $state('auto');
+  let ytQuality = $state('small');
+  let userSelectedQuality = $state(loadPreferredQuality());
   let ytCurrentVideoId = $state('');
   let ytShowNativeControls = $state(false);
   let isAddOpen = $state(false);
@@ -370,8 +380,8 @@
     transcriptLang = '';
     transcriptLoading = false;
     ytQualities = [];
-    userSelectedQuality = 'auto';
-    ytQuality = 'auto';
+    userSelectedQuality = loadPreferredQuality();
+    ytQuality = userSelectedQuality;
     ytCurrentVideoId = '';
     if (!id) return;
     const record = videos.find((v) => v.id === id) || video;
@@ -433,6 +443,7 @@
       if (muted) params.set('muted', '1');
       if (rate !== 1) params.set('rate', String(rate));
       if (ytShowNativeControls) params.set('controls', '1');
+      params.set('quality', userSelectedQuality || 'small');
       ytFrameUrl = `${origin.replace(/\/+$/, '')}/yt-player.html?${params.toString()}`;
       if (ytReadyTimer) clearTimeout(ytReadyTimer);
       ytReadyTimer = setTimeout(() => {
@@ -652,7 +663,10 @@
   }
 
   function setQuality(value) {
-    userSelectedQuality = String(value || 'auto');
+    userSelectedQuality = String(value || 'small');
+    try {
+      localStorage.setItem(PREFERRED_QUALITY_KEY, userSelectedQuality);
+    } catch {}
     ytQuality = userSelectedQuality;
     ytPost('quality', ytQuality === 'auto' ? 'default' : ytQuality);
   }
@@ -1432,10 +1446,13 @@
                 <label class="quality" title={t('video.quality')}>
                   <select value={userSelectedQuality} onchange={(e) => setQuality(e.currentTarget.value)}
                     aria-label={t('video.quality')}>
+                    <option value="small">240p ({t('video.qualitySmall')})</option>
+                    <option value="tiny">144p</option>
+                    <option value="medium">360p</option>
+                    <option value="large">480p</option>
+                    <option value="hd720">720p HD</option>
+                    <option value="hd1080">1080p HD</option>
                     <option value="auto">{t('video.qualityAuto')}</option>
-                    {#each (ytQualities.length ? ytQualities : ['highres', 'hd1080', 'hd720', 'large', 'medium', 'small', 'tiny']) as quality (quality)}
-                      <option value={quality}>{qualityLabel(quality)}</option>
-                    {/each}
                   </select>
                 </label>
                 <button class={isBlackScreen ? 'active' : ''} onclick={toggleBlackScreen}
@@ -1475,6 +1492,11 @@
 
     <!-- Right: The 5-Tab Study Sidebar (Present in both normal & fullscreen mode!) -->
     <aside class="video-sidebar" style="width:var(--sidebar-w)">
+
+      <!-- Pomodoro Study Header at the top of the sidebar -->
+      <div class="sidebar-pomodoro-dock">
+        <PomodoroWidget materialTitle={video?.title || video?.filename} />
+      </div>
 
       <!-- Top Tab Navigation Switcher with Horizontal Scroll -->
       <div class="sidebar-tabs-bar" role="tablist">

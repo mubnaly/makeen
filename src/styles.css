@@ -1049,6 +1049,25 @@ button:active:not([disabled]) { transform: translateY(1px); }
 
 /* --- page strip / spread --------------------------------------------------- */
 .stage-host { flex: 1; min-width: 0; min-height: 0; position: relative; display: flex; }
+.pdf-pomodoro-corner {
+  position: absolute;
+  top: 14px;
+  right: 18px;
+  z-index: 45;
+  pointer-events: auto;
+}
+:root[dir="rtl"] .pdf-pomodoro-corner {
+  right: 18px;
+  left: auto;
+}
+.sidebar-pomodoro-dock {
+  padding: 8px 12px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+}
 .stage {
   flex: 1; min-width: 0; display: block; overflow: auto;
   padding: 20px 30px 20px 20px; background: var(--surface-2);
