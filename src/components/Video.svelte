@@ -26,6 +26,7 @@
   import { recordStudyHeartbeat } from '../lib/stats.js';
   import { savePdfBytes } from '../lib/storage.js';
   import PomodoroWidget from './PomodoroWidget.svelte';
+  import MarkdownEditor from './MarkdownEditor.svelte';
 
   let {
     video = null,
@@ -1916,82 +1917,17 @@
             {/if}
           </div>
 
-        <!-- TAB 5: STUDY NOTES EDITOR (Word-like side editor) -->
+        <!-- TAB 5: STUDY NOTES EDITOR (Full Markdown Editor & Viewer) -->
         {:else if sidebarTab === 'editor'}
-          <div class="tab-panel editor-panel">
-            <div class="panel-header hstack" style="justify-content:space-between">
-              <span class="section-title" style="margin:0">{t('video.drawerEditor')}</span>
-              <div class="hstack" style="gap:6px">
-                <button class="small" onclick={exportEditorWord} disabled={!videoNotes.length} title="Export to Word (.docx)">
-                  <Icon name="download" size={13} /><span>Word</span>
-                </button>
-                <button class="small" onclick={exportEditorPdf} disabled={!videoNotes.length} title="Export to PDF">
-                  <Icon name="file-text" size={13} /><span>PDF</span>
-                </button>
-              </div>
-            </div>
-
-            <!-- Quick Action Buttons: Insert Active Subtitle or Current Screenshot -->
-            <div class="editor-quick-row hstack" style="gap:6px; margin-top:8px;">
-              <button class="small" onclick={() => insertScreenshotIntoEditor()} title={t('video.insertScreenshot')}>
-                <Icon name="camera" size={13} /><span>{t('video.insertScreenshot')}</span>
-              </button>
-              <button class="small" onclick={insertSubtitleIntoEditor} title={t('video.insertSubtitle')}>
-                <Icon name="scroll" size={13} /><span>{t('video.insertSubtitle')}</span>
-              </button>
-              <button class="small" onclick={() => (editorDir = editorDir === 'rtl' ? 'ltr' : 'rtl')} title="Toggle RTL/LTR">
-                <Icon name="arrow-left-right" size={13} /><span>{editorDir.toUpperCase()}</span>
-              </button>
-            </div>
-
-            <!-- Note Composition Input Box -->
-            <div class="editor-input-box" style="margin-top:10px;">
-              <div class="editor-tools-row hstack" style="gap:6px; margin-bottom:6px;">
-                <select bind:value={editorHeading} class="heading-select">
-                  <option value="p">Paragraph</option>
-                  <option value="h1">Heading 1</option>
-                  <option value="h2">Heading 2</option>
-                  <option value="h3">Heading 3</option>
-                </select>
-                <button class="primary small grow" onclick={addEditorNote} disabled={!editorNoteText.trim()}>
-                  <Icon name="plus" size={13} /><span>{t('common.add')}</span>
-                </button>
-              </div>
-              <textarea
-                class="editor-textarea"
-                dir={editorDir}
-                placeholder="Type your study notes here..."
-                bind:value={editorNoteText}
-                onkeydown={(e) => e.key === 'Enter' && e.ctrlKey && addEditorNote()}
-              ></textarea>
-            </div>
-
-            <!-- Committed Document Notes Sequence -->
-            <div class="editor-notes-list" use:autoScrollbar>
-              {#if videoNotes.length === 0}
-                <div class="empty muted" style="margin-top:20px; font-size:12px">No notes yet. Add headings, text, screenshots or subtitles to build your study document.</div>
-              {:else}
-                {#each videoNotes as note (note.id)}
-                  <div class="note-block" class:is-heading={note.type === 'heading'} class:is-quote={note.type === 'quote'}>
-                    <div class="note-block-body">
-                      {#if note.type === 'heading'}
-                        <h4 class="note-h{note.level || 2}" dir={note.isRtl ? 'rtl' : 'ltr'}>{note.text}</h4>
-                      {:else if note.type === 'image'}
-                        <img src={note.image} alt="Screenshot note" class="note-embedded-img" />
-                        {#if note.text}<div class="note-caption muted">{note.text}</div>{/if}
-                      {:else if note.type === 'quote'}
-                        <blockquote class="note-quote" dir="auto">{note.text}</blockquote>
-                      {:else}
-                        <p class="note-p" dir={note.isRtl ? 'rtl' : 'ltr'}>{note.text}</p>
-                      {/if}
-                    </div>
-                    <button class="deck-action note-del" onclick={() => removeEditorNote(note.id)} title={t('common.delete')}>
-                      <Icon name="trash" size={12} />
-                    </button>
-                  </div>
-                {/each}
-              {/if}
-            </div>
+          <div class="tab-panel editor-panel" style="height:100%; display:flex; flex-direction:column; overflow:hidden; padding:0;">
+            <MarkdownEditor
+              materialId={video?.id}
+              materialType="video"
+              materialTitle={video?.title || video?.filename || 'Video Notes'}
+              captures={videoCaptures}
+              compact={true}
+              {notify}
+            />
           </div>
         {/if}
 
@@ -2019,13 +1955,18 @@
     direction: ltr !important;
     align-items: stretch;
     width: 100%;
-    min-height: calc(100vh - 120px);
+    height: calc(100vh - 84px);
+    max-height: calc(100vh - 84px);
+    min-height: 0;
     overflow: hidden;
   }
 
   .video-stage {
     flex: 1;
     min-width: 0;
+    height: 100%;
+    max-height: 100%;
+    min-height: 0;
     display: flex;
     flex-direction: column;
     transition: flex 0.2s ease;
@@ -2041,6 +1982,9 @@
     display: flex;
     flex-direction: column;
     flex: 1;
+    height: 100%;
+    max-height: 100%;
+    min-height: 0;
   }
   .player-head {
     display: flex;
@@ -2060,14 +2004,19 @@
     position: relative;
     background: #000;
     flex: 1;
+    height: 100%;
+    max-height: 100%;
+    min-height: 0;
     display: flex;
     align-items: center;
     justify-content: center;
+    overflow: hidden;
   }
   .video-frame video {
     display: block;
     width: 100%;
-    max-height: 60vh;
+    height: 100%;
+    max-height: 100%;
     object-fit: contain;
   }
 
@@ -2334,6 +2283,9 @@
     border-radius: var(--radius);
     display: flex;
     flex-direction: column;
+    height: 100%;
+    max-height: 100%;
+    min-height: 0;
     overflow: hidden;
     box-shadow: var(--shadow);
     z-index: 10;
@@ -2348,7 +2300,11 @@
     overflow-x: auto;
     overflow-y: hidden;
     white-space: nowrap;
-    scrollbar-width: thin;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .sidebar-tabs-bar::-webkit-scrollbar {
+    display: none;
   }
   .sidebar-tabs-bar button {
     flex: none;
@@ -2386,13 +2342,18 @@
 
   .sidebar-body {
     flex: 1;
+    min-height: 0;
     overflow-y: auto;
+    overflow-x: hidden;
     padding: 12px;
+    scrollbar-width: thin;
   }
   .tab-panel {
     display: flex;
     flex-direction: column;
     gap: 10px;
+    height: 100%;
+    min-height: 0;
   }
 
   /* Fullscreen Workspace Styles */
@@ -2557,6 +2518,10 @@
     flex-direction: column;
     gap: 4px;
     margin-top: 8px;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    scrollbar-width: thin;
   }
   .video-row {
     display: flex;

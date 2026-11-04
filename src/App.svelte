@@ -19,6 +19,7 @@
   import AuthModal from './components/AuthModal.svelte';
   import Profile from './components/Profile.svelte';
   import Trash from './components/Trash.svelte';
+  import MarkdownAppSection from './components/MarkdownAppSection.svelte';
   import { getCurrentUser } from './lib/auth.js';
   import { createSidecarStore, fileBridge, listCaptures, listCards, putCapture, putCard, deleteCaptureById, deleteCardById, clearCaptures, clearCards, clearTasks, migrateLocalCollections, listTasks } from './lib/storage.js';
   import { savePdfBytes, deleteFileBytes, loadPdfAutosaveSettings, savePdfAutosaveSettings } from './lib/storage.js';
@@ -47,6 +48,7 @@
     { id: 'Profile', icon: 'user' },
     { id: 'Library', icon: 'library' },
     { id: 'Projects', icon: 'projects' },
+    { id: 'Notes', icon: 'file-text' },
     { id: 'Reader', icon: 'reader' },
     { id: 'Video', icon: 'video' },
     { id: 'Studio', icon: 'dualStudio' },
@@ -57,7 +59,8 @@
     { id: 'Settings', icon: 'settings' }
   ];
   const NAV_LABEL = {
-    Today: 'nav.today', Profile: 'nav.profile', Library: 'nav.library', Projects: 'nav.projects', Reader: 'nav.reader', Video: 'nav.video',
+    Today: 'nav.today', Profile: 'nav.profile', Library: 'nav.library', Projects: 'nav.projects',
+    Notes: 'nav.notes', Reader: 'nav.reader', Video: 'nav.video',
     Studio: 'nav.dualStudio', Planner: 'nav.planner', Gallery: 'nav.gallery', Flashcards: 'nav.flashcards', Trash: 'nav.trash', Settings: 'nav.settings'
   };
 
@@ -1533,6 +1536,11 @@
           onPlayChannelVideo={playChannelVideo}
           onExported={() => trackUsage('exports')}
         />
+
+      {:else if view === 'Notes'}
+        <div style="height:calc(100vh - 92px); margin:-20px;">
+          <MarkdownAppSection {notify} {captures} />
+        </div>
 
       {:else if view === 'Planner'}
         <Planner {notify} docs={pdfDocs} onOpenResource={openResource} />

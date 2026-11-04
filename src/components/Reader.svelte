@@ -31,6 +31,7 @@
   // imported as `tr`.
   import { t as tr } from '../lib/lang.svelte.js';
   import PomodoroWidget from './PomodoroWidget.svelte';
+  import MarkdownEditor from './MarkdownEditor.svelte';
 
   let {
     doc,
@@ -1561,6 +1562,8 @@
       title={tr('side.pages')} aria-label={tr('side.pages')} aria-pressed={sideOpen && sideTab === 'pages'}><Icon name="thumbnails" /></button>
     <button style={addBarOrder('side-bookmarks')} class={sideOpen && sideTab === 'bookmarks' ? 'active' : ''} onclick={() => toggleSideTab('bookmarks')}
       title={tr('side.bookmarks')} aria-label={tr('side.bookmarks')} aria-pressed={sideOpen && sideTab === 'bookmarks'}><Icon name="bookmark" /></button>
+    <button style={addBarOrder('side-notes')} class={sideOpen && sideTab === 'notes' ? 'active' : ''} onclick={() => toggleSideTab('notes')}
+      title={tr('side.notes')} aria-label={tr('side.notes')} aria-pressed={sideOpen && sideTab === 'notes'}><Icon name="file-text" /></button>
 
     <button style={addBarOrder('direction')} onclick={toggleDirection}
       title={`${tr('reader.readingDirection')}: ${readingDir === 'rtl' ? tr('reader.rtl') : tr('reader.ltr')}`}
@@ -1834,6 +1837,9 @@
           <button class={sideTab === 'bookmarks' ? 'side-tab active' : 'side-tab'} role="tab" aria-selected={sideTab === 'bookmarks'} onclick={() => setSideTab('bookmarks')} title={tr('side.bookmarks')}>
             <Icon name="bookmark" size={15} /><span>{tr('side.bookmarks')}</span>
           </button>
+          <button class={sideTab === 'notes' ? 'side-tab active' : 'side-tab'} role="tab" aria-selected={sideTab === 'notes'} onclick={() => setSideTab('notes')} title={tr('side.notes')}>
+            <Icon name="file-text" size={15} /><span>{tr('side.notes')}</span>
+          </button>
           <button class="side-close" onclick={() => (sideOpen = false)} title={tr('side.close')} aria-label={tr('side.close')}><Icon name="x" size={14} /></button>
         </div>
 
@@ -1872,7 +1878,7 @@
                 {/each}
               {/if}
             </div>
-          {:else}
+          {:else if sideTab === 'bookmarks'}
             <div class="side-bookmarks">
               <button class="bookmark-add" onclick={addPageBookmark}>
                 <Icon name="bookmark" size={14} /><span>{tr('reader.bookmarkPage')}</span>
@@ -1967,6 +1973,17 @@
                   {/if}
                 {/each}
               {/if}
+            </div>
+          {:else if sideTab === 'notes'}
+            <div class="side-notes-container" style="height:100%; display:flex; flex-direction:column; overflow:hidden;">
+              <MarkdownEditor
+                materialId={doc?.id}
+                materialType="pdf"
+                materialTitle={doc?.title || doc?.filename || 'PDF Notes'}
+                captures={docCaptures}
+                compact={true}
+                {notify}
+              />
             </div>
           {/if}
         </div>
