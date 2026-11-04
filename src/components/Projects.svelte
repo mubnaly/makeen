@@ -65,16 +65,72 @@
   let newFolderName = $state('');
   let newFolderColor = $state('#3b82f6');
   let activeFolderForAdd = $state(null);
-  let addResourceType = $state('pdf');
-  let addDocPick = $state('');
-  let addVideoPick = $state('');
-  let addDeckPick = $state('');
-  let addImagePick = $state('');
+  let addResourceType = $state('all');
+  let resourceSearchQuery = $state('');
   let addYoutubeUrl = $state('');
   let addResourceTitle = $state('');
   let collapsedFolders = $state(new Set());
 
   const projectFolders = $derived(activeProject?.folders || []);
+  const targetFolder = $derived(projectFolders.find((f) => f.id === activeFolderForAdd));
+
+  const allExistingResources = $derived.by(() => {
+    const list = [];
+    for (const v of videos) {
+      list.push({
+        type: 'video',
+        refId: v.id,
+        title: v.title || v.id,
+        sub: v.provider === 'youtube' ? 'YouTube' : 'Video'
+      });
+    }
+    for (const d of docs) {
+      list.push({
+        type: 'pdf',
+        refId: d.id,
+        title: d.title || d.id,
+        sub: 'PDF'
+      });
+    }
+    for (const name of decks) {
+      list.push({
+        type: 'deck',
+        refId: name,
+        title: name,
+        sub: tr('projects.resourceDeck')
+      });
+    }
+    for (const c of captures) {
+      list.push({
+        type: 'image',
+        refId: c.id,
+        title: c.name || c.id || 'Capture',
+        sub: tr('projects.resourceImage')
+      });
+    }
+    return list;
+  });
+
+  const filteredExistingResources = $derived.by(() => {
+    let list = allExistingResources;
+    if (addResourceType !== 'all') {
+      list = list.filter((item) => item.type === addResourceType);
+    }
+    const q = resourceSearchQuery.trim().toLowerCase();
+    if (q) {
+      list = list.filter((item) =>
+        item.title.toLowerCase().includes(q) || item.sub.toLowerCase().includes(q)
+      );
+    }
+    return list;
+  });
+
+  function isItemInActiveFolder(resItem) {
+    if (!targetFolder || !resItem) return false;
+    return (targetFolder.items || []).some(
+      (it) => it.type === resItem.type && String(it.refId) === String(resItem.refId)
+    );
+  }
 
   function toggleFolder(folderId) {
     const next = new Set(collapsedFolders);
@@ -96,42 +152,36 @@
     onUpdate(removeProjectFolder(activeProject, folderId));
   }
 
-  function handleAddResource(folderId) {
-    if (!activeProject || !folderId) return;
-    let item = null;
-    if (addResourceType === 'pdf') {
-      const d = docs.find((x) => x.id === addDocPick);
-      if (!d) return;
-      item = { type: 'pdf', refId: d.id, title: d.title };
-    } else if (addResourceType === 'video') {
-      const v = videos.find((x) => x.id === addVideoPick);
-      if (!v) return;
-      item = { type: 'video', refId: v.id, title: v.title };
-    } else if (addResourceType === 'youtube') {
-      const raw = addYoutubeUrl.trim();
-      if (!raw) return;
-      const parsed = parseYouTube(raw);
-      const ytId = parsed ? parsed.id : raw;
-      const title = addResourceTitle.trim() || `YouTube: ${ytId}`;
-      item = { type: 'youtube', refId: ytId, title, url: parsed?.url || raw };
-    } else if (addResourceType === 'deck') {
-      if (!addDeckPick) return;
-      item = { type: 'deck', refId: addDeckPick, title: addDeckPick };
-    } else if (addResourceType === 'image') {
-      const c = captures.find((x) => x.id === addImagePick);
-      if (!c) return;
-      item = { type: 'image', refId: c.id, title: c.name || 'Screenshot' };
-    }
-    if (item) {
+  function handleToggleExistingItem(folderId, resItem) {
+    if (!activeProject || !folderId || !resItem) return;
+    const tf = projectFolders.find((f) => f.id === folderId);
+    const existing = (tf?.items || []).find(
+      (it) => it.type === resItem.type && String(it.refId) === String(resItem.refId)
+    );
+    if (existing) {
+      onUpdate(removeResourceFromFolder(activeProject, folderId, existing.id));
+    } else {
+      const item = {
+        type: resItem.type,
+        refId: resItem.refId,
+        title: resItem.title,
+        url: resItem.url || ''
+      };
       onUpdate(addResourceToFolder(activeProject, folderId, item));
-      activeFolderForAdd = null;
-      addDocPick = '';
-      addVideoPick = '';
-      addDeckPick = '';
-      addImagePick = '';
-      addYoutubeUrl = '';
-      addResourceTitle = '';
     }
+  }
+
+  function handleAddCustomYoutube(folderId) {
+    if (!activeProject || !folderId) return;
+    const raw = addYoutubeUrl.trim();
+    if (!raw) return;
+    const parsed = parseYouTube(raw);
+    const ytId = parsed ? parsed.id : raw;
+    const title = addResourceTitle.trim() || `YouTube: ${ytId}`;
+    const item = { type: 'youtube', refId: ytId, title, url: parsed?.url || raw };
+    onUpdate(addResourceToFolder(activeProject, folderId, item));
+    addYoutubeUrl = '';
+    addResourceTitle = '';
   }
 
   function handleRemoveResource(folderId, itemId) {
@@ -629,58 +679,96 @@
 
               {#if activeFolderForAdd === folder.id}
                 <div class="add-resource-panel">
-                  <div class="hstack" style="gap:8px; margin-bottom:8px; flex-wrap:wrap;">
-                    <span class="muted" style="font-size:12px;">{tr('projects.resourceType')}:</span>
-                    <button class="small {addResourceType === 'pdf' ? 'primary' : ''}" onclick={() => addResourceType = 'pdf'}>
-                      <Icon name="reader" size={12} /><span>{tr('projects.resourcePdf')}</span>
-                    </button>
-                    <button class="small {addResourceType === 'youtube' ? 'primary' : ''}" onclick={() => addResourceType = 'youtube'}>
-                      <Icon name="play" size={12} /><span>{tr('projects.resourceVideo')}</span>
-                    </button>
-                    <button class="small {addResourceType === 'deck' ? 'primary' : ''}" onclick={() => addResourceType = 'deck'}>
-                      <Icon name="flashcards" size={12} /><span>{tr('projects.resourceDeck')}</span>
-                    </button>
-                    <button class="small {addResourceType === 'image' ? 'primary' : ''}" onclick={() => addResourceType = 'image'}>
-                      <Icon name="gallery" size={12} /><span>{tr('projects.resourceImage')}</span>
+                  <div class="hstack" style="justify-content:space-between; align-items:center; margin-bottom:10px;">
+                    <div class="hstack" style="gap:6px; align-items:center; font-weight:600; font-size:13px;">
+                      <Icon name="link" size={15} />
+                      <span>{tr('projects.addExistingResource')} ({folder.name})</span>
+                    </div>
+                    <button class="icon-btn" onclick={() => (activeFolderForAdd = null)} aria-label={tr('common.cancel')}>
+                      <Icon name="x" size={14} />
                     </button>
                   </div>
 
-                  <div class="hstack" style="gap:8px; flex-wrap:wrap;">
-                    {#if addResourceType === 'pdf'}
-                      <select bind:value={addDocPick} class="grow" aria-label={tr('projects.resourcePdf')}>
-                        <option value="">{tr('projects.addPdf')}</option>
-                        {#each docs as d (d.id)}<option value={d.id}>{d.title}</option>{/each}
-                      </select>
-                      <button class="primary small" onclick={() => handleAddResource(folder.id)} disabled={!addDocPick}>
-                        <Icon name="plus" size={13} /><span>{tr('common.add')}</span>
-                      </button>
-                    {:else if addResourceType === 'youtube'}
-                      <input type="text" placeholder={tr('projects.youtubePlaceholder')} bind:value={addYoutubeUrl} class="grow" />
-                      <input type="text" placeholder={tr('projects.resourceTitlePlaceholder')} bind:value={addResourceTitle} style="max-width:200px;" />
-                      <button class="primary small" onclick={() => handleAddResource(folder.id)} disabled={!addYoutubeUrl.trim()}>
-                        <Icon name="plus" size={13} /><span>{tr('common.add')}</span>
-                      </button>
-                    {:else if addResourceType === 'deck'}
-                      <select bind:value={addDeckPick} class="grow" aria-label={tr('projects.resourceDeck')}>
-                        <option value="">{tr('projects.addSet')}</option>
-                        {#each decks as name (name)}<option value={name}>{name}</option>{/each}
-                      </select>
-                      <button class="primary small" onclick={() => handleAddResource(folder.id)} disabled={!addDeckPick}>
-                        <Icon name="plus" size={13} /><span>{tr('common.add')}</span>
-                      </button>
-                    {:else if addResourceType === 'image'}
-                      <select bind:value={addImagePick} class="grow" aria-label={tr('projects.resourceImage')}>
-                        <option value="">{tr('projects.resourceImage')}</option>
-                        {#each captures as c (c.id)}<option value={c.id}>{c.name || c.id}</option>{/each}
-                      </select>
-                      <button class="primary small" onclick={() => handleAddResource(folder.id)} disabled={!addImagePick}>
-                        <Icon name="plus" size={13} /><span>{tr('common.add')}</span>
-                      </button>
-                    {/if}
-                    <button class="small" onclick={() => (activeFolderForAdd = null)}>
-                      <Icon name="x" size={13} />
+                  <!-- Type Selector Tabs -->
+                  <div class="hstack" style="gap:6px; margin-bottom:10px; flex-wrap:wrap;">
+                    <button class="small {addResourceType === 'all' ? 'primary' : ''}" onclick={() => addResourceType = 'all'}>
+                      <span>{tr('projects.allResources')} ({allExistingResources.length})</span>
+                    </button>
+                    <button class="small {addResourceType === 'video' ? 'primary' : ''}" onclick={() => addResourceType = 'video'}>
+                      <Icon name="play" size={12} /><span>{tr('projects.resourceVideo')} ({videos.length})</span>
+                    </button>
+                    <button class="small {addResourceType === 'pdf' ? 'primary' : ''}" onclick={() => addResourceType = 'pdf'}>
+                      <Icon name="reader" size={12} /><span>{tr('projects.resourcePdf')} ({docs.length})</span>
+                    </button>
+                    <button class="small {addResourceType === 'deck' ? 'primary' : ''}" onclick={() => addResourceType = 'deck'}>
+                      <Icon name="flashcards" size={12} /><span>{tr('projects.resourceDeck')} ({decks.length})</span>
+                    </button>
+                    <button class="small {addResourceType === 'image' ? 'primary' : ''}" onclick={() => addResourceType = 'image'}>
+                      <Icon name="gallery" size={12} /><span>{tr('projects.resourceImage')} ({captures.length})</span>
+                    </button>
+                    <button class="small {addResourceType === 'youtube' ? 'primary' : ''}" onclick={() => addResourceType = 'youtube'}>
+                      <Icon name="link" size={12} /><span>{tr('projects.newYoutubeLink')}</span>
                     </button>
                   </div>
+
+                  {#if addResourceType === 'youtube'}
+                    <div class="hstack" style="gap:8px; flex-wrap:wrap;">
+                      <input type="text" placeholder={tr('projects.youtubePlaceholder')} bind:value={addYoutubeUrl} class="grow" />
+                      <input type="text" placeholder={tr('projects.resourceTitlePlaceholder')} bind:value={addResourceTitle} style="max-width:200px;" />
+                      <button class="primary small" onclick={() => handleAddCustomYoutube(folder.id)} disabled={!addYoutubeUrl.trim()}>
+                        <Icon name="plus" size={13} /><span>{tr('common.add')}</span>
+                      </button>
+                    </div>
+                  {:else}
+                    <!-- Search Input -->
+                    <div class="hstack" style="margin-bottom:10px;">
+                      <input
+                        type="text"
+                        placeholder={tr('projects.searchExisting')}
+                        bind:value={resourceSearchQuery}
+                        class="grow"
+                        style="font-size:13px; padding:6px 10px;"
+                      />
+                    </div>
+
+                    <!-- Existing Resources List -->
+                    <div class="existing-resources-picker-list">
+                      {#if filteredExistingResources.length === 0}
+                        <div class="muted" style="padding:14px; text-align:center; font-size:12px;">
+                          {tr('projects.noVideosMatch') || 'No resources found'}
+                        </div>
+                      {:else}
+                        {#each filteredExistingResources as res (res.id || `${res.type}-${res.refId}`)}
+                          {@const inFolder = isItemInActiveFolder(res)}
+                          <div class="existing-resource-item-row hstack" style="justify-content:space-between; align-items:center;">
+                            <div class="hstack" style="gap:8px; align-items:center; overflow:hidden; min-width:0; flex:1;">
+                              <span class="resource-badge {res.type}">
+                                {#if res.type === 'pdf'}<Icon name="reader" size={13} />
+                                {:else if res.type === 'video'}<Icon name="play" size={13} />
+                                {:else if res.type === 'deck'}<Icon name="flashcards" size={13} />
+                                {:else if res.type === 'image'}<Icon name="gallery" size={13} />{/if}
+                              </span>
+                              <div class="grow" style="overflow:hidden; min-width:0;">
+                                <div class="existing-item-name" title={res.title}>{res.title}</div>
+                                <div class="muted" style="font-size:11px;">{res.sub}</div>
+                              </div>
+                            </div>
+                            <div style="flex-shrink:0;">
+                              {#if inFolder}
+                                <button class="small" style="color:var(--danger, #ef4444); border-color:var(--danger, #ef4444);" onclick={() => handleToggleExistingItem(folder.id, res)}>
+                                  <Icon name="check" size={12} /><span>{tr('projects.added')}</span>
+                                </button>
+                              {:else}
+                                <button class="primary small" onclick={() => handleToggleExistingItem(folder.id, res)}>
+                                  <Icon name="plus" size={12} /><span>{tr('common.add')}</span>
+                                </button>
+                              {/if}
+                            </div>
+                          </div>
+                        {/each}
+                      {/if}
+                    </div>
+                  {/if}
                 </div>
               {/if}
 

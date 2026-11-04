@@ -1489,6 +1489,34 @@ button:active:not([disabled]) { transform: translateY(1px); }
   background: var(--surface-2);
   border-bottom: 1px solid var(--border);
 }
+.existing-resources-picker-list {
+  max-height: 240px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+}
+.existing-resource-item-row {
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  gap: 8px;
+  transition: background 0.1s ease;
+}
+.existing-resource-item-row:last-child {
+  border-bottom: none;
+}
+.existing-resource-item-row:hover {
+  background: var(--surface-2);
+}
+.existing-item-name {
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .folder-items-list {
   display: flex;
   flex-direction: column;

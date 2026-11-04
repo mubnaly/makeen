@@ -132,7 +132,7 @@ function createWindow() {
     minHeight: 680,
     backgroundColor: '#f7f7fb',
     title: 'StudyOS',
-    autoHideMenuBar: false,
+    autoHideMenuBar: true,
     icon: path.join(__dirname, '..', 'public', 'icon.png'),
     webPreferences: {
       contextIsolation: true,
@@ -142,13 +142,21 @@ function createWindow() {
   });
   win.setMenu(null);
   win.removeMenu();
+  win.setAutoHideMenuBar(true);
   win.setMenuBarVisibility(false);
+  win.webContents.on('before-input-event', (_event, input) => {
+    if (input.key === 'Alt') {
+      win.setMenuBarVisibility(false);
+    }
+  });
   win.on('enter-full-screen', () => {
     win.setMenu(null);
+    win.removeMenu();
     win.setMenuBarVisibility(false);
   });
   win.on('leave-full-screen', () => {
     win.setMenu(null);
+    win.removeMenu();
     win.setMenuBarVisibility(false);
   });
   mainWindow = win;
@@ -195,32 +203,6 @@ ipcMain.handle('pick-local-pdf', async () => {
 });
 
 app.whenReady().then(async () => {
-  // Fix for embedded YouTube playback (Image 1: error 101/150 "video unavailable / private / embedding disabled"):
-  // YouTube checks Referer and Origin headers to allow or block embedded playback.
-  // Rewriting Referer to https://www.youtube.com/ allows videos with external embedding restrictions to play smoothly.
-  try {
-    session.defaultSession.webRequest.onBeforeSendHeaders(
-      { urls: ['*://*.youtube.com/*', '*://*.youtube-nocookie.com/*', '*://*.googlevideo.com/*'] },
-      (details, callback) => {
-        details.requestHeaders['Referer'] = 'https://www.youtube.com/';
-        details.requestHeaders['Origin'] = 'https://www.youtube.com';
-        callback({ cancel: false, requestHeaders: details.requestHeaders });
-      }
-    );
-
-    session.defaultSession.webRequest.onHeadersReceived(
-      { urls: ['*://*.youtube.com/*', '*://*.youtube-nocookie.com/*', '*://*.googlevideo.com/*'] },
-      (details, callback) => {
-        const responseHeaders = { ...details.responseHeaders };
-        delete responseHeaders['x-frame-options'];
-        delete responseHeaders['X-Frame-Options'];
-        callback({ cancel: false, responseHeaders });
-      }
-    );
-  } catch (err) {
-    console.warn('Failed to attach YouTube request interceptors:', err);
-  }
-
   // Production loads over file://, which YouTube rejects as a player origin.
   // Serve only the player page on loopback so the iframe has an http origin.
   try {
