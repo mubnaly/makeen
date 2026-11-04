@@ -1404,8 +1404,8 @@
                   <button class="primary" onclick={retryYoutube}>
                     <Icon name="repeat" size={15} /><span>{t('video.retry')}</span>
                   </button>
-                  {#if video?.url}
-                    <a class="button secondary" href={video.url} target="_blank" rel="noopener noreferrer" style="text-decoration:none; display:inline-flex; align-items:center; gap:6px;">
+                  {#if video?.url || video?.ytId}
+                    <a class="button secondary" href={video.url || `https://www.youtube.com/watch?v=${video.ytId}`} target="_blank" rel="noopener noreferrer" style="text-decoration:none; display:inline-flex; align-items:center; gap:6px;">
                       <Icon name="play" size={14} /><span>{t('video.openInBrowser')}</span>
                     </a>
                   {/if}

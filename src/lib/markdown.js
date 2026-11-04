@@ -123,7 +123,26 @@ export function renderMarkdown(md) {
       continue;
     }
 
-    // 6. Blockquote: > ...
+    // 6. Callout Alert Blocks (> [!NOTE], > [!TIP], > [!WARNING], > [!IMPORTANT])
+    const calloutMatch = rawLine.match(/^>\s*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*(.*)$/i);
+    if (calloutMatch) {
+      flushList();
+      const kind = calloutMatch[1].toUpperCase();
+      const rest = calloutMatch[2].trim();
+      const labels = {
+        NOTE: 'ملاحظة (NOTE)',
+        TIP: 'فائدة / تلميح (TIP)',
+        IMPORTANT: 'هام جداً (IMPORTANT)',
+        WARNING: 'تحذير (WARNING)',
+        CAUTION: 'تنبيه (CAUTION)'
+      };
+      const label = labels[kind] || kind;
+      const body = rest ? `<div class="md-callout-text">${inlineMarkdown(rest)}</div>` : '';
+      output.push(`<div class="md-callout md-callout-${kind.toLowerCase()}"><div class="md-callout-header"><span class="md-callout-tag">${label}</span></div>${body}</div>`);
+      continue;
+    }
+
+    // 7. Blockquote: > ...
     if (rawLine.startsWith('>')) {
       flushList();
       const quoteText = inlineMarkdown(rawLine.replace(/^>\s?/, ''));
@@ -217,6 +236,12 @@ export function inlineMarkdown(str) {
   out = out.replace(/\*([^*]+)\*/g, '<em>$1</em>');
   out = out.replace(/_([^_]+)_/g, '<em>$1</em>');
 
+  // Arabic quotes: «text»
+  out = out.replace(/«([^»]+)»/g, '<span class="md-ar-quote">«$1»</span>');
+
+  // Timestamps: [mm:ss] or [hh:mm:ss]
+  out = out.replace(/\[(\d{1,2}:\d{2}(?::\d{2})?)\]/g, '<span class="md-timestamp">[$1]</span>');
+
   return out;
 }
 
@@ -250,10 +275,10 @@ export function exportMarkdownAsPdf(title, content) {
       <title>${escapeHtml(title || 'Note')}</title>
       <style>
         body {
-          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Cairo", "Noto Sans Arabic", Tahoma, Arial, sans-serif;
           color: #1a1a1a;
           background: #ffffff;
-          line-height: 1.6;
+          line-height: 1.65;
           padding: 40px;
           margin: 0;
         }
@@ -265,6 +290,14 @@ export function exportMarkdownAsPdf(title, content) {
         pre { background: #0f172a; color: #f8fafc; padding: 14px; border-radius: 6px; overflow-x: auto; }
         pre code { background: transparent; color: inherit; padding: 0; }
         blockquote { border-inline-start: 4px solid #3b82f6; margin: 1em 0; padding: 6px 14px; background: #f8fafc; color: #475569; }
+        .md-callout { border-radius: 6px; padding: 10px 14px; margin: 1em 0; border: 1px solid #e2e8f0; border-inline-start-width: 4px; }
+        .md-callout-note { background: #f0f9ff; border-inline-start-color: #0284c7; }
+        .md-callout-tip { background: #f0fdf4; border-inline-start-color: #16a34a; }
+        .md-callout-important { background: #faf5ff; border-inline-start-color: #9333ea; }
+        .md-callout-warning, .md-callout-caution { background: #fffbeb; border-inline-start-color: #d97706; }
+        .md-callout-tag { font-weight: 700; font-size: 12px; margin-bottom: 4px; display: inline-block; }
+        .md-ar-quote { font-weight: 600; color: #1e3a8a; }
+        .md-timestamp { display: inline-block; background: #e0f2fe; color: #0369a1; padding: 1px 6px; border-radius: 4px; font-size: 12px; font-weight: 600; }
         table { border-collapse: collapse; width: 100%; margin: 1.2em 0; }
         th, td { border: 1px solid #cbd5e1; padding: 8px 12px; text-align: start; }
         th { background: #f1f5f9; font-weight: 600; }

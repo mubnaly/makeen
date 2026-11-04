@@ -1,7 +1,7 @@
 <script>
-  import { onMount, tick } from 'svelte';
+  import { onMount, tick, untrack } from 'svelte';
   import Icon from './Icon.svelte';
-  import { t } from '../lib/lang.svelte.js';
+  import { t, dir } from '../lib/lang.svelte.js';
   import { renderMarkdown, exportMarkdownFile, exportMarkdownAsPdf } from '../lib/markdown.js';
   import {
     getNote,
@@ -23,46 +23,62 @@
   } = $props();
 
   let activeNote = $state(null);
+  let loadedNoteId = null;
+  let loadedMaterialId = null;
+
   let mode = $state('editor'); // 'editor' | 'viewer'
   let title = $state('');
   let content = $state('');
+  let textDirection = $state('rtl'); // default to RTL for seamless Arabic editing
+  let textAlign = $state('right');
+  let fontSize = $state(15);
+  let showCalloutMenu = $state(false);
   let showScreenshotPicker = $state(false);
   let textareaEl = $state();
   let saveTimer = null;
   let isSaved = $state(true);
 
-  // Initialize or load note
+  // Initialize or load note: strictly untracked, only runs when identity changes!
   $effect(() => {
-    if (note?.id) {
-      loadActiveNote(note);
-    } else if (noteId) {
-      const found = getNote(noteId);
-      if (found) loadActiveNote(found);
-    } else if (materialId) {
-      const bound = getOrCreateNoteForMaterial(materialId, materialType, materialTitle);
-      if (bound) loadActiveNote(bound);
-    } else if (!activeNote) {
-      const created = createNote({ title: materialTitle || 'New Note', materialType });
-      loadActiveNote(created);
-    }
+    const targetNoteId = note?.id || noteId || null;
+    const targetMatId = (!targetNoteId && materialId) ? materialId : null;
+
+    untrack(() => {
+      if (targetNoteId) {
+        if (targetNoteId !== loadedNoteId) {
+          loadedNoteId = targetNoteId;
+          loadedMaterialId = null;
+          const found = (note?.id === targetNoteId ? note : null) || getNote(targetNoteId);
+          if (found) loadActiveNote(found);
+        }
+      } else if (targetMatId) {
+        if (targetMatId !== loadedMaterialId) {
+          loadedMaterialId = targetMatId;
+          loadedNoteId = null;
+          const bound = getOrCreateNoteForMaterial(targetMatId, materialType, materialTitle);
+          if (bound) loadActiveNote(bound);
+        }
+      } else if (!activeNote && !loadedNoteId) {
+        const created = createNote({ title: materialTitle || 'New Note', materialType });
+        loadedNoteId = created.id;
+        loadActiveNote(created);
+      }
+    });
   });
 
   function loadActiveNote(n) {
-    if (activeNote?.id === n.id && title === n.title && content === n.content) return;
     activeNote = n;
     title = n.title || '';
     content = n.content || '';
+    if (n.direction) {
+      textDirection = n.direction;
+      textAlign = n.direction === 'rtl' ? 'right' : 'left';
+    } else {
+      const hasArabic = /[\u0600-\u06FF]/.test(title + ' ' + content);
+      textDirection = hasArabic ? 'rtl' : (dir() === 'rtl' ? 'rtl' : 'ltr');
+      textAlign = textDirection === 'rtl' ? 'right' : 'left';
+    }
     isSaved = true;
-  }
-
-  function handleContentChange(e) {
-    content = e.target.value;
-    scheduleAutosave();
-  }
-
-  function handleTitleChange(e) {
-    title = e.target.value;
-    scheduleAutosave();
   }
 
   function scheduleAutosave() {
@@ -70,17 +86,31 @@
     if (saveTimer) clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
       saveNow();
-    }, 400);
+    }, 350);
   }
 
   function saveNow() {
     if (!activeNote?.id) return;
-    const updated = updateNote(activeNote.id, { title, content });
+    const updated = updateNote(activeNote.id, { title, content, direction: textDirection });
     if (updated) {
       activeNote = updated;
       isSaved = true;
       onNoteChange?.(updated);
     }
+  }
+
+  function toggleDirection() {
+    textDirection = textDirection === 'rtl' ? 'ltr' : 'rtl';
+    textAlign = textDirection === 'rtl' ? 'right' : 'left';
+    scheduleAutosave();
+  }
+
+  function setAlignment(align) {
+    textAlign = align;
+  }
+
+  function adjustFontSize(delta) {
+    fontSize = Math.min(24, Math.max(12, fontSize + delta));
   }
 
   // Insert markdown syntax helper at current cursor position
@@ -102,10 +132,28 @@
     });
   }
 
+  function insertCallout(type) {
+    showCalloutMenu = false;
+    const templates = {
+      NOTE: `> [!NOTE]\n> `,
+      TIP: `> [!TIP]\n> `,
+      IMPORTANT: `> [!IMPORTANT]\n> `,
+      WARNING: `> [!WARNING]\n> `
+    };
+    insertFormatting(templates[type] || `> [!NOTE]\n> `, '', 'ملاحظة...');
+  }
+
+  function insertCurrentTimecode() {
+    const latest = captures && captures.length ? captures[captures.length - 1] : null;
+    const tc = latest?.timecode ? `[${latest.timecode}] ` : '[00:00] ';
+    insertFormatting(tc);
+    notify?.(t('notes.timestampInserted') || 'Timestamp inserted', 'ok');
+  }
+
   function insertScreenshot(cap) {
     const src = cap.dataUrl || cap.image || cap.url || cap.src;
     if (!src) return;
-    const capTitle = cap.title || cap.timecode ? `Screenshot (${cap.timecode})` : 'Screenshot';
+    const capTitle = cap.title || (cap.timecode ? `Screenshot (${cap.timecode})` : 'Screenshot');
     const mdImage = `\n\n![${capTitle}](${src})\n\n`;
     insertFormatting(mdImage);
     showScreenshotPicker = false;
@@ -131,8 +179,9 @@
         type="text"
         class="md-title-input"
         placeholder={t('notes.noteTitlePlaceholder') || 'Note title...'}
-        value={title}
-        oninput={handleTitleChange}
+        bind:value={title}
+        oninput={scheduleAutosave}
+        dir={textDirection}
       />
       <div class="md-header-actions">
         <!-- Save indicator -->
@@ -189,30 +238,147 @@
     <!-- Quick Markdown Formatting Bar (in Editor mode) -->
     {#if mode === 'editor'}
       <div class="md-format-bar">
-        <button type="button" class="fmt-btn" onclick={() => insertFormatting('# ', '', 'Heading 1')} title="Heading 1">H1</button>
-        <button type="button" class="fmt-btn" onclick={() => insertFormatting('## ', '', 'Heading 2')} title="Heading 2">H2</button>
-        <button type="button" class="fmt-btn" onclick={() => insertFormatting('### ', '', 'Heading 3')} title="Heading 3">H3</button>
+        <!-- Direction Toggle (RTL / LTR) -->
+        <button
+          type="button"
+          class="fmt-btn dir-toggle-btn"
+          onclick={toggleDirection}
+          title={textDirection === 'rtl' ? (t('notes.dirRtl') || 'RTL Direction') : (t('notes.dirLtr') || 'LTR Direction')}
+        >
+          <Icon name="arrow-left-right" size={12} />
+          <span class="dir-label">{textDirection.toUpperCase()}</span>
+        </button>
+
+        <!-- Text Alignment (Right, Center, Left) -->
+        <div class="fmt-group">
+          <button
+            type="button"
+            class="fmt-btn {textAlign === 'right' ? 'active-fmt' : ''}"
+            onclick={() => setAlignment('right')}
+            title={t('notes.alignRight') || 'Align Right'}
+          >
+            <Icon name="align-right" size={13} />
+          </button>
+          <button
+            type="button"
+            class="fmt-btn {textAlign === 'center' ? 'active-fmt' : ''}"
+            onclick={() => setAlignment('center')}
+            title={t('notes.alignCenter') || 'Align Center'}
+          >
+            <Icon name="align-center" size={13} />
+          </button>
+          <button
+            type="button"
+            class="fmt-btn {textAlign === 'left' ? 'active-fmt' : ''}"
+            onclick={() => setAlignment('left')}
+            title={t('notes.alignLeft') || 'Align Left'}
+          >
+            <Icon name="align-left" size={13} />
+          </button>
+        </div>
+
         <div class="fmt-divider"></div>
-        <button type="button" class="fmt-btn" onclick={() => insertFormatting('**', '**', 'bold')} title="Bold"><strong>B</strong></button>
-        <button type="button" class="fmt-btn" onclick={() => insertFormatting('*', '*', 'italic')} title="Italic"><em>I</em></button>
-        <button type="button" class="fmt-btn" onclick={() => insertFormatting('~~', '~~', 'strikethrough')} title="Strikethrough"><s>S</s></button>
+
+        <!-- Headings -->
+        <button type="button" class="fmt-btn" onclick={() => insertFormatting('# ', '', 'عنوان 1')} title="Heading 1">H1</button>
+        <button type="button" class="fmt-btn" onclick={() => insertFormatting('## ', '', 'عنوان 2')} title="Heading 2">H2</button>
+        <button type="button" class="fmt-btn" onclick={() => insertFormatting('### ', '', 'عنوان 3')} title="Heading 3">H3</button>
+
         <div class="fmt-divider"></div>
-        <button type="button" class="fmt-btn" onclick={() => insertFormatting('- ', '', 'List item')} title="Bullet List">
+
+        <!-- Bold, Italic, Strikethrough -->
+        <button type="button" class="fmt-btn" onclick={() => insertFormatting('**', '**', 'نص عريض')} title="Bold"><strong>B</strong></button>
+        <button type="button" class="fmt-btn" onclick={() => insertFormatting('*', '*', 'نص مائل')} title="Italic"><em>I</em></button>
+        <button type="button" class="fmt-btn" onclick={() => insertFormatting('~~', '~~', 'نص مشطوب')} title="Strikethrough"><s>S</s></button>
+
+        <div class="fmt-divider"></div>
+
+        <!-- Arabic Quotation Marks « » -->
+        <button
+          type="button"
+          class="fmt-btn arabic-quotes-btn"
+          onclick={() => insertFormatting('« ', ' »', 'اقتباس')}
+          title={t('notes.insertArabicQuote') || 'Arabic Quotes « »'}
+        >
+          « »
+        </button>
+
+        <!-- Blockquote -->
+        <button
+          type="button"
+          class="fmt-btn"
+          onclick={() => insertFormatting('> ', '', 'اقتباس')}
+          title={t('notes.insertQuote') || 'Blockquote'}
+        >
+          <Icon name="quote" size={13} />
+        </button>
+
+        <!-- Callout Alert Boxes (Note, Tip, Important, Warning) -->
+        <div class="callout-picker-box">
+          <button
+            type="button"
+            class="fmt-btn callout-toggle-btn"
+            onclick={() => (showCalloutMenu = !showCalloutMenu)}
+            title={t('notes.insertCallout') || 'Insert Callout'}
+          >
+            <Icon name="alert" size={13} />
+            <span>{t('notes.callout') || 'تنبيه'}</span>
+          </button>
+
+          {#if showCalloutMenu}
+            <div class="callout-popover">
+              <button type="button" class="callout-opt note" onclick={() => insertCallout('NOTE')}>
+                <span class="callout-badge note">NOTE</span>
+                <span>{t('notes.calloutNote') || 'ملاحظة زرقاء'}</span>
+              </button>
+              <button type="button" class="callout-opt tip" onclick={() => insertCallout('TIP')}>
+                <span class="callout-badge tip">TIP</span>
+                <span>{t('notes.calloutTip') || 'فائدة / تلميح أخضر'}</span>
+              </button>
+              <button type="button" class="callout-opt important" onclick={() => insertCallout('IMPORTANT')}>
+                <span class="callout-badge important">IMPORTANT</span>
+                <span>{t('notes.calloutImportant') || 'هام جداً بنفسجي'}</span>
+              </button>
+              <button type="button" class="callout-opt warning" onclick={() => insertCallout('WARNING')}>
+                <span class="callout-badge warning">WARNING</span>
+                <span>{t('notes.calloutWarning') || 'تحذير أصفر'}</span>
+              </button>
+            </div>
+          {/if}
+        </div>
+
+        <div class="fmt-divider"></div>
+
+        <!-- Lists -->
+        <button type="button" class="fmt-btn" onclick={() => insertFormatting('- ', '', 'عنصر قائمة')} title="Bullet List">
           <Icon name="list" size={13} />
         </button>
-        <button type="button" class="fmt-btn" onclick={() => insertFormatting('- [ ] ', '', 'Task')} title="Task List">
+        <button type="button" class="fmt-btn" onclick={() => insertFormatting('1. ', '', 'عنصر مرقم')} title="Numbered List">
+          1.
+        </button>
+        <button type="button" class="fmt-btn" onclick={() => insertFormatting('- [ ] ', '', 'مهمة')} title="Task List">
           <Icon name="check-square" size={13} />
         </button>
-        <button type="button" class="fmt-btn" onclick={() => insertFormatting('> ', '', 'Quote')} title="Quote">
-          &ldquo;
-        </button>
-        <button type="button" class="fmt-btn" onclick={() => insertFormatting('```\n', '\n```', 'code')} title="Code Block">
+
+        <div class="fmt-divider"></div>
+
+        <!-- Code block & Table -->
+        <button type="button" class="fmt-btn" onclick={() => insertFormatting('```\n', '\n```', 'كود')} title="Code Block">
           &lt;/&gt;
         </button>
-        <button type="button" class="fmt-btn" onclick={() => insertFormatting('\n| Col 1 | Col 2 |\n|---|---|\n| Item 1 | Item 2 |\n')} title="Table">
+        <button type="button" class="fmt-btn" onclick={() => insertFormatting('\n| العمود 1 | العمود 2 |\n|---|---|\n| القيمة 1 | القيمة 2 |\n')} title="Table">
           <Icon name="columns" size={13} />
         </button>
-        <div class="fmt-divider"></div>
+
+        <!-- Video Timecode button -->
+        <button
+          type="button"
+          class="fmt-btn"
+          onclick={insertCurrentTimecode}
+          title={t('notes.insertTimestamp') || 'Insert Video Timestamp'}
+        >
+          <Icon name="clock" size={13} />
+        </button>
 
         <!-- Insert Screenshot Action -->
         {#if captures && captures.length > 0}
@@ -251,6 +417,14 @@
             {/if}
           </div>
         {/if}
+
+        <div class="fmt-divider"></div>
+
+        <!-- Font Size Zoom -->
+        <div class="fmt-group">
+          <button type="button" class="fmt-btn zoom-btn" onclick={() => adjustFontSize(1)} title={t('notes.fontSizeIncrease') || 'Increase Font Size'}>A+</button>
+          <button type="button" class="fmt-btn zoom-btn" onclick={() => adjustFontSize(-1)} title={t('notes.fontSizeDecrease') || 'Decrease Font Size'}>A-</button>
+        </div>
       </div>
     {/if}
   </header>
@@ -263,16 +437,18 @@
           bind:this={textareaEl}
           class="md-textarea"
           placeholder={t('notes.editorPlaceholder') || 'Write your markdown notes here... (# Heading, **bold**, - list, ![screenshot](url))'}
-          value={content}
-          oninput={handleContentChange}
-          dir="auto"
+          bind:value={content}
+          oninput={scheduleAutosave}
+          dir={textDirection}
+          style:text-align={textAlign}
+          style:font-size="{fontSize}px"
           spellcheck="false"
         ></textarea>
       </div>
     {:else}
-      <div class="md-viewer-container" dir="auto">
+      <div class="md-viewer-container" dir={textDirection} style:text-align={textAlign}>
         {#if content.trim()}
-          <div class="md-rendered-content">
+          <div class="md-rendered-content" style:font-size="{fontSize}px">
             {@html renderMarkdown(content)}
           </div>
         {:else}
@@ -325,6 +501,7 @@
     padding: 4px 8px;
     color: var(--text);
     outline: none;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Cairo", "Noto Sans Arabic", Tahoma, Arial, sans-serif;
     transition: border-color 0.15s ease, background 0.15s ease;
   }
   .md-title-input:hover,
@@ -428,6 +605,16 @@
     border-top: 1px solid var(--border-light, rgba(0, 0, 0, 0.05));
   }
 
+  .fmt-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 1px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px;
+  }
+
   .fmt-btn {
     display: inline-flex;
     align-items: center;
@@ -435,18 +622,99 @@
     padding: 3px 6px;
     min-width: 24px;
     height: 24px;
-    font-size: 12px;
+    font-size: 11.5px;
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 4px;
     color: var(--text);
     cursor: pointer;
-    transition: background 0.12s ease;
+    transition: all 0.12s ease;
   }
   .fmt-btn:hover {
     background: var(--surface-2);
     border-color: var(--accent);
   }
+  .fmt-btn.active-fmt {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+  }
+
+  .fmt-group .fmt-btn {
+    border: none;
+    border-radius: 3px;
+    height: 22px;
+  }
+
+  .dir-toggle-btn {
+    gap: 4px;
+    padding: 3px 6px;
+    font-weight: 700;
+  }
+  .dir-label {
+    font-size: 10px;
+    letter-spacing: 0.5px;
+  }
+
+  .arabic-quotes-btn {
+    font-weight: 700;
+    font-size: 13px;
+    color: var(--accent);
+  }
+
+  .zoom-btn {
+    font-weight: 600;
+    font-size: 11px;
+  }
+
+  .callout-picker-box {
+    position: relative;
+  }
+  .callout-toggle-btn {
+    gap: 4px;
+  }
+  .callout-popover {
+    position: absolute;
+    top: calc(100% + 6px);
+    inset-inline-start: 0;
+    z-index: 120;
+    width: 200px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+    padding: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .callout-opt {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text);
+    font-size: 12px;
+    cursor: pointer;
+    text-align: start;
+    transition: background 0.12s ease;
+  }
+  .callout-opt:hover {
+    background: var(--surface-2);
+  }
+  .callout-badge {
+    font-size: 9px;
+    font-weight: 700;
+    padding: 2px 5px;
+    border-radius: 3px;
+  }
+  .callout-badge.note { background: #e0f2fe; color: #0369a1; }
+  .callout-badge.tip { background: #dcfce7; color: #15803d; }
+  .callout-badge.important { background: #f3e8ff; color: #7e22ce; }
+  .callout-badge.warning { background: #fef3c7; color: #b45309; }
 
   .fmt-divider {
     width: 1px;
@@ -562,9 +830,9 @@
     padding: 14px;
     background: var(--surface);
     color: var(--text);
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-    font-size: 13.5px;
-    line-height: 1.6;
+    /* Fluent, cursive Arabic typography stack */
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Cairo", "Noto Sans Arabic", Tahoma, Arial, sans-serif;
+    line-height: 1.7;
     resize: none;
     outline: none;
     overflow-y: auto;
@@ -580,16 +848,16 @@
     min-height: 0;
     overflow-y: auto;
     padding: 16px 20px;
-    line-height: 1.65;
+    line-height: 1.7;
     scrollbar-width: thin;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Cairo", "Noto Sans Arabic", Tahoma, Arial, sans-serif;
   }
 
   :global(.md-rendered-content) {
-    font-size: 14px;
     color: var(--text);
   }
   :global(.md-rendered-content h1) {
-    font-size: 22px;
+    font-size: 1.6em;
     font-weight: 700;
     margin-top: 1em;
     margin-bottom: 0.5em;
@@ -597,13 +865,13 @@
     border-bottom: 1px solid var(--border);
   }
   :global(.md-rendered-content h2) {
-    font-size: 18px;
+    font-size: 1.35em;
     font-weight: 600;
     margin-top: 1em;
     margin-bottom: 0.5em;
   }
   :global(.md-rendered-content h3) {
-    font-size: 15px;
+    font-size: 1.15em;
     font-weight: 600;
     margin-top: 0.8em;
     margin-bottom: 0.4em;
@@ -616,26 +884,77 @@
     border-radius: 6px;
     padding: 12px;
     overflow-x: auto;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    direction: ltr;
+    text-align: left;
   }
   :global(.md-rendered-content code) {
-    font-family: monospace;
-    font-size: 12.5px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.9em;
   }
   :global(.md-rendered-content .md-inline-code) {
     background: var(--surface-2, rgba(0, 0, 0, 0.06));
     padding: 2px 5px;
     border-radius: 4px;
+    direction: ltr;
+    display: inline-block;
   }
   :global(.md-rendered-content blockquote) {
     border-inline-start: 4px solid var(--accent);
     margin: 0.8em 0;
-    padding: 4px 12px;
+    padding: 6px 14px;
     background: var(--surface-2, rgba(0,0,0,0.03));
     color: var(--muted);
+    border-radius: 0 6px 6px 0;
+  }
+  :global(.md-rendered-content .md-ar-quote) {
+    font-weight: 600;
+    color: var(--accent);
+    padding: 0 2px;
+  }
+  :global(.md-rendered-content .md-timestamp) {
+    display: inline-block;
+    background: rgba(59, 130, 246, 0.12);
+    color: #2563eb;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 0.85em;
+    font-weight: 600;
+    margin: 0 3px;
+  }
+  :global(.md-rendered-content .md-callout) {
+    border-radius: 6px;
+    padding: 10px 14px;
+    margin: 1em 0;
+    border: 1px solid var(--border);
+    border-inline-start-width: 4px;
+  }
+  :global(.md-rendered-content .md-callout-note) {
+    background: rgba(2, 132, 199, 0.08);
+    border-inline-start-color: #0284c7;
+  }
+  :global(.md-rendered-content .md-callout-tip) {
+    background: rgba(22, 163, 74, 0.08);
+    border-inline-start-color: #16a34a;
+  }
+  :global(.md-rendered-content .md-callout-important) {
+    background: rgba(147, 51, 234, 0.08);
+    border-inline-start-color: #9333ea;
+  }
+  :global(.md-rendered-content .md-callout-warning),
+  :global(.md-rendered-content .md-callout-caution) {
+    background: rgba(217, 119, 6, 0.08);
+    border-inline-start-color: #d97706;
+  }
+  :global(.md-rendered-content .md-callout-tag) {
+    font-weight: 700;
+    font-size: 0.8em;
+    margin-bottom: 4px;
+    display: inline-block;
   }
   :global(.md-rendered-content ul),
   :global(.md-rendered-content ol) {
-    padding-inline-start: 20px;
+    padding-inline-start: 24px;
     margin: 0.6em 0;
   }
   :global(.md-rendered-content li) {
@@ -643,7 +962,7 @@
   }
   :global(.md-rendered-content .md-task-item) {
     list-style: none;
-    margin-inline-start: -18px;
+    margin-inline-start: -20px;
     display: flex;
     align-items: center;
     gap: 6px;
@@ -666,7 +985,7 @@
     border: 1px solid var(--border);
     padding: 6px 10px;
     text-align: start;
-    font-size: 13px;
+    font-size: 0.9em;
   }
   :global(.md-rendered-content th) {
     background: var(--surface-2);

@@ -116,11 +116,11 @@
             player.setVolume(100);
             if (targetQuality && targetQuality !== 'auto' && targetQuality !== 'default') {
               try {
-                if (typeof player.setPlaybackQualityRange === 'function') {
-                  player.setPlaybackQualityRange(targetQuality, targetQuality);
-                }
                 if (typeof player.setPlaybackQuality === 'function') {
                   player.setPlaybackQuality(targetQuality);
+                }
+                if (typeof player.setPlaybackQualityRange === 'function') {
+                  player.setPlaybackQualityRange(targetQuality, 'highres');
                 }
               } catch (e) {}
             }
@@ -164,11 +164,11 @@
               onStateChange: function (event) {
                 if (event && event.data === 1 && targetQuality && targetQuality !== 'auto' && targetQuality !== 'default') {
                   try {
-                    if (typeof player.setPlaybackQualityRange === 'function') {
-                      player.setPlaybackQualityRange(targetQuality, targetQuality);
-                    }
                     if (typeof player.setPlaybackQuality === 'function') {
                       player.setPlaybackQuality(targetQuality);
+                    }
+                    if (typeof player.setPlaybackQualityRange === 'function') {
+                      player.setPlaybackQualityRange(targetQuality, 'highres');
                     }
                   } catch (e) {}
                 }

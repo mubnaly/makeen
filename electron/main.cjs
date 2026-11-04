@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Notification, dialog, Menu, session } = require('electron');
+const { app, BrowserWindow, ipcMain, Notification, dialog, Menu, session, shell } = require('electron');
 // Completely disable and destroy the default application menu before app is ready
 // so "File Edit View Window Help" is never created or displayed.
 Menu.setApplicationMenu(null);
@@ -159,6 +159,15 @@ function createWindow() {
     win.removeMenu();
     win.setMenuBarVisibility(false);
   });
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    try {
+      if (url && (url.startsWith('https://') || url.startsWith('http://'))) {
+        shell.openExternal(url);
+      }
+    } catch (e) {}
+    return { action: 'deny' };
+  });
+
   mainWindow = win;
   // base './' in the Vite build makes this work over file://.
   win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
@@ -203,6 +212,40 @@ ipcMain.handle('pick-local-pdf', async () => {
 });
 
 app.whenReady().then(async () => {
+  // Fix YouTube embed playback restrictions in embedded iframe:
+  // When YouTube videos have restricted embed settings or check referrers,
+  // setting Referer/Origin to https://www.youtube.com/ allows videos to play seamlessly.
+  try {
+    const ytFilter = {
+      urls: [
+        '*://*.youtube.com/*',
+        '*://*.youtube-nocookie.com/*',
+        '*://*.googlevideo.com/*'
+      ]
+    };
+
+    session.defaultSession.webRequest.onBeforeSendHeaders(ytFilter, (details, callback) => {
+      const headers = { ...details.requestHeaders };
+      headers['Referer'] = 'https://www.youtube.com/';
+      headers['Origin'] = 'https://www.youtube.com';
+      callback({ cancel: false, requestHeaders: headers });
+    });
+
+    session.defaultSession.webRequest.onHeadersReceived(ytFilter, (details, callback) => {
+      const headers = { ...details.responseHeaders };
+      delete headers['x-frame-options'];
+      delete headers['X-Frame-Options'];
+      if (headers['content-security-policy']) {
+        headers['content-security-policy'] = headers['content-security-policy'].map((h) =>
+          h.replace(/frame-ancestors[^;]+;?/gi, '')
+        );
+      }
+      callback({ cancel: false, responseHeaders: headers });
+    });
+  } catch (err) {
+    console.error('YouTube webRequest filter setup error:', err);
+  }
+
   // Production loads over file://, which YouTube rejects as a player origin.
   // Serve only the player page on loopback so the iframe has an http origin.
   try {
