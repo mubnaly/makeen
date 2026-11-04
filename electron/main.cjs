@@ -377,6 +377,110 @@ ipcMain.handle('youtube-capture-frame', async (_e, payload = {}) => {
   return ytHelper.captureYoutubeFrame(videoId, seconds);
 });
 
+ipcMain.handle('set-youtube-quality', async (event, payload = {}) => {
+  const targetQuality = String(payload.quality || 'small').trim();
+  const win = BrowserWindow.fromWebContents(event.sender) || mainWindow;
+  if (!win || win.isDestroyed()) return { ok: false, error: 'no window' };
+
+  let frameFound = false;
+  let results = [];
+
+  function scanAndApply(frame) {
+    if (!frame) return;
+    try {
+      const url = frame.url || '';
+      if (url.includes('youtube.com') || url.includes('youtube-nocookie.com')) {
+        frameFound = true;
+        const code = `
+          (async function() {
+            var target = ${JSON.stringify(targetQuality)};
+            var labelMap = {
+              tiny: '144',
+              small: '240',
+              medium: '360',
+              large: '480',
+              hd720: '720',
+              hd1080: '1080',
+              auto: 'auto'
+            };
+            var targetNum = labelMap[target] || target;
+            var applied = [];
+
+            // 1. Direct player element methods
+            var p = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
+            if (p) {
+              try {
+                if (typeof p.setPlaybackQualityRange === 'function') {
+                  p.setPlaybackQualityRange(target === 'auto' ? 'default' : target, target === 'auto' ? 'highres' : target);
+                  applied.push('range');
+                }
+                if (typeof p.setPlaybackQuality === 'function') {
+                  p.setPlaybackQuality(target === 'auto' ? 'default' : target);
+                  applied.push('quality');
+                }
+              } catch (e) {}
+            }
+
+            // 2. Click native settings menu to switch stream resolution directly
+            try {
+              var settingsBtn = document.querySelector('.ytp-settings-button');
+              if (settingsBtn) {
+                settingsBtn.click();
+                await new Promise(function(r) { setTimeout(r, 100); });
+
+                var menuItems = Array.from(document.querySelectorAll('.ytp-settings-menu .ytp-menuitem'));
+                var qItem = menuItems.find(function(el) {
+                  var text = (el.innerText || el.textContent || '').toLowerCase();
+                  return text.includes('quality') || text.includes('جودة') || text.includes('1080') || text.includes('720') || text.includes('480') || text.includes('360') || text.includes('240') || text.includes('144');
+                });
+
+                if (qItem) {
+                  qItem.click();
+                  await new Promise(function(r) { setTimeout(r, 100); });
+
+                  var subItems = Array.from(document.querySelectorAll('.ytp-settings-menu .ytp-menuitem, .ytp-quality-menu .ytp-menuitem'));
+                  var matchedOpt = subItems.find(function(el) {
+                    var t = (el.innerText || el.textContent || '').toLowerCase();
+                    if (targetNum === 'auto') return t.includes('auto') || t.includes('تلقائي');
+                    return t.includes(targetNum);
+                  });
+
+                  if (matchedOpt) {
+                    matchedOpt.click();
+                    applied.push('menu');
+                  }
+                }
+
+                // Close settings menu if left open
+                var menu = document.querySelector('.ytp-settings-menu');
+                if (menu && menu.style.display !== 'none' && menu.offsetParent !== null) {
+                  settingsBtn.click();
+                }
+              }
+            } catch (err) {}
+
+            var curQ = p && typeof p.getPlaybackQuality === 'function' ? p.getPlaybackQuality() : '';
+            return { ok: true, target: target, applied: applied, current: curQ };
+          })();
+        `;
+        frame.executeJavaScript(code).then((res) => {
+          results.push(res);
+        }).catch(() => {});
+      }
+    } catch (e) {}
+
+    if (Array.isArray(frame.frames)) {
+      for (const sub of frame.frames) scanAndApply(sub);
+    }
+  }
+
+  if (win.webContents && win.webContents.mainFrame) {
+    scanAndApply(win.webContents.mainFrame);
+  }
+
+  return { ok: true, frameFound, quality: targetQuality };
+});
+
 ipcMain.handle('video-download', async (_e, payload = {}) => {
   const rawUrl = String(payload.url || '').trim();
   const videoId = String(payload.videoId || '').trim();

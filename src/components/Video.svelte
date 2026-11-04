@@ -512,6 +512,10 @@
     ytQuality = userSelectedQuality;
     if (muted) ytPost('mute');
     if (rate !== 1) ytPost('rate', rate);
+    const bridge = globalThis.window?.studyos;
+    if (typeof bridge?.setYoutubeQuality === 'function' && userSelectedQuality) {
+      bridge.setYoutubeQuality(userSelectedQuality).catch(() => {});
+    }
     const patch = {};
     if (record?.ytType === 'video' && snapshot.title) patch.title = snapshot.title;
     if (duration > 0 && Math.round(duration) !== record?.durationSeconds) patch.durationSeconds = Math.round(duration);
@@ -663,13 +667,32 @@
     ytError = t('video.youtubeFailed');
   }
 
-  function setQuality(value) {
+  async function setQuality(value) {
     userSelectedQuality = String(value || 'small');
     try {
       localStorage.setItem(PREFERRED_QUALITY_KEY, userSelectedQuality);
     } catch {}
     ytQuality = userSelectedQuality;
     ytPost('quality', ytQuality === 'auto' ? 'default' : ytQuality);
+
+    // Call desktop bridge to execute direct quality change in YouTube frame
+    const bridge = globalThis.window?.studyos;
+    if (typeof bridge?.setYoutubeQuality === 'function') {
+      try {
+        await bridge.setYoutubeQuality(ytQuality);
+      } catch (err) {}
+    }
+
+    const labels = {
+      tiny: '144p',
+      small: '240p',
+      medium: '360p',
+      large: '480p',
+      hd720: '720p HD',
+      hd1080: '1080p HD',
+      auto: t('video.qualityAuto') || 'Auto'
+    };
+    notify(t('video.qualityApplied', { quality: labels[ytQuality] || ytQuality }), 'ok');
   }
 
   function toggleNativeControls() {
@@ -677,6 +700,7 @@
     const record = currentRecord();
     if (record?.provider === 'youtube') {
       setupPlayer(record, ++token);
+      notify(ytShowNativeControls ? t('video.nativeControlsEnabled') : t('video.nativeControlsDisabled'), 'ok');
     }
   }
 
@@ -1456,6 +1480,13 @@
                     <option value="auto">{t('video.qualityAuto')}</option>
                   </select>
                 </label>
+                <button class={ytShowNativeControls ? 'active' : ''} onclick={toggleNativeControls}
+                  title={t('video.toggleNativeControls')}
+                  aria-label={t('video.toggleNativeControls')}
+                  aria-pressed={ytShowNativeControls}>
+                  <Icon name="settings" size={16} />
+                  <span>{t('video.nativeControls')}</span>
+                </button>
                 <button class={isBlackScreen ? 'active' : ''} onclick={toggleBlackScreen}
                   title={isBlackScreen ? t('video.showVideo') : t('video.blackScreen')}
                   aria-pressed={isBlackScreen}>

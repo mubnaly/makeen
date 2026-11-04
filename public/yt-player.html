@@ -247,31 +247,10 @@
                     }));
                   } catch (e) {}
                   if (typeof player.setPlaybackQualityRange === 'function') {
-                    player.setPlaybackQualityRange(q, q);
+                    player.setPlaybackQualityRange(q === 'auto' ? 'default' : q, q === 'auto' ? 'highres' : q);
                   }
                   if (typeof player.setPlaybackQuality === 'function') {
-                    player.setPlaybackQuality(q);
-                  }
-                  if (q && q !== 'default' && q !== 'auto') {
-                    var curTime = 0;
-                    var curState = 1;
-                    try { curTime = Number(player.getCurrentTime()) || 0; } catch (e) {}
-                    try { curState = Number(player.getPlayerState()); } catch (e) {}
-                    var dataObj = {};
-                    try { dataObj = player.getVideoData() || {}; } catch (e) {}
-                    var targetId = dataObj.video_id || videoId;
-                    if (targetId && typeof player.loadVideoById === 'function') {
-                      player.loadVideoById({
-                        videoId: targetId,
-                        startSeconds: curTime,
-                        suggestedQuality: q
-                      });
-                      if (curState === 2 && typeof player.pauseVideo === 'function') {
-                        setTimeout(function () {
-                          try { player.pauseVideo(); } catch (e) {}
-                        }, 250);
-                      }
-                    }
+                    player.setPlaybackQuality(q === 'auto' ? 'default' : q);
                   }
                 } catch (error) {}
                 break;
