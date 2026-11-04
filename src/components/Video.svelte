@@ -105,6 +105,7 @@
   let isFullscreen = $state(false);
   let fsIdle = $state(false);
   let fsIdleTimer = null;
+  let isHoveringControls = $state(false);
   let watchTimer = null;
   let playlists = $state(listPlaylists());
   let newPlaylistTitle = $state('');
@@ -183,20 +184,28 @@
     }
   });
 
-  // Fullscreen idle toolbar timeout (auto-hides after 3 seconds of inactivity)
+  // Fullscreen idle toolbar timeout (auto-hides after 3 seconds of inactivity, but NEVER when paused)
   function pokeFsToolbar() {
-    if (!isFullscreen) return;
+    if (!isFullscreen) {
+      fsIdle = false;
+      return;
+    }
     fsIdle = false;
-    if (fsIdleTimer) clearTimeout(fsIdleTimer);
+    if (fsIdleTimer) {
+      clearTimeout(fsIdleTimer);
+      fsIdleTimer = null;
+    }
+    // If paused or hovering controls, control bar MUST stay visible!
+    if (!playing || isHoveringControls) return;
     fsIdleTimer = setTimeout(() => {
-      fsIdle = true;
+      if (playing && !isHoveringControls) {
+        fsIdle = true;
+      }
     }, 3000);
   }
 
   function onMouseMove() {
-    if (isFullscreen) {
-      pokeFsToolbar();
-    }
+    pokeFsToolbar();
   }
 
   function toggleFullscreen() {
@@ -449,6 +458,10 @@
     if (!data || data.source !== 'studyos-yt') return;
     if (ytActiveSession && data.session !== ytActiveSession) return;
     if (ytReadyTimer) { clearTimeout(ytReadyTimer); ytReadyTimer = null; }
+    if (data.type === 'mousemove' || data.type === 'spaceKey') {
+      onMouseMove();
+      return;
+    }
     if (data.type === 'ready') {
       onYtReady(data, currentRecord());
       return;
@@ -861,11 +874,30 @@
 
   function playState(next) {
     playing = next;
-    if (next) schedulePositionSave();
+    if (next) {
+      schedulePositionSave();
+      pokeFsToolbar();
+    } else {
+      // Force control bar to appear immediately and stay visible when paused
+      fsIdle = false;
+      if (fsIdleTimer) {
+        clearTimeout(fsIdleTimer);
+        fsIdleTimer = null;
+      }
+    }
   }
 
   async function togglePlay() {
-    pokeFsToolbar();
+    if (playing) {
+      // Immediately reveal controls on pause
+      fsIdle = false;
+      if (fsIdleTimer) {
+        clearTimeout(fsIdleTimer);
+        fsIdleTimer = null;
+      }
+    } else {
+      pokeFsToolbar();
+    }
     if (isYoutube) {
       if (!ytFrame) return;
       ytPost(playing ? 'pause' : 'play');
@@ -967,15 +999,35 @@
     refreshDocs?.();
   }
 
+  function isTypingInput(node) {
+    if (!node) return false;
+    if (node.isContentEditable) return true;
+    const tag = String(node.tagName || '').toLowerCase();
+    if (tag === 'textarea') return true;
+    if (tag === 'input') {
+      const type = String(node.type || 'text').toLowerCase();
+      return ['text', 'search', 'url', 'email', 'password', 'number'].includes(type);
+    }
+    return false;
+  }
+
   function keepsOwnKeys(node) {
     const tag = String(node?.tagName || '').toLowerCase();
     return ['input', 'select', 'textarea', 'button', 'a'].includes(tag) || node?.isContentEditable;
   }
 
   function onKeydown(event) {
-    if (!video || keepsOwnKeys(event.target)) return;
-    if (event.key === ' ' || event.key === 'k') { event.preventDefault(); togglePlay(); }
-    else if (event.key === 'ArrowRight') { event.preventDefault(); seekBy(5); }
+    if (!video) return;
+    const isSpace = event.key === ' ' || event.code === 'Space' || event.key === 'Spacebar';
+    if (isSpace || event.key === 'k' || event.key === 'K') {
+      if (isTypingInput(event.target)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      togglePlay();
+      return;
+    }
+    if (keepsOwnKeys(event.target)) return;
+    if (event.key === 'ArrowRight') { event.preventDefault(); seekBy(5); }
     else if (event.key === 'ArrowLeft') { event.preventDefault(); seekBy(-5); }
   }
 
@@ -1267,6 +1319,8 @@
   class:idle={fsIdle}
   class:sidebar-open={sidebarOpen}
   style="--sidebar-w:{sidebarWidth}px"
+  onmousemove={onMouseMove}
+  onpointermove={onMouseMove}
 >
 
   <!-- Left: Video Player Stage (Expands to 100% when sidebar is closed, shrinks flexibly when opened) -->
@@ -1348,7 +1402,12 @@
         </div>
 
         <!-- Controls Dock Toolbar (Auto-hides in fullscreen after 3s inactivity) -->
-        <div class="controls" dir="ltr">
+        <div
+          class="controls"
+          dir="ltr"
+          onpointerenter={() => { isHoveringControls = true; fsIdle = false; if (fsIdleTimer) { clearTimeout(fsIdleTimer); fsIdleTimer = null; } }}
+          onpointerleave={() => { isHoveringControls = false; pokeFsToolbar(); }}
+        >
           <div class="timeline-row">
             <input class="scrub" type="range" min="0" max="1000" value={hasDuration ? (current / duration) * 1000 : 0}
               disabled={!hasDuration} oninput={onScrub} aria-label={t('video.position')} />
@@ -2418,6 +2477,9 @@
   }
   .video-workspace.is-fullscreen .timecode {
     color: rgba(255, 255, 255, 0.7);
+  }
+  .video-workspace.is-fullscreen.idle {
+    cursor: none;
   }
   .video-workspace.is-fullscreen.idle .controls {
     opacity: 0;

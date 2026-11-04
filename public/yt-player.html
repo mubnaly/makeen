@@ -268,6 +268,58 @@
           setTimeout(function () { if (player) postState(); }, 80);
         });
 
+        // Forward mouse movements and interactions to the parent window
+        // so the custom control bar appears in fullscreen when the cursor moves over the iframe
+        var lastMouseMove = 0;
+        function notifyUserActive() {
+          var now = Date.now();
+          if (now - lastMouseMove > 100) {
+            lastMouseMove = now;
+            post('mousemove');
+          }
+        }
+        window.addEventListener('mousemove', notifyUserActive, { passive: true });
+        window.addEventListener('pointermove', notifyUserActive, { passive: true });
+        window.addEventListener('touchstart', notifyUserActive, { passive: true });
+        window.addEventListener('click', notifyUserActive, { passive: true });
+
+        // Handle spacebar and arrow keys inside the iframe to pause/play
+        window.addEventListener('keydown', function (e) {
+          var isSpace = e.key === ' ' || e.code === 'Space' || e.key === 'Spacebar';
+          if (isSpace || e.key === 'k' || e.key === 'K') {
+            e.preventDefault();
+            e.stopPropagation();
+            if (player && typeof player.getPlayerState === 'function') {
+              try {
+                var state = player.getPlayerState();
+                if (state === 1) { // 1 = playing
+                  player.pauseVideo();
+                } else {
+                  player.playVideo();
+                }
+              } catch (err) {}
+            }
+            post('mousemove');
+            post('spaceKey');
+          } else if (e.key === 'ArrowRight') {
+            e.preventDefault();
+            if (player && typeof player.getCurrentTime === 'function') {
+              try {
+                player.seekTo(player.getCurrentTime() + 5, true);
+              } catch (err) {}
+            }
+            post('mousemove');
+          } else if (e.key === 'ArrowLeft') {
+            e.preventDefault();
+            if (player && typeof player.getCurrentTime === 'function') {
+              try {
+                player.seekTo(Math.max(0, player.getCurrentTime() - 5), true);
+              } catch (err) {}
+            }
+            post('mousemove');
+          }
+        }, true);
+
         // If the API script never arrives, tell the app instead of leaving it
         // on an endless loading overlay.
         apiTimer = setTimeout(function () {
