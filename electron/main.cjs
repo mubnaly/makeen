@@ -1,4 +1,7 @@
 const { app, BrowserWindow, ipcMain, Notification, dialog, Menu } = require('electron');
+// Completely disable and destroy the default application menu before app is ready
+// so "File Edit View Window Help" is never created or displayed.
+Menu.setApplicationMenu(null);
 const fs = require('fs/promises');
 const path = require('path');
 const { safeFileName } = require('./fsnames.cjs');
@@ -129,7 +132,7 @@ function createWindow() {
     minHeight: 680,
     backgroundColor: '#f7f7fb',
     title: 'StudyOS',
-    autoHideMenuBar: true,
+    autoHideMenuBar: false,
     icon: path.join(__dirname, '..', 'public', 'icon.png'),
     webPreferences: {
       contextIsolation: true,
@@ -137,10 +140,17 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.cjs')
     }
   });
+  win.setMenu(null);
   win.removeMenu();
   win.setMenuBarVisibility(false);
-  win.on('enter-full-screen', () => win.setMenuBarVisibility(false));
-  win.on('leave-full-screen', () => win.setMenuBarVisibility(false));
+  win.on('enter-full-screen', () => {
+    win.setMenu(null);
+    win.setMenuBarVisibility(false);
+  });
+  win.on('leave-full-screen', () => {
+    win.setMenu(null);
+    win.setMenuBarVisibility(false);
+  });
   mainWindow = win;
   // base './' in the Vite build makes this work over file://.
   win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
