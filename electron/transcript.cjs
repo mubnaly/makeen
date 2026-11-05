@@ -501,7 +501,7 @@ function transcriptHtml({ title, url, cues, lang, generatedAt } = {}) {
   ${meta}
   <div class="rule"></div>
   <table><tbody>${rows}</tbody></table>
-  <div class="footer">StudyOS · YouTube transcript</div>
+  <div class="footer">Makeen · YouTube transcript</div>
 </body>
 </html>`;
 }

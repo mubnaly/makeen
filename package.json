@@ -3,6 +3,14 @@
   "productName": "Makeen",
   "description": "Makeen (مَكِين) — A local-first study workspace for PDFs, videos, projects, captures and flashcards.",
   "author": "Makeen",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mubnaly/makeen.git"
+  },
+  "bugs": {
+    "url": "https://github.com/mubnaly/makeen/issues"
+  },
+  "homepage": "https://github.com/mubnaly/makeen#readme",
   "private": true,
   "version": "0.1.0",
   "type": "module",

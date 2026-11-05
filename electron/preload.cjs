@@ -4,7 +4,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 // write real JSON sidecars + capture PNGs (fixes gap defect D3/D5). Methods
 // return { ok, path } or { ok:false, error } so the UI never claims a write that
 // did not happen.
-contextBridge.exposeInMainWorld('studyos', {
+const api = {
   saveCapture: (filename, dataUrl) => ipcRenderer.invoke('save-capture', { filename, dataUrl }),
   saveSidecarFile: (documentId, text) => ipcRenderer.invoke('save-sidecar', { documentId, text }),
   loadSidecarFile: (documentId) => ipcRenderer.invoke('load-sidecar', { documentId }),
@@ -35,4 +35,7 @@ contextBridge.exposeInMainWorld('studyos', {
   pickLocalPdf: () => ipcRenderer.invoke('pick-local-pdf'),
   readPdfFile: (filePath) => ipcRenderer.invoke('read-pdf-file', filePath),
   writePdfFile: (filePath, bytes) => ipcRenderer.invoke('write-pdf-file', { filePath, bytes })
-});
+};
+
+contextBridge.exposeInMainWorld('makeen', api);
+contextBridge.exposeInMainWorld('studyos', api);

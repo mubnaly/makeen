@@ -55,5 +55,5 @@ fn main() {
         .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![read_pdf_file])
         .run(tauri::generate_context!())
-        .expect("error while running StudyOS tauri application");
+        .expect("error while running Makeen tauri application");
 }

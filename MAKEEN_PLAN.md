@@ -1,10 +1,10 @@
-# Study Productivity App — Product, UI, and Technical Architecture Plan
+# Makeen (مَكِين) — Product, UI, and Technical Architecture Plan
 
-> **Document status:** Initial implementation blueprint  
-> **Working title:** StudyOS (placeholder; choose a final name later)  
-> **Primary objective:** Help a person turn PDFs, videos, and flashcards into a connected, measurable learning routine.  
+> **Document status:** Active production architecture blueprint  
+> **Official Name:** Makeen (مَكِين) — Formerly StudyOS  
+> **Primary objective:** Help a person turn PDFs, videos, notes, and habits into a connected, measurable learning and growth routine.  
 > **Initial target:** Windows, macOS, and Linux desktop; architected for Android, iOS, and browser use.  
-> **Guiding principle:** A small, offline-capable learning workspace—not a collection of unrelated tools.
+> **Guiding principle:** A small, offline-first personal growth and learning workspace — مساحتك الشخصية لتطوير ذاتك.
 
 ---
 

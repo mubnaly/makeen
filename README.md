@@ -1,11 +1,13 @@
-# StudyOS
+# Makeen (مَكِين)
 
-A local-first, desktop-first study and productivity workspace. It turns PDFs
+A local-first, desktop-first study and productivity workspace. It turns PDFs and videos
 into a connected learning routine: read and annotate, capture diagrams, turn
-captures into flashcards, and review them with spaced repetition — all offline,
+captures into flashcards, track habits, pray on time, and review with spaced repetition — all offline,
 with no account required.
 
-Built from the roadmap in [`STUDY_PRODUCTIVITY_APP_PLAN.md`](STUDY_PRODUCTIVITY_APP_PLAN.md).
+> **GitHub Repository:** [https://github.com/mubnaly/makeen](https://github.com/mubnaly/makeen)
+
+Built from the architecture roadmap in [`MAKEEN_PLAN.md`](MAKEEN_PLAN.md).
 This repository currently implements **the plan's recommended first milestone
 (§19)**: a small offline PDF reader with reliable JSON annotations, plus the
 capture → flashcard loop.
@@ -91,7 +93,7 @@ capture → flashcard loop.
   button shows the delay it will apply, and the next due date is counted in your
   **local calendar days**, so a card can never land a day off because of the
   timezone.
-- **Daily reminder** — once a day at a time you pick (default **09:00**) StudyOS
+- **Daily reminder** — once a day at a time you pick (default **09:00**) Makeen
   reports how many flashcards are due and which sets they come from. It fires at
   the first check on or after that time (so opening the app in the evening still
   reminds you), at most once per day, recorded in the settings so a restart never
@@ -195,7 +197,7 @@ tests/                 Node test-runner suites for geometry, sidecar, annotation
 
 **Storage model:** the local key/value record (localStorage) is the guaranteed
 durable layer for annotation sidecars; on desktop an atomically-written JSON
-file is added under `Documents/StudyOSData/annotations/`. Loading prefers the
+file is added under `Documents/MakeenData/annotations/` (or legacy `Documents/StudyOSData/`). Loading prefers the
 newer of the two and can recover from a rolling backup copy. The JSON sidecar
 is authoritative for annotations; the in-app index is rebuildable from it.
 
@@ -262,7 +264,7 @@ A small 3-page fixture generator lives at `tests/fixtures/make_pdf.mjs`
 ## Non-goals / not yet built
 
 Sync, AI, learning paths, screen recording, background notifications while
-StudyOS is **closed** (reminders fire while it is open), and mobile/web
+Makeen is **closed** (reminders fire while it is open), and mobile/web
 packaging are later phases (§16) and are intentionally out of scope for this
 milestone.
 

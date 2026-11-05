@@ -83,9 +83,17 @@ app.commandLine.appendSwitch('renderer-process-limit', '1');
 app.commandLine.appendSwitch('disable-site-isolation-trials');
 app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion,SpareRendererForSitePerProcess');
 
-// StudyOSData/ layout (plan §7.2, §11.1).
+// MakeenData/ layout (with backward compatibility to StudyOSData/ if existing).
 function dataRoot() {
-  return path.join(app.getPath('documents'), 'StudyOSData');
+  const primary = path.join(app.getPath('documents'), 'MakeenData');
+  const legacy = path.join(app.getPath('documents'), 'StudyOSData');
+  try {
+    const fsSync = require('fs');
+    if (fsSync.existsSync(legacy) && !fsSync.existsSync(primary)) {
+      return legacy;
+    }
+  } catch {}
+  return primary;
 }
 function annotationsDir() {
   return path.join(dataRoot(), 'annotations');
@@ -655,7 +663,7 @@ ipcMain.handle('export-transcript-pdf', async (_e, payload = {}) => {
     let filename = safeOutputName(payload.filename, 'transcript.pdf');
     if (!/\.pdf$/i.test(filename)) filename += '.pdf';
     const output = path.join(folder, filename);
-    tmpFile = path.join(app.getPath('temp'), `studyos-transcript-${process.pid}-${Date.now()}.html`);
+    tmpFile = path.join(app.getPath('temp'), `makeen-transcript-${process.pid}-${Date.now()}.html`);
     await fs.writeFile(tmpFile, html, 'utf8');
     win = new BrowserWindow({
       show: false,
@@ -723,7 +731,7 @@ ipcMain.handle('transcribe-audio', async (_e, payload = {}) => {
   let tmpAudio = '';
   try {
     const ext = payload.mimeType?.includes('wav') ? 'wav' : 'webm';
-    tmpAudio = path.join(app.getPath('temp'), `studyos-stt-${process.pid}-${Date.now()}.${ext}`);
+    tmpAudio = path.join(app.getPath('temp'), `makeen-stt-${process.pid}-${Date.now()}.${ext}`);
     const buffer = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes.buffer || bytes);
     await fs.writeFile(tmpAudio, buffer);
 

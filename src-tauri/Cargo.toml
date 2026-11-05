@@ -1,8 +1,8 @@
 [package]
-name = "study-os"
+name = "makeen"
 version = "0.1.0"
-description = "StudyOS - Ultra-fast, lightweight PDF reader and study workspace"
-authors = ["StudyOS"]
+description = "Makeen (مَكِين) - Ultra-fast, lightweight study workspace and PDF reader"
+authors = ["Makeen"]
 edition = "2021"
 
 [build-dependencies]

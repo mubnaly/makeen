@@ -13,7 +13,7 @@ if sys.platform == 'win32':
         pass
 
 def main():
-    parser = argparse.ArgumentParser(description="StudyOS Offline Speech to Text")
+    parser = argparse.ArgumentParser(description="Makeen Offline Speech to Text")
     parser.add_argument('--audio', required=True, help='Path to input audio file')
     parser.add_argument('--lang', default='ar', help='Language code (ar, en, or auto)')
     parser.add_argument('--model', default='tiny', help='Whisper model name (tiny, base, etc.)')
