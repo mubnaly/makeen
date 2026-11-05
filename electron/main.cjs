@@ -132,8 +132,31 @@ async function atomicWrite(target, text) {
   await fs.rename(tmp, target);
 }
 
+function getAppIconImage() {
+  const { nativeImage } = require('electron');
+  const candidates = [
+    path.join(__dirname, '..', 'build', 'icon.ico'),
+    path.join(__dirname, '..', 'public', 'icon.ico'),
+    path.join(__dirname, '..', 'dist', 'icon.ico'),
+    path.join(__dirname, '..', 'build', 'icon.png'),
+    path.join(__dirname, '..', 'public', 'icon.png'),
+    path.join(__dirname, '..', 'dist', 'icon.png')
+  ];
+  for (const c of candidates) {
+    try {
+      const fsSync = require('fs');
+      if (fsSync.existsSync(c)) {
+        const img = nativeImage.createFromPath(c);
+        if (!img.isEmpty()) return img;
+      }
+    } catch {}
+  }
+  return path.join(__dirname, '..', 'dist', 'icon.png');
+}
+
 function createWindow() {
   Menu.setApplicationMenu(null);
+  const appIcon = getAppIconImage();
   const win = new BrowserWindow({
     width: 1440,
     height: 920,
@@ -142,13 +165,14 @@ function createWindow() {
     backgroundColor: '#f7f7fb',
     title: 'Makeen — مَكِين',
     autoHideMenuBar: true,
-    icon: path.join(__dirname, '..', 'public', 'icon.png'),
+    icon: appIcon,
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
       preload: path.join(__dirname, 'preload.cjs')
     }
   });
+  try { win.setIcon(appIcon); } catch {}
   win.setMenu(null);
   win.removeMenu();
   win.setAutoHideMenuBar(true);
