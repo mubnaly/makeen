@@ -57,6 +57,10 @@
       "package.json",
       "!node_modules/**/*"
     ],
+    "asarUnpack": [
+      "**/stt.py",
+      "electron/stt.py"
+    ],
     "win": {
       "icon": "public/icon.ico",
       "target": [

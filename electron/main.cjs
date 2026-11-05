@@ -3,6 +3,7 @@ const { app, BrowserWindow, ipcMain, Notification, dialog, Menu, session, shell 
 // so "File Edit View Window Help" is never created or displayed.
 Menu.setApplicationMenu(null);
 const fs = require('fs/promises');
+const fsSync = require('fs');
 const path = require('path');
 const { safeFileName } = require('./fsnames.cjs');
 const transcript = require('./transcript.cjs');
@@ -669,6 +670,35 @@ ipcMain.handle('export-transcript-pdf', async (_e, payload = {}) => {
 });
 
 // Speech-to-Text: Offline transcription using local Whisper Python runner
+async function getSttScriptPath() {
+  const directPath = path.join(__dirname, 'stt.py');
+
+  // If outside asar archive and exists, use directly (e.g. during development)
+  if (!directPath.includes('app.asar') && fsSync.existsSync(directPath)) {
+    return directPath;
+  }
+
+  // If electron-builder asarUnpack was used
+  const unpackedPath = directPath.replace('app.asar', 'app.asar.unpacked');
+  if (fsSync.existsSync(unpackedPath)) {
+    return unpackedPath;
+  }
+
+  // Robust fallback: Node.js fs in Electron CAN read inside app.asar.
+  // Extract stt.py into app's userData/scripts directory so Python can execute it directly.
+  const targetDir = path.join(app.getPath('userData'), 'scripts');
+  const targetPath = path.join(targetDir, 'stt.py');
+  try {
+    await fs.mkdir(targetDir, { recursive: true });
+    const content = await fs.readFile(directPath, 'utf8');
+    await fs.writeFile(targetPath, content, 'utf8');
+    return targetPath;
+  } catch (err) {
+    console.error('Failed to extract stt.py to userData:', err);
+    return unpackedPath;
+  }
+}
+
 ipcMain.handle('transcribe-audio', async (_e, payload = {}) => {
   const bytes = payload.audioBytes;
   if (!bytes || (!bytes.length && !bytes.byteLength)) {
@@ -684,7 +714,7 @@ ipcMain.handle('transcribe-audio', async (_e, payload = {}) => {
     const buffer = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes.buffer || bytes);
     await fs.writeFile(tmpAudio, buffer);
 
-    const scriptPath = path.join(__dirname, 'stt.py');
+    const scriptPath = await getSttScriptPath();
     const args = [scriptPath, '--audio', tmpAudio, '--lang', lang, '--model', model];
 
     return await new Promise((resolve) => {
@@ -712,6 +742,10 @@ ipcMain.handle('transcribe-audio', async (_e, payload = {}) => {
       });
 
       proc.on('error', (err) => {
+        if (err?.code === 'ENOENT') {
+          resolve({ ok: false, error: 'Python not found in system PATH. Please ensure Python is installed and in PATH.' });
+          return;
+        }
         resolve({ ok: false, error: String(err?.message || err) });
       });
     });
