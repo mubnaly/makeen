@@ -278,8 +278,12 @@ app.whenReady().then(async () => {
     // YouTube requires a valid Referer/Origin for embedded video playback (prevents Error 153)
     session.defaultSession.webRequest.onBeforeSendHeaders(ytFilter, (details, callback) => {
       const headers = { ...details.requestHeaders };
-      headers['Referer'] = 'https://www.youtube.com/';
-      headers['Origin'] = 'https://www.youtube.com';
+      const ref = headers['Referer'] || headers['referer'] || details.referrer || '';
+      if (!ref || ref.startsWith('file:') || ref.startsWith('about:')) {
+        headers['Referer'] = 'https://www.youtube.com/';
+        headers['Origin'] = 'https://www.youtube.com';
+      }
+      headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
       callback({ cancel: false, requestHeaders: headers });
     });
 

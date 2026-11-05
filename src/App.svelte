@@ -20,6 +20,9 @@
   import Profile from './components/Profile.svelte';
   import Trash from './components/Trash.svelte';
   import MarkdownAppSection from './components/MarkdownAppSection.svelte';
+  import Habits from './components/Habits.svelte';
+  import UserGuide from './components/UserGuide.svelte';
+  import Settings from './components/Settings.svelte';
   import { getCurrentUser } from './lib/auth.js';
   import { createSidecarStore, fileBridge, listCaptures, listCards, putCapture, putCard, deleteCaptureById, deleteCardById, clearCaptures, clearCards, clearTasks, migrateLocalCollections, listTasks } from './lib/storage.js';
   import { savePdfBytes, deleteFileBytes, loadPdfAutosaveSettings, savePdfAutosaveSettings } from './lib/storage.js';
@@ -53,6 +56,7 @@
     { id: 'Library', icon: 'library' },
     { id: 'Projects', icon: 'projects' },
     { id: 'Notes', icon: 'file-text' },
+    { id: 'Habits', icon: 'check' },
     { id: 'Reader', icon: 'reader' },
     { id: 'Video', icon: 'video' },
     { id: 'Studio', icon: 'dualStudio' },
@@ -60,12 +64,13 @@
     { id: 'Gallery', icon: 'gallery' },
     { id: 'Flashcards', icon: 'flashcards' },
     { id: 'Trash', icon: 'trash' },
+    { id: 'Guide', icon: 'book' },
     { id: 'Settings', icon: 'settings' }
   ];
   const NAV_LABEL = {
     Today: 'nav.today', Profile: 'nav.profile', Library: 'nav.library', Projects: 'nav.projects',
-    Notes: 'nav.notes', Reader: 'nav.reader', Video: 'nav.video',
-    Studio: 'nav.dualStudio', Planner: 'nav.planner', Gallery: 'nav.gallery', Flashcards: 'nav.flashcards', Trash: 'nav.trash', Settings: 'nav.settings'
+    Notes: 'nav.notes', Habits: 'nav.habits', Reader: 'nav.reader', Video: 'nav.video',
+    Studio: 'nav.dualStudio', Planner: 'nav.planner', Gallery: 'nav.gallery', Flashcards: 'nav.flashcards', Trash: 'nav.trash', Guide: 'nav.guide', Settings: 'nav.settings'
   };
 
   let view = $state('Today');
@@ -188,7 +193,14 @@
   const undoManager = createUndoManager();
 
   function initialTheme() {
-    try { return normalizeTheme(globalThis.localStorage?.getItem('studyos.theme') || DEFAULT_THEME); }
+    try {
+      const saved = globalThis.localStorage?.getItem('makeen.theme') || globalThis.localStorage?.getItem('studyos.theme');
+      if (saved) return normalizeTheme(saved);
+      if (globalThis.window?.matchMedia?.('(prefers-color-scheme: light)').matches) {
+        return 'nordic-frost';
+      }
+      return 'midnight';
+    }
     catch { return DEFAULT_THEME; }
   }
 
@@ -1402,22 +1414,6 @@
       </div>
       <span style="flex:1"></span>
 
-      <!-- Language switcher: the whole interface follows it. -->
-      <label class="lang-picker" title={t('topbar.language')}>
-        <Icon name="globe" size={16} />
-        <select value={ui.lang} onchange={(e) => setLang(e.currentTarget.value)} aria-label={t('topbar.language')}>
-          {#each LANGS as l}<option value={l.code}>{l.label}</option>{/each}
-        </select>
-      </label>
-
-      <!-- User profile & authentication -->
-      <button class="icon-btn user-btn" onclick={() => authOpen = true} title={t('auth.profile')} aria-label={t('auth.profile')}>
-        <Icon name="user" size={17} />
-        {#if currentUser && currentUser.id !== 'guest'}
-          <span class="user-name-tag">{currentUser.name || currentUser.username}</span>
-        {/if}
-      </button>
-
       <button class="icon-btn" onclick={openHelp} title={t('topbar.help')} aria-label={t('topbar.help')} aria-haspopup="dialog">
         <Icon name="help" size={18} />
       </button>
@@ -2045,213 +2041,30 @@
         {/if}
 
       {:else if view === 'Settings'}
-        <h2>{t('settings.title')}</h2>
-        <div class="card mt" style="max-width:560px">
-          <div class="section-title" style="margin-top:0">{t('settings.language')}</div>
-          <div class="hstack">
-            <Icon name="globe" size={16} />
-            <select value={ui.lang} onchange={(e) => setLang(e.currentTarget.value)} aria-label={t('settings.language')}>
-              {#each LANGS as l}<option value={l.code}>{l.label}</option>{/each}
-            </select>
-            <span class="muted" style="font-size:12px">{t('settings.languageHelp')}</span>
-          </div>
+        <Settings
+          {theme}
+          {setTheme}
+          {imageQuality}
+          {setImageQuality}
+          {srsSettings}
+          {persistSrs}
+          {toggleDueReminder}
+          {testReminder}
+          {pdfAutosave}
+          {dueCards}
+          {clearAllData}
+          {notify}
+          onBackupRestored={() => {
+            docs = library.listDocuments();
+            try { projects = listProjects(); } catch {}
+          }}
+        />
 
-          <div class="section-title mt">{t('settings.appearance')}</div>
-          <p class="muted" style="font-size:13px">{t('settings.themeHint')}</p>
-          {#each ['light', 'dark'] as mode}
-            <div class="theme-group-label">{mode === 'light' ? t('settings.lightThemes') : t('settings.darkThemes')}</div>
-            <div class="theme-grid">
-              {#each THEMES.filter((th) => th.mode === mode) as th (th.id)}
-                <button class="theme-card" class:active={theme === th.id} aria-pressed={theme === th.id}
-                  style={`--sw-bg:${th.bg}; --sw-surface:${th.surface}; --sw-accent:${th.accent}`}
-                  onclick={() => setTheme(th.id)} title={t(themeLabelKey(th.id))}>
-                  <span class="theme-preview" aria-hidden="true">
-                    <span class="theme-dot"></span>
-                    <span class="theme-line"></span>
-                    <span class="theme-line short"></span>
-                  </span>
-                  <span class="theme-name">{t(themeLabelKey(th.id))}</span>
-                </button>
-              {/each}
-            </div>
-          {/each}
+      {:else if view === 'Habits'}
+        <Habits {notify} />
 
-          <div class="section-title mt">{t('settings.captures')}</div>
-          <p class="muted" style="font-size:13px">{t('settings.imageQualityHelp')}</p>
-          <div class="quality-row">
-            <input type="range" min="10" max="100" step="1" value={imageQuality}
-              aria-label={t('settings.imageQuality')}
-              oninput={(e) => setImageQuality(e.currentTarget.value)} />
-            <span class="quality-value">{imageQuality}%</span>
-          </div>
-          <div class="hstack">
-            <span class="muted" style="font-size:12px">{t('settings.imageQualityHint')}</span>
-            <button onclick={() => setImageQuality(DEFAULT_IMAGE_QUALITY)}>{t('settings.imageQualityReset')}</button>
-          </div>
-
-          <div class="section-title mt">{t('settings.srs')}</div>
-          <p class="muted" style="font-size:13px">{t('settings.srsHelp')}</p>
-          {#each DIFFICULTIES as level}
-            <div class="hstack" style="margin:4px 0">
-              <span style="flex:1">{difficultyLabel(level)}</span>
-              <input type="number" min="1" max="365" style="width:84px" title={t('srs.intervalTitle', { label: difficultyLabel(level) })}
-                value={srsSettings.intervals[level]}
-                onchange={(e) => persistSrs({ intervals: { ...srsSettings.intervals, [level]: e.currentTarget.value } })} />
-              <span class="muted" style="font-size:12px">{t('common.day')}</span>
-            </div>
-          {/each}
-          <button onclick={() => persistSrs({ intervals: { ...DEFAULT_INTERVALS } })}>{t('settings.resetIntervals')}</button>
-
-          <div class="section-title mt">{t('settings.reminder')}</div>
-          <label class="hstack" style="gap:8px">
-            <input type="checkbox" checked={srsSettings.reminderOn} onchange={toggleDueReminder} />
-            <span>{t('settings.reminderToggle')}</span>
-          </label>
-          <div class="hstack mt">
-            <span>{t('settings.time')}</span>
-            <input type="time" value={srsSettings.reminderTime} onchange={(e) => persistSrs({ reminderTime: e.currentTarget.value })} />
-            <button onclick={testReminder}>{t('settings.testReminder')}</button>
-          </div>
-          <p class="muted" style="font-size:12px">{t('settings.reminderHint', { n: dueCards.length })}</p>
-
-          <div class="section-title mt">{t('settings.pdfAutosave')}</div>
-          <p class="muted" style="font-size:13px">{t('settings.pdfAutosaveHelp')}</p>
-          <label class="checkbox-label" style="display:flex; align-items:center; gap:8px; margin-bottom:8px">
-            <input type="checkbox" checked={pdfAutosave.enabled} onchange={(e) => {
-              pdfAutosave.enabled = e.currentTarget.checked;
-              savePdfAutosaveSettings(pdfAutosave);
-              notify(t('settings.saved'), 'ok');
-            }} />
-            <span>{t('settings.pdfAutosaveToggle')}</span>
-          </label>
-          {#if pdfAutosave.enabled}
-            <div class="hstack" style="gap:10px; margin-bottom:8px">
-              <span>{t('settings.pdfAutosaveInterval')}:</span>
-              <select
-                value={pdfAutosave.interval}
-                onchange={(e) => {
-                  pdfAutosave.interval = Number(e.currentTarget.value);
-                  savePdfAutosaveSettings(pdfAutosave);
-                  notify(t('settings.saved'), 'ok');
-                }}
-              >
-                <option value="5">5 {t('common.minutes')}</option>
-                <option value="10">10 {t('common.minutes')}</option>
-                <option value="15">15 {t('common.minutes')} ({t('settings.default')})</option>
-                <option value="30">30 {t('common.minutes')}</option>
-                <option value="60">60 {t('common.minutes')}</option>
-              </select>
-            </div>
-          {/if}
-
-          <div class="section-title mt">{t('settings.prayer')}</div>
-          <p class="muted" style="font-size:13px">{t('settings.prayerHelp')}</p>
-
-          <!-- City & Region Picker -->
-          <div class="hstack mt" style="gap:10px;">
-            <Icon name="globe" size={16} />
-            <span style="font-size:13px; font-weight:600;">{t('settings.prayerCity')}:</span>
-            <select
-              value={prayerSettings.cityId}
-              onchange={(e) => {
-                prayerSettings = savePrayerSettings({ cityId: e.currentTarget.value });
-                notify(t('settings.saved'), 'ok');
-              }}
-            >
-              {#each POPULAR_CITIES as city (city.id)}
-                <option value={city.id}>
-                  {ui.lang === 'ar' ? `${city.nameAr} (${city.countryAr})` : `${city.nameEn} (${city.countryEn})`}
-                </option>
-              {/each}
-            </select>
-          </div>
-
-          <!-- Pre-prayer Alert Notification -->
-          <label class="checkbox-label mt" style="display:flex; align-items:center; gap:8px;">
-            <input
-              type="checkbox"
-              checked={prayerSettings.reminderEnabled}
-              onchange={(e) => {
-                prayerSettings = savePrayerSettings({ reminderEnabled: e.currentTarget.checked });
-                notify(t('settings.saved'), 'ok');
-              }}
-            />
-            <span>{t('settings.prayerReminder')}</span>
-          </label>
-
-          {#if prayerSettings.reminderEnabled}
-            <div class="hstack mt" style="gap:10px;">
-              <span>{t('settings.prayerReminderTime')}:</span>
-              <select
-                value={prayerSettings.reminderMinutes}
-                onchange={(e) => {
-                  prayerSettings = savePrayerSettings({ reminderMinutes: Number(e.currentTarget.value) });
-                  notify(t('settings.saved'), 'ok');
-                }}
-              >
-                <option value="3">3 {t('common.minutes')}</option>
-                <option value="5">5 {t('common.minutes')}</option>
-                <option value="10">10 {t('common.minutes')}</option>
-                <option value="15">15 {t('common.minutes')}</option>
-              </select>
-            </div>
-          {/if}
-
-          <!-- Sound Tone Selection -->
-          <div class="hstack mt" style="gap:10px; flex-wrap:wrap;">
-            <Icon name="bell" size={16} />
-            <span style="font-size:13px; font-weight:600;">{t('settings.prayerSound')}:</span>
-            <select
-              value={prayerSettings.soundTone}
-              onchange={(e) => {
-                prayerSettings = savePrayerSettings({ soundTone: e.currentTarget.value });
-                playNotificationTone(e.currentTarget.value);
-                notify(t('settings.saved'), 'ok');
-              }}
-            >
-              {#each AVAILABLE_SOUNDS as s (s.id)}
-                <option value={s.id}>{ui.lang === 'ar' ? s.nameAr : s.nameEn}</option>
-              {/each}
-            </select>
-            <button onclick={() => playNotificationTone(prayerSettings.soundTone)}>
-              <Icon name="bell" size={13} />
-              <span>{t('settings.testSound')}</span>
-            </button>
-          </div>
-
-          <div class="section-title mt">{t('settings.trash')}</div>
-          <p class="muted" style="font-size:13px">{t('settings.trashHelp')}</p>
-          <div class="hstack" style="gap:10px; margin-bottom:8px">
-            <span>{t('settings.autoPurgeAfter')}:</span>
-            <select
-              value={loadTrashRetentionDays()}
-              onchange={(e) => {
-                saveTrashRetentionDays(Number(e.currentTarget.value));
-                notify(t('settings.saved'), 'ok');
-              }}
-            >
-              <option value="7">7 {t('common.days')}</option>
-              <option value="14">14 {t('common.days')}</option>
-              <option value="30">30 {t('common.days')} ({t('settings.default')})</option>
-              <option value="60">60 {t('common.days')}</option>
-              <option value="90">90 {t('common.days')}</option>
-              <option value="0">{t('settings.never')}</option>
-            </select>
-          </div>
-          <button onclick={() => {
-            if (confirm(t('trash.confirmEmptyAll'))) {
-              emptyAllTrash();
-              notify(t('trash.emptiedAll'), 'ok');
-            }
-          }}>
-            <Icon name="trash" size={14} />
-            <span>{t('trash.emptyAll')}</span>
-          </button>
-
-          <div class="section-title mt">{t('settings.data')}</div>
-          <p class="muted" style="font-size:13px">{t('settings.dataHelp')}</p>
-          <button onclick={clearAllData}>{t('settings.clearData')}</button>
-        </div>
+      {:else if view === 'Guide'}
+        <UserGuide />
 
       {:else if view === 'Profile'}
         <Profile

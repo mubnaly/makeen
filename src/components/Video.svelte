@@ -434,7 +434,10 @@
       else origin = String(globalThis.window?.location?.origin || '');
       if (my !== token) return;
       if (!origin || origin === 'null' || origin.startsWith('file:')) {
-        throw new Error('player origin unavailable');
+        // Fallback: Embed directly via YouTube nocookie player if local server is unreachable
+        ytFrameUrl = `https://www.youtube-nocookie.com/embed/${encodeURIComponent(record.ytId || '')}?enablejsapi=1&rel=0&modestbranding=1&playsinline=1`;
+        loading = false;
+        return;
       }
       const session = String(++ytSessionToken);
       ytActiveSession = session;
@@ -2551,11 +2554,9 @@
     overflow-x: auto;
     overflow-y: hidden;
     white-space: nowrap;
-    scrollbar-width: none;
-    -ms-overflow-style: none;
   }
   .sidebar-tabs-bar::-webkit-scrollbar {
-    display: none;
+    height: 3px;
   }
   .sidebar-tabs-bar button {
     flex: none;

@@ -1,7 +1,43 @@
-// Markdown notes and unlimited nested folders store for StudyOS.
-// Backed by localStorage and supports unlimited folder hierarchy.
+// Markdown notes and unlimited nested folders store for Makeen.
+// Backed by localStorage and supports unlimited folder hierarchy & protected Daily notes.
 
-const STORAGE_KEY = 'studyos.markdown.store.v1';
+const STORAGE_KEY = 'makeen.markdown.store.v1';
+const LEGACY_STORAGE_KEY = 'studyos.markdown.store.v1';
+
+export const DEFAULT_DAILY_TEMPLATE_KEY = 'makeen.daily_template';
+export const DEFAULT_DAILY_TEMPLATE = `# صفحة اليومية — {{date}}
+
+## 🎯 أهداف اليوم
+- [ ] 
+- [ ] 
+
+## 🔄 العادات اليومية
+- [ ] أذكار الصباح والمساء
+- [ ] قراءة 20 صفحة
+- [ ] الرياضة / المشي
+
+## 📝 ملاحظات وخواطر اليوم
+- 
+
+## 💡 فوائد وتلخيصات اليوم
+- 
+`;
+
+export function getDailyTemplate() {
+  if (typeof localStorage === 'undefined') return DEFAULT_DAILY_TEMPLATE;
+  try {
+    return localStorage.getItem(DEFAULT_DAILY_TEMPLATE_KEY) || DEFAULT_DAILY_TEMPLATE;
+  } catch {
+    return DEFAULT_DAILY_TEMPLATE;
+  }
+}
+
+export function saveDailyTemplate(template) {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    localStorage.setItem(DEFAULT_DAILY_TEMPLATE_KEY, template);
+  } catch {}
+}
 
 function uid() {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
@@ -15,7 +51,11 @@ function loadState() {
     return { folders: [], notes: [] };
   }
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    let raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) {
+      // Check legacy key
+      raw = localStorage.getItem(LEGACY_STORAGE_KEY);
+    }
     if (!raw) return { folders: [], notes: [] };
     const data = JSON.parse(raw);
     return {
@@ -32,6 +72,53 @@ function persistState(state) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   } catch {}
+}
+
+export function ensureDailyFolderAndNote() {
+  const state = loadState();
+  let dailyFolder = state.folders.find((f) => f.isDaily || f.name === 'Daily');
+  if (!dailyFolder) {
+    dailyFolder = {
+      id: 'folder_daily_permanent',
+      name: 'Daily',
+      isDaily: true,
+      isProtected: true,
+      parentId: null,
+      createdAt: Date.now()
+    };
+    state.folders.unshift(dailyFolder);
+    persistState(state);
+  } else if (!dailyFolder.isProtected) {
+    dailyFolder.isProtected = true;
+    dailyFolder.isDaily = true;
+    persistState(state);
+  }
+
+  // Check today's daily note: name format "D-M-YYYY.md" (e.g. "5-11-2026.md")
+  const now = new Date();
+  const day = now.getDate();
+  const month = now.getMonth() + 1;
+  const year = now.getFullYear();
+  const todayNoteName = `${day}-${month}-${year}.md`;
+
+  let todayNote = state.notes.find((n) => n.folderId === dailyFolder.id && n.title === todayNoteName);
+  if (!todayNote) {
+    const template = getDailyTemplate().replace(/\{\{date\}\}/g, `${day}-${month}-${year}`);
+    todayNote = {
+      id: uid(),
+      title: todayNoteName,
+      folderId: dailyFolder.id,
+      content: template,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      links: [],
+      isDailyNote: true
+    };
+    state.notes.unshift(todayNote);
+    persistState(state);
+  }
+
+  return { dailyFolder, todayNote };
 }
 
 // --- Folder API -------------------------------------------------------------
@@ -67,6 +154,7 @@ export function renameFolder(id, newName) {
   const state = loadState();
   const folder = state.folders.find((f) => f.id === id);
   if (!folder) return null;
+  if (folder.isProtected || folder.isDaily) return folder; // Protected folder name cannot be changed
   folder.name = (newName || folder.name).trim();
   persistState(state);
   return folder;
@@ -74,6 +162,10 @@ export function renameFolder(id, newName) {
 
 export function deleteFolder(id) {
   const state = loadState();
+  const folder = state.folders.find((f) => f.id === id);
+  if (folder && (folder.isProtected || folder.isDaily)) {
+    return false; // Protected folder cannot be deleted
+  }
   // Collect all descendant folder IDs recursively
   const toDelete = new Set([id]);
   let changed = true;
@@ -81,8 +173,10 @@ export function deleteFolder(id) {
     changed = false;
     for (const f of state.folders) {
       if (f.parentId && toDelete.has(f.parentId) && !toDelete.has(f.id)) {
-        toDelete.add(f.id);
-        changed = true;
+        if (!f.isProtected && !f.isDaily) {
+          toDelete.add(f.id);
+          changed = true;
+        }
       }
     }
   }

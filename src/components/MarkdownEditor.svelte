@@ -42,6 +42,7 @@
   let textareaEl = $state();
   let saveTimer = null;
   let isSaved = $state(true);
+  let showFormattingTools = $state(false);
   let showNoteLinkPicker = $state(false);
   let currentLinks = $state([]);
   let allAvailableNotes = $derived(listAllNotes().filter((n) => n.id !== activeNote?.id));
@@ -340,12 +341,22 @@
             <Icon name="download" size={13} />
             {#if !compact}<span>PDF</span>{/if}
           </button>
+          <!-- Toggle icon button to show/hide the other formatting controls -->
+          <button
+            type="button"
+            class="action-btn toggle-tools-btn {showFormattingTools ? 'active-tools' : ''}"
+            onclick={() => (showFormattingTools = !showFormattingTools)}
+            title={t('notes.toggleTools') || 'Toggle Formatting Tools'}
+            aria-pressed={showFormattingTools}
+          >
+            <Icon name="sliders" size={13} />
+          </button>
         </div>
       </div>
     </div>
 
-    <!-- Quick Markdown Formatting Bar (in Editor mode) -->
-    {#if mode === 'editor'}
+    <!-- Quick Markdown Formatting Bar (in Editor mode, only when toggled on) -->
+    {#if mode === 'editor' && showFormattingTools}
       <div class="md-format-bar">
         <!-- Direction Toggle (RTL / LTR) -->
         <button
@@ -763,6 +774,11 @@
     color: var(--text);
     cursor: pointer;
     transition: all 0.15s ease;
+  }
+  .action-btn.active-tools {
+    background: var(--accent-soft);
+    border-color: var(--accent);
+    color: var(--accent);
   }
   .action-btn:hover {
     background: var(--surface-2);

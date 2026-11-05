@@ -43,10 +43,49 @@
 
     const leadMins = Number(settings.reminderMinutes) || 5;
     const diff = nextInfo.minutesUntilNext;
-    const prayerKey = `${nextInfo.next.key}-${new Date().toDateString()}`;
+    const key = nextInfo.next.key;
+    const prayerKey = `${key}-${new Date().toDateString()}`;
 
-    // Trigger reminder within the designated alert window (e.g., 5 minutes before)
-    if (diff > 0 && diff <= leadMins && !remindedPrayers.has(prayerKey)) {
+    if (remindedPrayers.has(prayerKey)) return;
+
+    // 1. Sunrise alert: Exactly 10 minutes before sunrise to alert user for Fajr/Sobh
+    if (key === 'sunrise') {
+      if (diff > 0 && diff <= 10) {
+        remindedPrayers.add(prayerKey);
+        const msg = ui.lang === 'ar'
+          ? 'باقي 10 دقائق على شروق الشمس (لتدارك صلاة الصبح)'
+          : '10 minutes remaining until sunrise (Fajr/Sobh prayer)';
+        notify?.(msg, 'info');
+        playNotificationTone(settings.soundTone);
+        try {
+          if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+            new Notification(ui.lang === 'ar' ? 'شروق الشمس' : 'Sunrise', { body: msg });
+          }
+        } catch {}
+      }
+      return;
+    }
+
+    // 2. Duha alert: Alert when Duha time starts (20 mins after sunrise)
+    if (key === 'duha') {
+      if (diff > 0 && diff <= 3) {
+        remindedPrayers.add(prayerKey);
+        const msg = ui.lang === 'ar'
+          ? 'صلاة الضحى (حان الآن موعد صلاة الضحى)'
+          : 'Duha Prayer (Time for Duha prayer has begun)';
+        notify?.(msg, 'info');
+        playNotificationTone(settings.soundTone);
+        try {
+          if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+            new Notification(ui.lang === 'ar' ? 'صلاة الضحى' : 'Duha Prayer', { body: msg });
+          }
+        } catch {}
+      }
+      return;
+    }
+
+    // 3. Regular Prayers (Fajr, Dhuhr, Asr, Maghrib, Isha)
+    if (diff > 0 && diff <= leadMins) {
       remindedPrayers.add(prayerKey);
       const prayerName = ui.lang === 'ar' ? nextInfo.next.nameAr : nextInfo.next.nameEn;
       const msg = ui.lang === 'ar'
@@ -56,7 +95,6 @@
       notify?.(msg, 'info');
       playNotificationTone(settings.soundTone);
 
-      // Desktop system notification
       try {
         if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
           new Notification(prayerName, { body: msg });
@@ -110,11 +148,12 @@
       </div>
     </div>
 
-    <!-- 6 Prayer Items Grid -->
+    <!-- Prayer Items Grid -->
     <div class="prayers-grid">
       {#each [
         { key: 'fajr', label: PRAYER_NAMES.fajr, time: timings.fajr },
         { key: 'sunrise', label: PRAYER_NAMES.sunrise, time: timings.sunrise },
+        { key: 'duha', label: PRAYER_NAMES.duha, time: timings.duha },
         { key: 'dhuhr', label: PRAYER_NAMES.dhuhr, time: timings.dhuhr },
         { key: 'asr', label: PRAYER_NAMES.asr, time: timings.asr },
         { key: 'maghrib', label: PRAYER_NAMES.maghrib, time: timings.maghrib },

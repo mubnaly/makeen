@@ -56,12 +56,13 @@ export const POPULAR_CITIES = [
 ];
 
 export const PRAYER_NAMES = {
-  fajr: { ar: 'الفجر', en: 'Fajr', icon: 'moon' },
-  sunrise: { ar: 'الشروق', en: 'Sunrise', icon: 'sun' },
-  dhuhr: { ar: 'الظهر', en: 'Dhuhr', icon: 'sun' },
-  asr: { ar: 'العصر', en: 'Asr', icon: 'sun' },
-  maghrib: { ar: 'المغرب', en: 'Maghrib', icon: 'moon' },
-  isha: { ar: 'العشاء', en: 'Isha', icon: 'moon' }
+  fajr: { ar: 'الفجر', en: 'Fajr', icon: 'moon', isPrayer: true },
+  sunrise: { ar: 'الشروق', en: 'Sunrise', icon: 'sun', isPrayer: false },
+  duha: { ar: 'الضحى', en: 'Duha', icon: 'sun', isPrayer: true },
+  dhuhr: { ar: 'الظهر', en: 'Dhuhr', icon: 'sun', isPrayer: true },
+  asr: { ar: 'العصر', en: 'Asr', icon: 'sun', isPrayer: true },
+  maghrib: { ar: 'المغرب', en: 'Maghrib', icon: 'moon', isPrayer: true },
+  isha: { ar: 'العشاء', en: 'Isha', icon: 'moon', isPrayer: true }
 };
 
 const SETTINGS_KEY = 'makeen.prayer.settings';
@@ -170,14 +171,25 @@ export function calculateAstronomicalTimings(date, city) {
     return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
   }
 
-  return {
+  const resTimings = {
     fajr: formatTime(noon - haFajr),
     sunrise: formatTime(noon - haSunrise),
+    duha: formatTime(noon - haSunrise + 20 / 60),
     dhuhr: formatTime(noon),
     asr: formatTime(noon + haAsr),
     maghrib: formatTime(noon + haSunrise),
     isha: formatTime(noon + haIsha)
   };
+  return resTimings;
+}
+
+export function calculateDuhaTime(sunriseStr) {
+  if (!sunriseStr) return '06:30';
+  const [h, m] = sunriseStr.split(':').map(Number);
+  const total = (h * 60 + m + 20) % (24 * 60);
+  const dh = Math.floor(total / 60);
+  const dm = total % 60;
+  return `${String(dh).padStart(2, '0')}:${String(dm).padStart(2, '0')}`;
 }
 
 /**
@@ -215,9 +227,11 @@ export async function getPrayerTimes(date = new Date(), customCity = null) {
       const json = await res.json();
       if (json?.data?.timings) {
         const rawT = json.data.timings;
+        const sunrise = rawT.Sunrise?.slice(0, 5) || '06:10';
         const timings = {
           fajr: rawT.Fajr?.slice(0, 5) || '04:40',
-          sunrise: rawT.Sunrise?.slice(0, 5) || '06:10',
+          sunrise,
+          duha: calculateDuhaTime(sunrise),
           dhuhr: rawT.Dhuhr?.slice(0, 5) || '11:45',
           asr: rawT.Asr?.slice(0, 5) || '15:00',
           maghrib: rawT.Maghrib?.slice(0, 5) || '17:30',
@@ -253,12 +267,13 @@ export function getNextPrayerInfo(timings, now = new Date()) {
   const currentTotalMins = currentHours * 60 + currentMinutes;
 
   const prayers = [
-    { key: 'fajr', nameAr: 'الفجر', nameEn: 'Fajr', time: timings.fajr },
-    { key: 'sunrise', nameAr: 'الشروق', nameEn: 'Sunrise', time: timings.sunrise },
-    { key: 'dhuhr', nameAr: 'الظهر', nameEn: 'Dhuhr', time: timings.dhuhr },
-    { key: 'asr', nameAr: 'العصر', nameEn: 'Asr', time: timings.asr },
-    { key: 'maghrib', nameAr: 'المغرب', nameEn: 'Maghrib', time: timings.maghrib },
-    { key: 'isha', nameAr: 'العشاء', nameEn: 'Isha', time: timings.isha }
+    { key: 'fajr', nameAr: 'الفجر', nameEn: 'Fajr', time: timings.fajr, isPrayer: true },
+    { key: 'sunrise', nameAr: 'شروق الشمس', nameEn: 'Sunrise', time: timings.sunrise, isPrayer: false },
+    { key: 'duha', nameAr: 'صلاة الضحى', nameEn: 'Duha', time: timings.duha || calculateDuhaTime(timings.sunrise), isPrayer: true },
+    { key: 'dhuhr', nameAr: 'الظهر', nameEn: 'Dhuhr', time: timings.dhuhr, isPrayer: true },
+    { key: 'asr', nameAr: 'العصر', nameEn: 'Asr', time: timings.asr, isPrayer: true },
+    { key: 'maghrib', nameAr: 'المغرب', nameEn: 'Maghrib', time: timings.maghrib, isPrayer: true },
+    { key: 'isha', nameAr: 'العشاء', nameEn: 'Isha', time: timings.isha, isPrayer: true }
   ];
 
   function parseMins(timeStr) {

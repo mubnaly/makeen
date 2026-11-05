@@ -51,7 +51,9 @@ async function startPlayerServer({ distDir } = {}) {
     res.writeHead(200, {
       'Content-Type': 'text/html; charset=utf-8',
       'Cache-Control': 'no-store',
-      'X-Content-Type-Options': 'nosniff'
+      'X-Content-Type-Options': 'nosniff',
+      'Referrer-Policy': 'strict-origin-when-cross-origin',
+      'Access-Control-Allow-Origin': '*'
     });
     if (req.method === 'HEAD') res.end();
     else res.end(html);

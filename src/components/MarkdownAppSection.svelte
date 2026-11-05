@@ -13,7 +13,8 @@
     createNote,
     deleteNote,
     searchNotes,
-    getFolderBreadcrumbs
+    getFolderBreadcrumbs,
+    ensureDailyFolderAndNote
   } from '../lib/markdownStore.js';
 
   let { notify = null, captures = [] } = $props();
@@ -42,7 +43,20 @@
   }
 
   onMount(() => {
-    reloadData();
+    try {
+      const res = ensureDailyFolderAndNote();
+      if (res?.dailyFolder?.id) {
+        const next = new Set(expandedFolderIds);
+        next.add(res.dailyFolder.id);
+        expandedFolderIds = next;
+      }
+      reloadData();
+      if (res?.todayNote?.id && !activeNoteId) {
+        activeNoteId = res.todayNote.id;
+      }
+    } catch {
+      reloadData();
+    }
   });
 
   const activeNote = $derived(notes.find((n) => n.id === activeNoteId) || null);
@@ -165,7 +179,7 @@
         class="folder-label-btn"
         onclick={() => (selectedFolderId = folder.id)}
       >
-        <Icon name="folder" size={14} />
+        <Icon name={folder.isDaily || folder.isProtected ? 'planner' : 'folder'} size={14} />
         {#if editingFolderId === folder.id}
           <input
             type="text"
@@ -179,24 +193,26 @@
             autofocus
           />
         {:else}
-          <span class="folder-name">{folder.name}</span>
+          <span class="folder-name">{folder.isDaily || folder.name === 'Daily' ? (t('notes.dailyFolder') || 'Daily') : folder.name}</span>
           <span class="item-count">({childNotes.length})</span>
         {/if}
       </button>
 
       <div class="folder-hover-actions">
         <!-- Add subfolder inside this folder -->
-        <button
-          type="button"
-          class="mini-action"
-          onclick={() => {
-            createFolderParentId = folder.id;
-            isCreatingFolder = true;
-          }}
-          title={t('notes.newSubfolder') || 'New Subfolder'}
-        >
-          <Icon name="folderPlus" size={12} />
-        </button>
+        {#if !folder.isDaily && !folder.isProtected}
+          <button
+            type="button"
+            class="mini-action"
+            onclick={() => {
+              createFolderParentId = folder.id;
+              isCreatingFolder = true;
+            }}
+            title={t('notes.newSubfolder') || 'New Subfolder'}
+          >
+            <Icon name="folderPlus" size={12} />
+          </button>
+        {/if}
         <!-- Add note inside this folder -->
         <button
           type="button"
@@ -206,24 +222,26 @@
         >
           <Icon name="plus" size={12} />
         </button>
-        <!-- Rename -->
-        <button
-          type="button"
-          class="mini-action"
-          onclick={() => handleStartRename(folder)}
-          title={t('common.rename') || 'Rename'}
-        >
-          <Icon name="pencil" size={11} />
-        </button>
-        <!-- Delete -->
-        <button
-          type="button"
-          class="mini-action danger"
-          onclick={() => handleDeleteFolder(folder.id)}
-          title={t('common.delete') || 'Delete'}
-        >
-          <Icon name="trash" size={11} />
-        </button>
+        {#if !folder.isDaily && !folder.isProtected}
+          <!-- Rename -->
+          <button
+            type="button"
+            class="mini-action"
+            onclick={() => handleStartRename(folder)}
+            title={t('common.rename') || 'Rename'}
+          >
+            <Icon name="pencil" size={11} />
+          </button>
+          <!-- Delete -->
+          <button
+            type="button"
+            class="mini-action danger"
+            onclick={() => handleDeleteFolder(folder.id)}
+            title={t('common.delete') || 'Delete'}
+          >
+            <Icon name="trash" size={11} />
+          </button>
+        {/if}
       </div>
     </div>
 
