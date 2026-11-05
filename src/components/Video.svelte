@@ -38,7 +38,8 @@
     refreshDocs,
     onImport = null,
     captures = [],
-    onDeleteCapture = null
+    onDeleteCapture = null,
+    initialSidebarOpen = true
   } = $props();
 
   let videoEl = $state();
@@ -90,7 +91,7 @@
   let annotatingCapture = $state(null);
 
   // Resizable Right Sidebar & Tabs (both normal & fullscreen)
-  let sidebarOpen = $state(true);
+  let sidebarOpen = $state(initialSidebarOpen);
   let sidebarTab = $state('videos'); // 'videos' | 'chapters' | 'bookmarks' | 'captures' | 'transcript' | 'editor'
   let sidebarWidth = $state(
     typeof window !== 'undefined' ? Math.round(window.innerWidth * 0.25) : 340

@@ -1,8 +1,8 @@
 {
-  "name": "study-os",
-  "productName": "StudyOS",
-  "description": "A local-first study workspace for PDFs, videos, projects, captures and flashcards.",
-  "author": "StudyOS",
+  "name": "makeen",
+  "productName": "Makeen",
+  "description": "Makeen (مَكِين) — A local-first study workspace for PDFs, videos, projects, captures and flashcards.",
+  "author": "Makeen",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -33,8 +33,8 @@
     "vite": "8.3.4"
   },
   "build": {
-    "appId": "com.studyos.desktop",
-    "productName": "StudyOS",
+    "appId": "com.makeen.desktop",
+    "productName": "Makeen",
     "compression": "maximum",
     "electronLanguages": [
       "en",
@@ -78,8 +78,8 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "StudyOS",
-      "artifactName": "StudyOS-Setup-${version}.${ext}"
+      "shortcutName": "Makeen",
+      "artifactName": "Makeen-Setup-${version}.${ext}"
     }
   }
 }

@@ -163,8 +163,8 @@ export function describeRuleText(lang, rule, t) {
 
 export const DICT = {
   en: {
-    'app.title': 'StudyOS — local first study workspace',
-    'app.brand': 'StudyOS',
+    'app.title': 'Makeen — local first study workspace',
+    'app.brand': 'Makeen',
 
     'nav.today': 'Today',
     'nav.profile': 'Profile',
@@ -926,6 +926,14 @@ export const DICT = {
     'studio.saveSession': 'Save Session',
     'studio.loadSession': 'Load Session',
     'studio.exportSuccess': 'Document exported successfully',
+    'studio.splitHorizontal': 'Split Horizontally',
+    'studio.splitVertical': 'Split Vertically',
+    'studio.openMarkdown': 'Markdown Notes',
+    'studio.closeMarkdown': 'Close Notes',
+    'studio.allFiles': 'All Library Files',
+    'studio.selectProject': 'Filter by Project',
+    'studio.noVideosInProject': 'No videos in this project',
+    'studio.noPdfsInProject': 'No PDFs in this project',
 
     'auth.login': 'Sign In',
     'auth.register': 'Create Account',
@@ -1172,8 +1180,8 @@ export const DICT = {
   },
 
   ar: {
-    'app.title': 'StudyOS — مساحة الدراسة المحلية',
-    'app.brand': 'StudyOS',
+    'app.title': 'مَكِين — مساحة الدراسة المحلية',
+    'app.brand': 'مَكِين',
 
     'nav.today': 'اليوم',
     'nav.profile': 'الملف الشخصي',
@@ -1935,6 +1943,14 @@ export const DICT = {
     'studio.saveSession': 'حفظ الجلسة',
     'studio.loadSession': 'استرجاع الجلسة',
     'studio.exportSuccess': 'تم تصدير المستند بنجاح',
+    'studio.splitHorizontal': 'تقسيم أفقي',
+    'studio.splitVertical': 'تقسيم رأسي',
+    'studio.openMarkdown': 'ملاحظات الماركداون',
+    'studio.closeMarkdown': 'إغلاق الملاحظات',
+    'studio.allFiles': 'كافة ملفات المكتبة',
+    'studio.selectProject': 'تصفية حسب المشروع',
+    'studio.noVideosInProject': 'لا توجد فيديوهات في هذا المشروع',
+    'studio.noPdfsInProject': 'لا توجد ملفات PDF في هذا المشروع',
 
     'auth.login': 'تسجيل الدخول',
     'auth.register': 'إنشاء حساب',

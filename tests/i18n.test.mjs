@@ -131,7 +131,7 @@ test('a document element gets lang, dir and a localized title', () => {
   const attrs = docAttrsFor('ar');
   assert.equal(attrs.lang, 'ar');
   assert.equal(attrs.dir, 'rtl');
-  assert.match(attrs.title, /StudyOS/);
+  assert.match(attrs.title, /Makeen|مَكِين/);
   assert.equal(docAttrsFor('en').dir, 'ltr');
 });
 

@@ -132,7 +132,7 @@ function createWindow() {
     minWidth: 1000,
     minHeight: 680,
     backgroundColor: '#f7f7fb',
-    title: 'StudyOS',
+    title: 'Makeen — مَكِين',
     autoHideMenuBar: true,
     icon: path.join(__dirname, '..', 'public', 'icon.png'),
     webPreferences: {
@@ -759,7 +759,7 @@ ipcMain.handle('transcribe-audio', async (_e, payload = {}) => {
 });
 
 ipcMain.handle('notify', (_e, { title, body }) => {
-  if (Notification.isSupported()) new Notification({ title: String(title || 'StudyOS'), body: String(body || '') }).show();
+  if (Notification.isSupported()) new Notification({ title: String(title || 'Makeen'), body: String(body || '') }).show();
   return true;
 });
 
