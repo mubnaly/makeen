@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Makeen</string>
+    <string name="title_activity_main">Makeen</string>
+    <string name="package_name">com.makeen.app</string>
+    <string name="custom_url_scheme">com.makeen.app</string>
+</resources>
