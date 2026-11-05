@@ -187,6 +187,8 @@ export const DICT = {
     'nav.settings': 'Settings',
     'nav.collapse': 'Collapse',
     'nav.expand': 'Expand',
+    'nav.more': 'Other',
+    'nav.other': 'Other Sections',
 
     'topbar.search': 'Search your library…',
     'topbar.clearSearch': 'Clear search',
@@ -1265,6 +1267,8 @@ export const DICT = {
     'nav.settings': 'الإعدادات',
     'nav.collapse': 'طيّ القائمة',
     'nav.expand': 'توسيع القائمة',
+    'nav.more': 'أخرى',
+    'nav.other': 'الأقسام الأخرى',
 
     'topbar.search': 'ابحث في مكتبتك…',
     'topbar.clearSearch': 'مسح البحث',

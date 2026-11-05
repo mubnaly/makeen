@@ -153,7 +153,6 @@
       {#each [
         { key: 'fajr', label: PRAYER_NAMES.fajr, time: timings.fajr },
         { key: 'sunrise', label: PRAYER_NAMES.sunrise, time: timings.sunrise },
-        { key: 'duha', label: PRAYER_NAMES.duha, time: timings.duha },
         { key: 'dhuhr', label: PRAYER_NAMES.dhuhr, time: timings.dhuhr },
         { key: 'asr', label: PRAYER_NAMES.asr, time: timings.asr },
         { key: 'maghrib', label: PRAYER_NAMES.maghrib, time: timings.maghrib },
@@ -345,5 +344,45 @@
 
   .prayer-tile.is-next .prayer-time {
     color: var(--accent);
+  }
+
+  @media (max-width: 768px) {
+    .prayer-card-container {
+      padding: 12px 14px;
+    }
+    .prayers-grid {
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+    }
+    .prayer-tile {
+      padding: 10px 8px;
+    }
+    .prayer-time {
+      font-size: 14px;
+    }
+  }
+
+  @media (max-width: 480px) {
+    .prayers-grid {
+      grid-template-columns: repeat(3, 1fr);
+      gap: 6px;
+    }
+    .prayer-header {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 10px;
+    }
+    .meta-col {
+      width: 100%;
+      justify-content: space-between;
+    }
+    .city-pill {
+      font-size: 11px;
+      padding: 3px 9px;
+    }
+    .countdown-badge {
+      font-size: 11px;
+      padding: 3px 9px;
+    }
   }
 </style>

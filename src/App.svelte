@@ -73,8 +73,30 @@
     Studio: 'nav.dualStudio', Planner: 'nav.planner', Gallery: 'nav.gallery', Flashcards: 'nav.flashcards', Trash: 'nav.trash', Guide: 'nav.guide', Settings: 'nav.settings'
   };
 
+  const MOBILE_NAV = [
+    { id: 'Today', icon: 'today', labelKey: 'nav.today' },
+    { id: 'Projects', icon: 'projects', labelKey: 'nav.projects' },
+    { id: 'Reader', icon: 'reader', labelKey: 'nav.reader' },
+    { id: 'Video', icon: 'video', labelKey: 'nav.video' },
+    { id: 'Notes', icon: 'file-text', labelKey: 'nav.notes' }
+  ];
+
+  const DRAWER_NAV = [
+    { id: 'Library', icon: 'library', labelKey: 'nav.library' },
+    { id: 'Habits', icon: 'check', labelKey: 'nav.habits' },
+    { id: 'Planner', icon: 'planner', labelKey: 'nav.planner' },
+    { id: 'Gallery', icon: 'gallery', labelKey: 'nav.gallery' },
+    { id: 'Flashcards', icon: 'flashcards', labelKey: 'nav.flashcards' },
+    { id: 'Studio', icon: 'dualStudio', labelKey: 'nav.dualStudio' },
+    { id: 'Trash', icon: 'trash', labelKey: 'nav.trash' },
+    { id: 'Guide', icon: 'book', labelKey: 'nav.guide' },
+    { id: 'Settings', icon: 'settings', labelKey: 'nav.settings' },
+    { id: 'Profile', icon: 'user', labelKey: 'nav.profile' }
+  ];
+
   let view = $state('Today');
   let railCollapsed = $state(false);
+  let mobileDrawerOpen = $state(false);
   let theme = $state(initialTheme());
   let imageQuality = $state(loadImageQuality());
   let projects = $state([]);
@@ -452,6 +474,7 @@
   }
 
   function nav(id) {
+    mobileDrawerOpen = false;
     if (id === view) return;
     pushHistory(view);
     if (id !== 'Projects') activeProjectId = '';
@@ -1402,6 +1425,10 @@
           <Icon name={ui.dir === 'rtl' ? 'chevron-right' : 'chevron-left'} size={18} />
         </button>
       {/if}
+      <div class="mobile-brand">
+        <img class="logo-img" src="./icon.png" alt="Makeen" />
+        <span class="name">{t('app.brand')}</span>
+      </div>
       <div class="search">
         <span class="search-ico"><Icon name="search" size={16} /></span>
         <input bind:this={searchInput} type="text" placeholder={t('topbar.search')}
@@ -1422,6 +1449,10 @@
       </button>
       <button class="import-btn" onclick={pickVideo} title={t('topbar.importVideo')}>
         <Icon name="video" size={15} /><span>{importingVideo ? t('video.importing') : t('topbar.importVideo')}</span>
+      </button>
+      <button class="more-drawer-btn" onclick={() => (mobileDrawerOpen = !mobileDrawerOpen)} title={t('nav.other')} aria-label={t('nav.other')}>
+        <Icon name="menu" size={18} />
+        <span class="more-label">{t('nav.more')}</span>
       </button>
       <input bind:this={pdfInput} type="file" accept="application/pdf" onchange={importPdf} style="display:none" />
       <input bind:this={videoInput} type="file" accept="video/*" onchange={importVideo} style="display:none" />
@@ -2117,6 +2148,46 @@
       {/if}
     </main>
   </div>
+
+  <!-- Mobile Side Drawer for remaining sections ("أخرى") -->
+  {#if mobileDrawerOpen}
+    <div class="mobile-drawer-backdrop" onclick={() => (mobileDrawerOpen = false)} role="presentation"></div>
+    <aside class="mobile-drawer" aria-label={t('nav.other')}>
+      <div class="drawer-header">
+        <div class="drawer-brand">
+          <img class="logo-img" src="./icon.png" alt="Makeen" />
+          <span class="brand-title">{t('app.brand')}</span>
+        </div>
+        <button class="icon-btn close-drawer-btn" onclick={() => (mobileDrawerOpen = false)} aria-label={t('common.close')} title={t('common.close')}>
+          <Icon name="x" size={18} />
+        </button>
+      </div>
+
+      <div class="drawer-section-title">{t('nav.other')}</div>
+
+      <div class="drawer-nav-list">
+        {#each DRAWER_NAV as item}
+          <button class="drawer-nav-item {view === item.id ? 'active' : ''}" onclick={() => nav(item.id)}>
+            <span class="drawer-icon"><Icon name={item.icon} size={18} /></span>
+            <span class="drawer-label">{t(item.labelKey)}</span>
+            {#if view === item.id}
+              <span class="active-dot"></span>
+            {/if}
+          </button>
+        {/each}
+      </div>
+    </aside>
+  {/if}
+
+  <!-- Mobile Bottom Navigation Bar (5 Items Only) -->
+  <nav class="mobile-bottom-nav">
+    {#each MOBILE_NAV as item}
+      <button class="mobile-nav-btn {view === item.id ? 'active' : ''}" onclick={() => nav(item.id)} title={t(item.labelKey)}>
+        <span class="mobile-nav-icon"><Icon name={item.icon} size={20} /></span>
+        <span class="mobile-nav-label">{t(item.labelKey)}</span>
+      </button>
+    {/each}
+  </nav>
 </div>
 
 {#if dropActive}
