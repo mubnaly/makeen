@@ -33,8 +33,61 @@ html[dir='rtl'],
   --shadow: 0 1px 3px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.35);
 }
 
-/* Ten palettes share the same variable contract. Icons use currentColor, so
-   every rail glyph, toolbar icon and marker of the UI follows the accent. */
+/* Today View Study Metrics Card */
+.today-metrics-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 20px;
+  margin-bottom: 20px;
+  box-shadow: var(--shadow);
+}
+.metrics-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.metrics-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+}
+.today-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+@media (max-width: 860px) {
+  .today-metrics-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+.metric-item {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.metric-num {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--accent);
+}
+.metric-lbl {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 500;
+}
 :root[data-theme='sand'] {
   --bg: #f7f1e3; --surface: #fffaf0; --surface-2: #f1e8d7; --border: #e2d4bf;
   --text: #2b261f; --muted: #746a5b; --accent: #b45309; --accent-soft: #fde5c3;

@@ -42,7 +42,10 @@
   import { parseYouTube, youtubeDocId } from './lib/youtube.js';
   import { moveToTrash, restoreTrashItem, purgeExpiredTrash, loadTrashRetentionDays, saveTrashRetentionDays, emptyAllTrash } from './lib/trash.js';
   import { listAllNotes } from './lib/markdownStore.js';
-  import { recordStudyHeartbeat } from './lib/stats.js';
+  import { recordStudyHeartbeat, computeStudySummary, formatHumanDuration } from './lib/stats.js';
+  import PrayerCard from './components/PrayerCard.svelte';
+  import { POPULAR_CITIES, loadPrayerSettings, savePrayerSettings } from './lib/prayer.js';
+  import { AVAILABLE_SOUNDS, playNotificationTone } from './lib/sound.js';
 
   const NAV = [
     { id: 'Today', icon: 'today' },
@@ -113,6 +116,8 @@
   let exportingDeck = $state('');
   let srsSettings = $state(loadSrsSettings());
   let pdfAutosave = $state(loadPdfAutosaveSettings());
+  let prayerSettings = $state(loadPrayerSettings());
+  let studySummary = $state(computeStudySummary());
   let reminderTimer = null;
   let cardSetEditor = $state(''); // card id whose set editor is open
   let newSetName = $state('');
@@ -200,6 +205,12 @@
     try { captures = await listCaptures(); } catch (e) { notify(t('toast.loadCapturesFailed'), 'error'); }
     try { cards = await listCards(); } catch (e) { notify(t('toast.loadCardsFailed'), 'error'); }
     startDueReminderLoop();
+
+    // Track active application open duration and update study summary
+    setInterval(() => {
+      recordStudyHeartbeat('app', 'app-session', 'Makeen', 5);
+      studySummary = computeStudySummary();
+    }, 5000);
 
     // Desktop integration: Open PDF from command-line argument, file association, or double-click
     if (typeof window !== 'undefined' && window.studyos?.getInitialPdf) {
@@ -1396,7 +1407,35 @@
     <main class="view">
       {#if view === 'Today'}
         <div class="hero"><h1>{t('today.welcome')}</h1></div>
-        <p class="muted">{t('today.tagline')}</p>
+        <p class="muted" style="margin-bottom:16px;">{t('today.tagline')}</p>
+
+        <!-- Islamic Prayer Times & Hijri Calendar Banner -->
+        <PrayerCard {notify} onOpenSettings={() => nav('Settings')} />
+
+        <!-- Today's Study Activity & Time Metrics Dashboard -->
+        <div class="today-metrics-card">
+          <div class="metrics-head">
+            <span class="metrics-title"><Icon name="clock" size={15} /> <span>{t('today.studyMetrics')}</span></span>
+          </div>
+          <div class="today-metrics-grid">
+            <div class="metric-item">
+              <div class="metric-num">{formatHumanDuration(studySummary.todayAppSec, ui.lang)}</div>
+              <div class="metric-lbl">{t('today.appTime')}</div>
+            </div>
+            <div class="metric-item">
+              <div class="metric-num">{formatHumanDuration(studySummary.todayVideoSec, ui.lang)}</div>
+              <div class="metric-lbl">{t('today.videoTime')}</div>
+            </div>
+            <div class="metric-item">
+              <div class="metric-num">{formatHumanDuration(studySummary.todayReadingSec, ui.lang)}</div>
+              <div class="metric-lbl">{t('today.pdfTime')}</div>
+            </div>
+            <div class="metric-item">
+              <div class="metric-num">{studySummary.pomodorosToday}</div>
+              <div class="metric-lbl">{t('today.pomodoroTime')}</div>
+            </div>
+          </div>
+        </div>
 
         {#if quickStartVisible}
           <QuickStart steps={quickStartSteps} progressText={t('quickstart.progress', { done: quickStartDone, total: quickStartSteps.length })} ondismiss={dismissQuickStart} />
@@ -2083,6 +2122,81 @@
               </select>
             </div>
           {/if}
+
+          <div class="section-title mt">{t('settings.prayer')}</div>
+          <p class="muted" style="font-size:13px">{t('settings.prayerHelp')}</p>
+
+          <!-- City & Region Picker -->
+          <div class="hstack mt" style="gap:10px;">
+            <Icon name="globe" size={16} />
+            <span style="font-size:13px; font-weight:600;">{t('settings.prayerCity')}:</span>
+            <select
+              value={prayerSettings.cityId}
+              onchange={(e) => {
+                prayerSettings = savePrayerSettings({ cityId: e.currentTarget.value });
+                notify(t('settings.saved'), 'ok');
+              }}
+            >
+              {#each POPULAR_CITIES as city (city.id)}
+                <option value={city.id}>
+                  {ui.lang === 'ar' ? `${city.nameAr} (${city.countryAr})` : `${city.nameEn} (${city.countryEn})`}
+                </option>
+              {/each}
+            </select>
+          </div>
+
+          <!-- Pre-prayer Alert Notification -->
+          <label class="checkbox-label mt" style="display:flex; align-items:center; gap:8px;">
+            <input
+              type="checkbox"
+              checked={prayerSettings.reminderEnabled}
+              onchange={(e) => {
+                prayerSettings = savePrayerSettings({ reminderEnabled: e.currentTarget.checked });
+                notify(t('settings.saved'), 'ok');
+              }}
+            />
+            <span>{t('settings.prayerReminder')}</span>
+          </label>
+
+          {#if prayerSettings.reminderEnabled}
+            <div class="hstack mt" style="gap:10px;">
+              <span>{t('settings.prayerReminderTime')}:</span>
+              <select
+                value={prayerSettings.reminderMinutes}
+                onchange={(e) => {
+                  prayerSettings = savePrayerSettings({ reminderMinutes: Number(e.currentTarget.value) });
+                  notify(t('settings.saved'), 'ok');
+                }}
+              >
+                <option value="3">3 {t('common.minutes')}</option>
+                <option value="5">5 {t('common.minutes')}</option>
+                <option value="10">10 {t('common.minutes')}</option>
+                <option value="15">15 {t('common.minutes')}</option>
+              </select>
+            </div>
+          {/if}
+
+          <!-- Sound Tone Selection -->
+          <div class="hstack mt" style="gap:10px; flex-wrap:wrap;">
+            <Icon name="bell" size={16} />
+            <span style="font-size:13px; font-weight:600;">{t('settings.prayerSound')}:</span>
+            <select
+              value={prayerSettings.soundTone}
+              onchange={(e) => {
+                prayerSettings = savePrayerSettings({ soundTone: e.currentTarget.value });
+                playNotificationTone(e.currentTarget.value);
+                notify(t('settings.saved'), 'ok');
+              }}
+            >
+              {#each AVAILABLE_SOUNDS as s (s.id)}
+                <option value={s.id}>{ui.lang === 'ar' ? s.nameAr : s.nameEn}</option>
+              {/each}
+            </select>
+            <button onclick={() => playNotificationTone(prayerSettings.soundTone)}>
+              <Icon name="bell" size={13} />
+              <span>{t('settings.testSound')}</span>
+            </button>
+          </div>
 
           <div class="section-title mt">{t('settings.trash')}</div>
           <p class="muted" style="font-size:13px">{t('settings.trashHelp')}</p>

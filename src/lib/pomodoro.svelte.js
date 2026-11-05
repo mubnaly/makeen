@@ -1,6 +1,7 @@
 // Reactive Pomodoro timer state and controls.
 // Shared across PDF reader, video player, and study dashboard.
 import { recordCompletedPomodoro } from './stats.js';
+import { playNotificationTone } from './sound.js';
 
 export const POMODORO_MODES = {
   focus: { id: 'focus', defaultMinutes: 25, labelKey: 'pomodoro.focus' },
@@ -21,34 +22,7 @@ let timerInterval = null;
 
 export function playChimeSound() {
   try {
-    const AudioCtx = globalThis.AudioContext || globalThis.webkitAudioContext;
-    if (!AudioCtx) return;
-    const ctx = new AudioCtx();
-    const now = ctx.currentTime;
-
-    // Harmonic bell chime (E5 -> G#5 -> B5)
-    const tones = [
-      { freq: 659.25, time: 0, dur: 0.4 },
-      { freq: 830.61, time: 0.15, dur: 0.5 },
-      { freq: 987.77, time: 0.3, dur: 0.8 }
-    ];
-
-    tones.forEach(({ freq, time, dur }) => {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(freq, now + time);
-
-      gain.gain.setValueAtTime(0, now + time);
-      gain.gain.linearRampToValueAtTime(0.2, now + time + 0.03);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + time + dur);
-
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-
-      osc.start(now + time);
-      osc.stop(now + time + dur);
-    });
+    playNotificationTone();
   } catch {
     // Audio context may be restricted by autoplay policy
   }

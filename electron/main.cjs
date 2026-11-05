@@ -270,9 +270,18 @@ app.whenReady().then(async () => {
     const ytFilter = {
       urls: [
         '*://*.youtube.com/*',
-        '*://*.youtube-nocookie.com/*'
+        '*://*.youtube-nocookie.com/*',
+        '*://*.googlevideo.com/*'
       ]
     };
+
+    // YouTube requires a valid Referer/Origin for embedded video playback (prevents Error 153)
+    session.defaultSession.webRequest.onBeforeSendHeaders(ytFilter, (details, callback) => {
+      const headers = { ...details.requestHeaders };
+      headers['Referer'] = 'https://www.youtube.com/';
+      headers['Origin'] = 'https://www.youtube.com';
+      callback({ cancel: false, requestHeaders: headers });
+    });
 
     session.defaultSession.webRequest.onHeadersReceived(ytFilter, (details, callback) => {
       const headers = { ...details.responseHeaders };

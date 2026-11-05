@@ -61,9 +61,12 @@ export function recordStudyHeartbeat(kind, id, title, seconds = 5, extra = {}) {
   const today = new Date().toISOString().slice(0, 10);
 
   // Daily aggregate
-  stats.days[today] = stats.days[today] || { readingSec: 0, videoSec: 0, reviewSec: 0 };
+  stats.days[today] = stats.days[today] || { readingSec: 0, videoSec: 0, reviewSec: 0, appSec: 0 };
 
-  if (kind === 'video') {
+  if (kind === 'app') {
+    stats.days[today].appSec = (stats.days[today].appSec || 0) + seconds;
+    stats.totalAppSec = (stats.totalAppSec || 0) + seconds;
+  } else if (kind === 'video') {
     stats.videos[id] = stats.videos[id] || { id, title: title || 'Video', totalSec: 0, lastPlayed: 0 };
     stats.videos[id].totalSec += seconds;
     stats.videos[id].title = title || stats.videos[id].title;
@@ -184,6 +187,29 @@ export function computeStudySummary(stats = loadStudyStats(), docsList = [], vid
     pomodorosToday: stats.days?.[today]?.pomodoros || 0,
     pomodoroFocusMinutes: Math.round((pomodoros.totalFocusSec || 0) / 60),
     pomodoroFocusHours: +((pomodoros.totalFocusSec || 0) / 3600).toFixed(1),
-    pomodorosHistory: pomodoros.history || []
+    pomodorosHistory: pomodoros.history || [],
+    todayAppSec: stats.days?.[today]?.appSec || 0,
+    todayVideoSec: stats.days?.[today]?.videoSec || 0,
+    todayReadingSec: stats.days?.[today]?.readingSec || 0,
+    todayStudySec: (stats.days?.[today]?.readingSec || 0) + (stats.days?.[today]?.videoSec || 0) + (stats.days?.[today]?.reviewSec || 0)
   };
+}
+
+export function formatHumanDuration(sec = 0, lang = 'ar') {
+  const s = Math.max(0, Math.round(Number(sec) || 0));
+  if (s < 60) {
+    return lang === 'ar' ? 'أقل من دقيقة' : '< 1 min';
+  }
+  const totalMins = Math.round(s / 60);
+  if (totalMins < 60) {
+    return lang === 'ar' ? `${totalMins} دقيقة` : `${totalMins} mins`;
+  }
+  const hours = Math.floor(totalMins / 60);
+  const remainingMins = totalMins % 60;
+  if (remainingMins === 0) {
+    return lang === 'ar' ? `${hours} ساعة` : `${hours} hrs`;
+  }
+  return lang === 'ar'
+    ? `${hours} س و ${remainingMins} د`
+    : `${hours}h ${remainingMins}m`;
 }

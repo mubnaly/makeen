@@ -924,6 +924,21 @@
             return;
           }
         }
+        // Try any other available track if neither preferred nor English succeeded
+        if (availableSubtitleTracks && availableSubtitleTracks.length) {
+          for (const trk of availableSubtitleTracks) {
+            const trkCode = trk.languageCode || '';
+            if (trkCode && trkCode !== preferred && trkCode !== 'en') {
+              result = await bridge.youtubeTranscript({ videoId, lang: trkCode });
+              if (my !== transcriptToken) return;
+              if (result && result.ok) {
+                handleTranscriptResult(result, trkCode);
+                transcriptLoading = false;
+                return;
+              }
+            }
+          }
+        }
       } catch (e) { /* fallback below */ }
     }
 

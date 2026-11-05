@@ -5,6 +5,41 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
+function getRunner() {
+  const ytdlpCandidates = [
+    path.join(process.env.USERPROFILE || '', 'Downloads', 'youtube-dl', 'yt-dlp.exe'),
+    path.join(process.env.LOCALAPPDATA || '', 'Programs', 'yt-dlp', 'yt-dlp.exe'),
+    'yt-dlp'
+  ];
+  for (const c of ytdlpCandidates) {
+    if (c.includes('\\') && fs.existsSync(c)) {
+      return { bin: c, prefixArgs: [] };
+    }
+  }
+
+  const pythonCandidates = [
+    'C:\\Python313\\python.exe',
+    'C:\\Python312\\python.exe',
+    'C:\\Python311\\python.exe',
+    'C:\\Python310\\python.exe',
+    path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Python', 'Python313', 'python.exe'),
+    path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Python', 'Python312', 'python.exe'),
+    path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Python', 'Python311', 'python.exe'),
+    'python'
+  ];
+  for (const p of pythonCandidates) {
+    if (p.includes('\\') && fs.existsSync(p)) {
+      return { bin: p, prefixArgs: ['-m', 'yt_dlp'] };
+    }
+  }
+  return { bin: 'python', prefixArgs: ['-m', 'yt_dlp'] };
+}
+
+function spawnYtDlp(args, options = {}) {
+  const runner = getRunner();
+  return spawn(runner.bin, [...runner.prefixArgs, ...args], options);
+}
+
 function parseVtt(vttText) {
   const blocks = String(vttText || '').split(/\r?\n\r?\n/);
   const timeRegex = /(?:(\d+):)?(\d{2}):(\d{2})[.,](\d{3})\s*-->\s*(?:(\d+):)?(\d{2}):(\d{2})[.,](\d{3})/;
@@ -107,8 +142,7 @@ async function fetchTranscriptYtDlp(videoId, preferredLang = 'ar') {
     const outTmpl = path.join(tmpdir, prefix);
     const subLangs = `${preferredLang || 'ar'},ar,en`;
 
-    const proc = spawn('python', [
-      '-m', 'yt_dlp',
+    const proc = spawnYtDlp([
       '--ignore-errors',
       '--no-warnings',
       '--skip-download',
@@ -193,8 +227,7 @@ async function fetchTranscriptYtDlp(videoId, preferredLang = 'ar') {
 
 async function fetchPlaylistInfo(playlistUrl) {
   return new Promise((resolve) => {
-    const proc = spawn('python', [
-      '-m', 'yt_dlp',
+    const proc = spawnYtDlp([
       '--flat-playlist',
       '-J',
       playlistUrl
@@ -254,8 +287,7 @@ function getFormatArg(quality) {
 
 async function fetchVideoChapters(videoId) {
   return new Promise((resolve) => {
-    const proc = spawn('python', [
-      '-m', 'yt_dlp',
+    const proc = spawnYtDlp([
       '--skip-download',
       '--dump-single-json',
       `https://www.youtube.com/watch?v=${videoId}`
@@ -309,8 +341,7 @@ async function fetchChannelInfo(channelUrl, limit = 50) {
     }
 
     const maxItems = Math.max(5, Math.min(100, Number(limit) || 50));
-    const proc = spawn('python', [
-      '-m', 'yt_dlp',
+    const proc = spawnYtDlp([
       '--flat-playlist',
       '--playlist-end', String(maxItems),
       '-J',
@@ -378,8 +409,7 @@ async function captureYoutubeFrame(videoId, seconds = 0) {
     const outClip = path.join(tmpdir, `${prefix}.mp4`);
     const outImg = path.join(tmpdir, `${prefix}.jpg`);
 
-    const proc = spawn('python', [
-      '-m', 'yt_dlp',
+    const proc = spawnYtDlp([
       '--js-runtimes', 'node:node',
       '--download-sections', `*${sec}-${sec + 2}`,
       '-f', 'bestvideo[height<=720]/bestvideo/best',
