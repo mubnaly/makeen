@@ -41,6 +41,7 @@
   import { createProject, listProjects, upsertProject, removeProject, createChannelProject, linkSource } from './lib/projects.js';
   import { parseYouTube, youtubeDocId } from './lib/youtube.js';
   import { moveToTrash, restoreTrashItem, purgeExpiredTrash, loadTrashRetentionDays, saveTrashRetentionDays, emptyAllTrash } from './lib/trash.js';
+  import { listAllNotes } from './lib/markdownStore.js';
   import { recordStudyHeartbeat } from './lib/stats.js';
 
   const NAV = [
@@ -733,16 +734,49 @@
   }
 
   function removeDoc(record) {
-    // Preserve content and move to trash instead of permanent loss
-    const videoCaps = (captures || []).filter((c) => c.documentId === record.id);
+    // Preserve content and move to trash and permanent archive instead of loss
+    const docTitle = record.title || record.filename || '';
+    const relatedCaptures = (captures || []).filter((c) =>
+      c.documentId === record.id ||
+      (docTitle && (c.source === docTitle || (c.name && c.name.includes(docTitle))))
+    );
+
+    const relatedCards = (cards || []).filter((c) =>
+      c.documentId === record.id ||
+      c.sourceId === record.id ||
+      (docTitle && c.source && c.source.includes(docTitle))
+    );
+
+    const relatedMdNotes = listAllNotes().filter((n) =>
+      n.materialId === record.id ||
+      (docTitle && n.title && (n.title.includes(docTitle) || docTitle.includes(n.title)))
+    );
+
+    let sidecarAnnotations = [];
+    try {
+      const rawSidecar = localStorage.getItem(`studyos.sidecar.primary.${record.id}`);
+      if (rawSidecar) {
+        const parsed = JSON.parse(rawSidecar);
+        sidecarAnnotations = parsed.annotations || [];
+      }
+    } catch {}
+
+    const preservedContent = {
+      bookmarks: record.bookmarks || [],
+      captures: relatedCaptures,
+      cards: relatedCards,
+      notes: [
+        ...(record.notes || []),
+        ...relatedMdNotes.map((n) => ({ id: n.id, text: n.content, title: n.title, isMarkdown: true }))
+      ],
+      markdownNotes: relatedMdNotes,
+      annotations: sidecarAnnotations,
+      transcript: record.transcript || null
+    };
+
     moveToTrash(record, {
       kind: kindOf(record),
-      preservedContent: {
-        bookmarks: record.bookmarks || [],
-        captures: videoCaps,
-        notes: record.notes || [],
-        transcript: record.transcript || null
-      }
+      preservedContent
     });
 
     library.removeDocument(record.id);

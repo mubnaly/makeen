@@ -3,6 +3,7 @@
   import Icon from './Icon.svelte';
   import { t, dir } from '../lib/lang.svelte.js';
   import { renderMarkdown, exportMarkdownFile, exportMarkdownAsPdf } from '../lib/markdown.js';
+  import { processMarkdownEnter, processMarkdownTab } from '../lib/markdownEditorUtils.js';
   import { startSpeechRecording, transcribeAudio } from '../lib/speech.js';
   import {
     getNote,
@@ -189,6 +190,38 @@
   function handleExportPdf() {
     exportMarkdownAsPdf(title, content);
     notify?.(t('notes.exportingPdf') || 'Opening print dialog for PDF export...', 'ok');
+  }
+
+  // Keyboard enhancements: auto-continue lists/tasks on Enter, indent/outdent on Tab
+  function handleTextareaKeydown(e) {
+    if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      if (!textareaEl) return;
+      const res = processMarkdownEnter(content, textareaEl.selectionStart, textareaEl.selectionEnd);
+      if (res) {
+        e.preventDefault();
+        content = res.content;
+        scheduleAutosave();
+        setTimeout(() => {
+          if (textareaEl) {
+            textareaEl.selectionStart = textareaEl.selectionEnd = res.newCursor;
+          }
+        }, 0);
+      }
+    } else if (e.key === 'Tab') {
+      if (!textareaEl) return;
+      const res = processMarkdownTab(content, textareaEl.selectionStart, textareaEl.selectionEnd, e.shiftKey);
+      if (res) {
+        e.preventDefault();
+        content = res.content;
+        scheduleAutosave();
+        setTimeout(() => {
+          if (textareaEl) {
+            textareaEl.selectionStart = res.newStart;
+            textareaEl.selectionEnd = res.newEnd;
+          }
+        }, 0);
+      }
+    }
   }
 
   // Voice Dictation (Offline Speech-to-Text via local Whisper)
@@ -567,6 +600,7 @@
           placeholder={t('notes.editorPlaceholder') || 'Write your markdown notes here... (# Heading, **bold**, - list, ![screenshot](url))'}
           bind:value={content}
           oninput={scheduleAutosave}
+          onkeydown={handleTextareaKeydown}
           dir={textDirection}
           style:text-align={textAlign}
           style:font-size="{fontSize}px"

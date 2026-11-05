@@ -56,8 +56,16 @@ export function moveToTrash(item, { kind = 'video', preservedContent = null } = 
   trashItems.unshift(trashEntry);
   persistTrash(trashItems);
 
-  // If video has preserved content (subtitles, notes, screenshots), also preserve in dedicated archive
-  if (trashEntry.preservedContent && (trashEntry.preservedContent.captures?.length || trashEntry.preservedContent.notes?.length || trashEntry.preservedContent.bookmarks?.length)) {
+  // If item has preserved content (subtitles, notes, markdown, cards, screenshots, marks), preserve in dedicated archive
+  if (trashEntry.preservedContent && (
+    trashEntry.preservedContent.captures?.length ||
+    trashEntry.preservedContent.notes?.length ||
+    trashEntry.preservedContent.markdownNotes?.length ||
+    trashEntry.preservedContent.cards?.length ||
+    trashEntry.preservedContent.annotations?.length ||
+    trashEntry.preservedContent.bookmarks?.length ||
+    trashEntry.preservedContent.transcript
+  )) {
     archiveContent(item.id, {
       id: item.id,
       title: trashEntry.title,

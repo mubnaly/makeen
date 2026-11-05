@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import {
   loadTrashRetentionDays, saveTrashRetentionDays,
   listTrash, persistTrash, moveToTrash, restoreTrashItem,
-  deleteTrashPermanently, emptyAllTrash, purgeExpiredTrash
+  deleteTrashPermanently, emptyAllTrash, purgeExpiredTrash,
+  listArchivedContent
 } from '../src/lib/trash.js';
 
 // Mock localStorage for node test
@@ -52,4 +53,26 @@ test('purge expired trash respects retention window', () => {
   const res = purgeExpiredTrash(30);
   assert.equal(res.purged, 1);
   assert.equal(listTrash().length, 0);
+});
+
+test('moveToTrash preserves markdownNotes, cards, and archives them permanently', () => {
+  storage.clear();
+  const item = { id: 'pdf1', title: 'Deep Learning Book', kind: 'pdf' };
+  const entry = moveToTrash(item, {
+    kind: 'pdf',
+    preservedContent: {
+      markdownNotes: [{ id: 'n1', title: 'Chapter 1 Notes', content: 'Neural nets' }],
+      cards: [{ id: 'c1', front: 'What is backprop?', back: 'Gradient calculation' }],
+      captures: [],
+      notes: [],
+      bookmarks: []
+    }
+  });
+
+  assert.ok(entry);
+  const archived = listArchivedContent();
+  assert.equal(archived.length, 1);
+  assert.equal(archived[0].id, 'pdf1');
+  assert.equal(archived[0].content.markdownNotes.length, 1);
+  assert.equal(archived[0].content.cards.length, 1);
 });

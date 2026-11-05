@@ -228,6 +228,9 @@
                 {#if arch.content?.captures?.length}
                   <span class="badge"><Icon name="camera" size={12} /> {arch.content.captures.length} {t('trash.captures')}</span>
                 {/if}
+                {#if arch.content?.cards?.length}
+                  <span class="badge"><Icon name="flashcards" size={12} /> {arch.content.cards.length} {t('nav.flashcards')}</span>
+                {/if}
               </div>
             </div>
             <div class="arch-actions">
@@ -289,6 +292,21 @@
                     {#if cap.title}
                       <span class="cap-label">{cap.title}</span>
                     {/if}
+                  </div>
+                {/each}
+              </div>
+            </div>
+          {/if}
+
+          <!-- Flashcards -->
+          {#if previewItem.preservedContent?.cards?.length}
+            <div class="content-group">
+              <h4><Icon name="flashcards" size={14} /> <span>{t('nav.flashcards')} ({previewItem.preservedContent.cards.length})</span></h4>
+              <div class="cards-preview-list">
+                {#each previewItem.preservedContent.cards as card}
+                  <div class="card-mini-box">
+                    <div class="card-q"><strong>Q:</strong> {card.front || card.question || '...'}</div>
+                    <div class="card-a"><strong>A:</strong> {card.back || card.answer || '...'}</div>
                   </div>
                 {/each}
               </div>
@@ -630,5 +648,24 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+  .cards-preview-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .card-mini-box {
+    background: var(--surface-2, rgba(0, 0, 0, 0.04));
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 10px 14px;
+    font-size: 13px;
+  }
+  .card-q {
+    margin-bottom: 4px;
+    color: var(--fg);
+  }
+  .card-a {
+    color: var(--muted);
   }
 </style>
