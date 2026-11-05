@@ -22,6 +22,42 @@
   let goals = $state([]);
   let newGoalText = $state('');
 
+  // Quick Add Habit
+  let quickHabitTitle = $state('');
+
+  const HABIT_PRESETS = [
+    { title: 'أذكار الصباح والمساء', icon: 'moon', color: '#7950f2', target: 2 },
+    { title: 'قراءة ورد القرآن', icon: 'book', color: '#2f9e6f', target: 1 },
+    { title: 'قراءة 20 صفحة', icon: 'file-text', color: '#4f6bff', target: 1 },
+    { title: 'ممارسة الرياضة', icon: 'activity', color: '#e5484d', target: 1 },
+    { title: 'شرب 2 لتر ماء', icon: 'check', color: '#1098ad', target: 1 },
+    { title: 'مراجعة البطاقات التعليمية', icon: 'star', color: '#f59f00', target: 1 }
+  ];
+
+  function handleQuickAddHabit() {
+    if (!quickHabitTitle.trim()) return;
+    createHabit({
+      title: quickHabitTitle.trim(),
+      targetCount: 1,
+      color: COLOR_OPTIONS[Math.floor(Math.random() * COLOR_OPTIONS.length)],
+      icon: 'check'
+    });
+    quickHabitTitle = '';
+    reload();
+    notify?.(t('habits.createSuccess') || 'تمت إضافة العادة بنجاح', 'ok');
+  }
+
+  function handleApplyPreset(p) {
+    createHabit({
+      title: p.title,
+      targetCount: p.target || 1,
+      color: p.color,
+      icon: p.icon
+    });
+    reload();
+    notify?.(t('habits.createSuccess') || 'تمت إضافة العادة بنجاح', 'ok');
+  }
+
   // Modal for new habit
   let isAddModalOpen = $state(false);
   let newHabitTitle = $state('');
@@ -183,6 +219,32 @@
   <!-- Section: Habits Grid / Tracker -->
   <div class="habits-list-section">
     <div class="section-title">{t('habits.allHabits')}</div>
+
+    <!-- Quick Add Habit Card & Preset Suggestions -->
+    <div class="quick-add-habit-card card">
+      <div class="quick-add-input-row">
+        <input
+          type="text"
+          placeholder={ui.lang === 'ar' ? 'أضف عادة جديدة واضغط Enter (مثل: قراءة ورد القرآن)...' : 'Add new habit and press Enter...'}
+          bind:value={quickHabitTitle}
+          onkeydown={(e) => e.key === 'Enter' && handleQuickAddHabit()}
+        />
+        <button class="primary small" onclick={handleQuickAddHabit} disabled={!quickHabitTitle.trim()}>
+          <Icon name="plus" size={14} />
+          <span>{ui.lang === 'ar' ? 'إضافة' : 'Add'}</span>
+        </button>
+      </div>
+
+      <div class="habit-presets-row">
+        <span class="preset-label">{ui.lang === 'ar' ? 'اقتراحات سريعة:' : 'Quick presets:'}</span>
+        {#each HABIT_PRESETS as preset}
+          <button type="button" class="preset-pill" onclick={() => handleApplyPreset(preset)}>
+            <span class="preset-plus" style={`color:${preset.color}`}>+</span>
+            <span>{preset.title}</span>
+          </button>
+        {/each}
+      </div>
+    </div>
 
     {#if habits.length === 0}
       <div class="card empty-habits">
@@ -443,6 +505,60 @@
   }
   .delete-btn:hover {
     color: var(--danger);
+  }
+
+  /* Quick Add Habit Bar */
+  .quick-add-habit-card {
+    padding: 12px 16px;
+    margin-bottom: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .quick-add-input-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .quick-add-input-row input {
+    flex: 1;
+    font-size: 13.5px;
+  }
+  .habit-presets-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .preset-label {
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--muted);
+  }
+  .preset-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    font-size: 11.5px;
+    font-weight: 500;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--text);
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .preset-pill:hover {
+    background: var(--accent-soft);
+    border-color: var(--accent);
+    color: var(--accent);
+    transform: translateY(-1px);
+  }
+  .preset-plus {
+    font-weight: 800;
+    font-size: 13px;
+    line-height: 1;
   }
 
   /* Table Grid */

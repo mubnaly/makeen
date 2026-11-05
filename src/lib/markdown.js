@@ -27,6 +27,7 @@ export function renderMarkdown(md) {
 
   let inList = false;
   let listType = null; // 'ul' | 'ol'
+  let taskCount = 0;
 
   function flushList() {
     if (inList) {
@@ -161,7 +162,8 @@ export function renderMarkdown(md) {
       }
       const checked = taskMatch[2].toLowerCase() === 'x';
       const itemText = inlineMarkdown(taskMatch[3]);
-      output.push(`<li class="md-task-item"><input type="checkbox" ${checked ? 'checked' : ''} disabled /> <span>${itemText}</span></li>`);
+      const idx = taskCount++;
+      output.push(`<li class="md-task-item" data-task-idx="${idx}"><input type="checkbox" class="md-task-checkbox" data-task-index="${idx}" ${checked ? 'checked' : ''} /> <span class="${checked ? 'md-task-done' : ''}">${itemText}</span></li>`);
       continue;
     }
 
@@ -325,4 +327,31 @@ export function exportMarkdownAsPdf(title, content) {
   `);
   doc.close();
   return true;
+}
+
+export function toggleMarkdownTask(markdown, targetIndex) {
+  if (!markdown) return '';
+  const lines = markdown.split('\n');
+  let currentTaskIdx = 0;
+  let inCodeBlock = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    if (trimmed.startsWith('```')) {
+      inCodeBlock = !inCodeBlock;
+      continue;
+    }
+    if (inCodeBlock) continue;
+
+    const taskMatch = lines[i].match(/^(\s*[-*+]\s+\[)([ xX])(\]\s+.*)$/);
+    if (taskMatch) {
+      if (currentTaskIdx === targetIndex) {
+        const nextState = taskMatch[2].toLowerCase() === 'x' ? ' ' : 'x';
+        lines[i] = `${taskMatch[1]}${nextState}${taskMatch[3]}`;
+        return lines.join('\n');
+      }
+      currentTaskIdx++;
+    }
+  }
+  return markdown;
 }

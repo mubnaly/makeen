@@ -2,7 +2,8 @@
   import { onMount, tick, untrack } from 'svelte';
   import Icon from './Icon.svelte';
   import { t, dir } from '../lib/lang.svelte.js';
-  import { renderMarkdown, exportMarkdownFile, exportMarkdownAsPdf } from '../lib/markdown.js';
+  import { renderMarkdown, exportMarkdownFile, exportMarkdownAsPdf, toggleMarkdownTask } from '../lib/markdown.js';
+  import { EMOJI_CATEGORIES } from '../lib/emojis.js';
   import { processMarkdownEnter, processMarkdownTab } from '../lib/markdownEditorUtils.js';
   import { startSpeechRecording, transcribeAudio } from '../lib/speech.js';
   import {
@@ -44,8 +45,28 @@
   let isSaved = $state(true);
   let showFormattingTools = $state(false);
   let showNoteLinkPicker = $state(false);
+  let showIconPicker = $state(false);
   let currentLinks = $state([]);
   let allAvailableNotes = $derived(listAllNotes().filter((n) => n.id !== activeNote?.id));
+
+  function insertEmoji(emoji) {
+    insertFormatting(emoji + ' ');
+  }
+
+  function handleRenderedClick(e) {
+    const checkbox = e.target.closest('.md-task-checkbox');
+    if (checkbox) {
+      const idx = parseInt(checkbox.dataset.taskIndex, 10);
+      if (!isNaN(idx)) {
+        content = toggleMarkdownTask(content, idx);
+        scheduleAutosave();
+        if (activeNote) {
+          activeNote.content = content;
+          onNoteChange?.(activeNote);
+        }
+      }
+    }
+  }
 
   // Initialize or load note: strictly untracked, only runs when identity changes!
   $effect(() => {
@@ -299,65 +320,55 @@
           <Icon name={isSaved ? 'check' : 'repeat'} size={13} />
         </span>
 
-        <!-- Mode Switcher: Editor vs Viewer -->
-        <div class="mode-switcher" role="group" aria-label="Mode">
-          <button
-            type="button"
-            class="mode-btn {mode === 'editor' ? 'active' : ''}"
-            onclick={() => (mode = 'editor')}
-            title={t('notes.editorMode') || 'Editor Mode (Markdown)'}
-          >
-            <Icon name="pencil" size={13} />
-            {#if !compact}<span>{t('notes.modeEditor') || 'Editor'}</span>{/if}
-          </button>
-          <button
-            type="button"
-            class="mode-btn {mode === 'viewer' ? 'active' : ''}"
-            onclick={() => (mode = 'viewer')}
-            title={t('notes.viewerMode') || 'Viewer Mode (Rendered)'}
-          >
-            <Icon name="eye" size={13} />
-            {#if !compact}<span>{t('notes.modeViewer') || 'Viewer'}</span>{/if}
-          </button>
-        </div>
+        <!-- Mode Switcher: Single button toggle (Eye for Viewer, Pencil for Editor) -->
+        <button
+          type="button"
+          class="mode-toggle-single-btn {mode === 'viewer' ? 'active-viewer' : ''}"
+          onclick={() => (mode = mode === 'editor' ? 'viewer' : 'editor')}
+          title={mode === 'editor' ? (t('notes.viewerMode') || 'Viewer Mode (Rendered)') : (t('notes.editorMode') || 'Editor Mode (Markdown)')}
+          aria-label="Toggle editor and viewer"
+        >
+          <Icon name={mode === 'editor' ? 'eye' : 'pencil'} size={14} />
+        </button>
 
-        <!-- Export Dropdown / Actions -->
-        <div class="export-actions">
-          <button
-            type="button"
-            class="action-btn"
-            onclick={handleExportMd}
-            title={t('notes.exportMd') || 'Export as Markdown (.md)'}
-          >
-            <Icon name="file-text" size={13} />
-            {#if !compact}<span>.MD</span>{/if}
-          </button>
-          <button
-            type="button"
-            class="action-btn primary"
-            onclick={handleExportPdf}
-            title={t('notes.exportPdf') || 'Export as PDF'}
-          >
-            <Icon name="download" size={13} />
-            {#if !compact}<span>PDF</span>{/if}
-          </button>
-          <!-- Toggle icon button to show/hide the other formatting controls -->
-          <button
-            type="button"
-            class="action-btn toggle-tools-btn {showFormattingTools ? 'active-tools' : ''}"
-            onclick={() => (showFormattingTools = !showFormattingTools)}
-            title={t('notes.toggleTools') || 'Toggle Formatting Tools'}
-            aria-pressed={showFormattingTools}
-          >
-            <Icon name="sliders" size={13} />
-          </button>
-        </div>
+        <!-- All Options / Tools Toggle Button -->
+        <button
+          type="button"
+          class="action-btn toggle-tools-btn {showFormattingTools ? 'active-tools' : ''}"
+          onclick={() => (showFormattingTools = !showFormattingTools)}
+          title={t('notes.toggleTools') || 'All Options'}
+          aria-pressed={showFormattingTools}
+        >
+          <Icon name="sliders" size={14} />
+        </button>
       </div>
     </div>
 
-    <!-- Quick Markdown Formatting Bar (in Editor mode, only when toggled on) -->
-    {#if mode === 'editor' && showFormattingTools}
+    <!-- Quick Markdown Formatting & Export Bar (Shown when All Options is toggled) -->
+    {#if showFormattingTools}
       <div class="md-format-bar">
+        <!-- Export Actions (.MD & PDF) -->
+        <button
+          type="button"
+          class="fmt-btn"
+          onclick={handleExportMd}
+          title={t('notes.exportMd') || 'Export as Markdown (.md)'}
+        >
+          <Icon name="file-text" size={13} />
+          <span>.MD</span>
+        </button>
+        <button
+          type="button"
+          class="fmt-btn primary-fmt"
+          onclick={handleExportPdf}
+          title={t('notes.exportPdf') || 'Export as PDF'}
+        >
+          <Icon name="download" size={13} />
+          <span>PDF</span>
+        </button>
+
+        <div class="fmt-divider"></div>
+
         <!-- Direction Toggle (RTL / LTR) -->
         <button
           type="button"
@@ -395,6 +406,49 @@
           >
             <Icon name="align-left" size={13} />
           </button>
+        </div>
+
+        <div class="fmt-divider"></div>
+
+        <!-- Icon / Emoji Picker -->
+        <div class="emoji-picker-box">
+          <button
+            type="button"
+            class="fmt-btn emoji-toggle-btn"
+            onclick={() => (showIconPicker = !showIconPicker)}
+            title={t('notes.insertEmoji') || 'Insert Icon / Emoji'}
+          >
+            <Icon name="star" size={13} />
+            <span>{t('notes.icons') || 'أيقونة'}</span>
+          </button>
+
+          {#if showIconPicker}
+            <div class="emoji-popover">
+              <div class="emoji-popover-header">
+                <span>{t('notes.pickEmoji') || 'اختر أيقونة / إيموجي'}</span>
+                <button type="button" class="close-btn" onclick={() => (showIconPicker = false)}>
+                  <Icon name="x" size={12} />
+                </button>
+              </div>
+              <div class="emoji-categories-list">
+                {#each EMOJI_CATEGORIES as cat}
+                  <div class="emoji-cat-title">{cat.name}</div>
+                  <div class="emoji-grid">
+                    {#each cat.emojis as em}
+                      <button
+                        type="button"
+                        class="emoji-item-btn"
+                        onclick={() => { insertEmoji(em); showIconPicker = false; }}
+                        title={em}
+                      >
+                        {em}
+                      </button>
+                    {/each}
+                  </div>
+                {/each}
+              </div>
+            </div>
+          {/if}
         </div>
 
         <div class="fmt-divider"></div>
@@ -621,7 +675,14 @@
     {:else}
       <div class="md-viewer-container" dir={textDirection} style:text-align={textAlign}>
         {#if content.trim()}
-          <div class="md-rendered-content" style:font-size="{fontSize}px">
+          <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_noninteractive_element_interactions -->
+          <div
+            class="md-rendered-content"
+            style:font-size="{fontSize}px"
+            onclick={handleRenderedClick}
+            role="region"
+            aria-label="Rendered Markdown"
+          >
             {@html renderMarkdown(content)}
           </div>
         {:else}
@@ -727,38 +788,112 @@
     100% { transform: rotate(360deg); }
   }
 
-  .mode-switcher {
-    display: inline-flex;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 2px;
-    gap: 2px;
-  }
-
-  .mode-btn {
+  .mode-toggle-single-btn {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
-    padding: 4px 8px;
-    font-size: 11.5px;
-    font-weight: 500;
-    border: none;
-    border-radius: 4px;
-    background: transparent;
-    color: var(--muted);
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface);
+    color: var(--text);
     cursor: pointer;
     transition: all 0.15s ease;
   }
-  .mode-btn.active {
-    background: var(--accent);
-    color: #fff;
+  .mode-toggle-single-btn:hover {
+    background: var(--surface-2);
+    border-color: var(--accent);
+  }
+  .mode-toggle-single-btn.active-viewer {
+    background: var(--accent-soft);
+    color: var(--accent);
+    border-color: var(--accent);
   }
 
-  .export-actions {
+  :global(.md-task-checkbox) {
+    cursor: pointer;
+    width: 15px;
+    height: 15px;
+    accent-color: var(--accent, #4f6bff);
+    vertical-align: -2px;
+    margin-inline-end: 8px;
+  }
+  :global(.md-task-done) {
+    text-decoration: line-through;
+    opacity: 0.6;
+  }
+
+  .primary-fmt {
+    background: var(--accent) !important;
+    color: #fff !important;
+    border-color: var(--accent) !important;
+  }
+  .primary-fmt:hover {
+    opacity: 0.9;
+  }
+
+  /* Emoji / Icon Picker */
+  .emoji-picker-box {
+    position: relative;
+  }
+  .emoji-toggle-btn {
+    gap: 4px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .emoji-popover {
+    position: absolute;
+    top: calc(100% + 6px);
+    inset-inline-start: 0;
+    width: 250px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+    padding: 10px;
+    z-index: 50;
+    max-height: 280px;
+    overflow-y: auto;
+  }
+  .emoji-popover-header {
     display: flex;
     align-items: center;
+    justify-content: space-between;
+    font-size: 11.5px;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 8px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--border);
+  }
+  .emoji-cat-title {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--muted);
+    margin: 6px 0 4px;
+  }
+  .emoji-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
     gap: 4px;
+  }
+  .emoji-item-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    height: 32px;
+    background: var(--surface-2);
+    border: 1px solid transparent;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: transform 0.1s ease, background 0.15s ease;
+  }
+  .emoji-item-btn:hover {
+    background: var(--accent-soft);
+    border-color: var(--accent);
+    transform: scale(1.15);
   }
 
   .action-btn {
@@ -782,14 +917,6 @@
   }
   .action-btn:hover {
     background: var(--surface-2);
-  }
-  .action-btn.primary {
-    background: var(--accent);
-    border-color: var(--accent);
-    color: #fff;
-  }
-  .action-btn.primary:hover {
-    opacity: 0.9;
   }
 
   .md-format-bar {

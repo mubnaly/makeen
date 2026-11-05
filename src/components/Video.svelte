@@ -100,7 +100,7 @@
   let sidebarWidth = $state(
     typeof window !== 'undefined' ? Math.round(window.innerWidth * 0.25) : 340
   );
-  let isResizing = false;
+  let isResizing = $state(false);
 
   // Black screen mode (video picture off / pure audio, no visualizer effects)
   let isBlackScreen = $state(false);
@@ -202,7 +202,7 @@
     }
   });
 
-  // Fullscreen idle toolbar timeout (auto-hides after 3 seconds of inactivity, but NEVER when paused)
+  // Fullscreen idle toolbar timeout (auto-hides after 2.5 seconds of inactivity, but NEVER when hovering controls)
   function pokeFsToolbar() {
     if (!isFullscreen) {
       fsIdle = false;
@@ -213,13 +213,13 @@
       clearTimeout(fsIdleTimer);
       fsIdleTimer = null;
     }
-    // If paused or hovering controls, control bar MUST stay visible!
-    if (!playing || isHoveringControls) return;
+    // If hovering controls, control bar MUST stay visible!
+    if (isHoveringControls) return;
     fsIdleTimer = setTimeout(() => {
-      if (playing && !isHoveringControls) {
+      if (!isHoveringControls) {
         fsIdle = true;
       }
-    }, 3000);
+    }, 2500);
   }
 
   function onMouseMove() {
@@ -246,16 +246,18 @@
     }
   }
 
-  // Draggable right sidebar resize handle
+  // Draggable right sidebar resize handle (flexible splitter matching DualStudio: 15% to 75% width, RTL-aware)
   function startSidebarResize(e) {
     e.preventDefault();
     isResizing = true;
+    const isRtl = dir() === 'rtl';
     const onPointerMove = (ev) => {
-      if (!isResizing) return;
-      const minW = Math.max(240, Math.round(window.innerWidth * 0.18));
-      const maxW = Math.round(window.innerWidth * 0.35);
-      const newWidth = Math.max(minW, Math.min(maxW, window.innerWidth - ev.clientX));
-      sidebarWidth = newWidth;
+      if (!isResizing || !workspaceEl) return;
+      const rect = workspaceEl.getBoundingClientRect();
+      const minW = Math.max(260, Math.round(rect.width * 0.15));
+      const maxW = Math.round(rect.width * 0.75);
+      const calculatedW = isRtl ? (ev.clientX - rect.left) : (rect.right - ev.clientX);
+      sidebarWidth = Math.max(minW, Math.min(maxW, Math.round(calculatedW)));
     };
     const onPointerUp = () => {
       isResizing = false;
@@ -264,6 +266,65 @@
     };
     window.addEventListener('pointermove', onPointerMove);
     window.addEventListener('pointerup', onPointerUp);
+  }
+
+  // Offline Video Buffer & Cache
+  let isBufferingOffline = $state(false);
+  let offlineBufferedPct = $state(0);
+  let isVideoCachedOffline = $state(false);
+
+  let bufferedEndRatio = $derived.by(() => {
+    if (!duration || duration <= 0) return 0;
+    if (isVideoCachedOffline) return 1;
+    if (videoEl?.buffered && videoEl.buffered.length > 0) {
+      const end = videoEl.buffered.end(videoEl.buffered.length - 1);
+      return Math.min(1, end / duration);
+    }
+    return 0;
+  });
+
+  async function triggerOfflineBuffer() {
+    if (isBufferingOffline) return;
+    if (isVideoCachedOffline) {
+      notify?.(t('video.alreadyCached') || 'الفيديو مخزن بالكامل للعمل بدون اتصال', 'ok');
+      return;
+    }
+    isBufferingOffline = true;
+    offlineBufferedPct = 15;
+    try {
+      if (isYoutube) {
+        offlineBufferedPct = 40;
+        await loadChapters(ytCurrentVideoId || video?.ytId);
+        offlineBufferedPct = 75;
+        if (typeof fetchTranscriptForCurrent === 'function') {
+          await fetchTranscriptForCurrent().catch(() => {});
+        }
+        offlineBufferedPct = 100;
+        isVideoCachedOffline = true;
+        notify?.(t('video.cachedSuccess') || 'تم تخزين بيانات الفيديو والجلسة بنجاح للمذاكرة بدون إنترنت', 'ok');
+      } else {
+        offlineBufferedPct = 30;
+        if (videoEl) {
+          videoEl.preload = 'auto';
+        }
+        if (srcUrl && !srcUrl.startsWith('blob:')) {
+          offlineBufferedPct = 55;
+          const res = await fetch(srcUrl);
+          const buf = await res.arrayBuffer();
+          offlineBufferedPct = 90;
+          if (video?.id) {
+            await savePdfBytes(video.id, new Uint8Array(buf));
+          }
+        }
+        offlineBufferedPct = 100;
+        isVideoCachedOffline = true;
+        notify?.(t('video.cachedSuccess') || 'تم تخزين الفيديو بنجاح للمشاهدة بدون إنترنت', 'ok');
+      }
+    } catch (err) {
+      notify?.(String(err?.message || err), 'error');
+    } finally {
+      isBufferingOffline = false;
+    }
   }
 
   let activePlaylistId = $state('');
@@ -1529,6 +1590,7 @@
   class:has-subtitles={showSubtitles}
   class:idle={fsIdle}
   class:sidebar-open={sidebarOpen}
+  class:is-resizing={isResizing}
   style="--sidebar-w:{sidebarWidth}px"
   onmousemove={onMouseMove}
   onpointermove={onMouseMove}
@@ -1620,8 +1682,13 @@
           onpointerleave={() => { isHoveringControls = false; pokeFsToolbar(); }}
         >
           <div class="timeline-row">
-            <input class="scrub" type="range" min="0" max="1000" value={hasDuration ? (current / duration) * 1000 : 0}
-              disabled={!hasDuration} oninput={onScrub} aria-label={t('video.position')} />
+            <div class="scrub-container">
+              {#if bufferedEndRatio > 0}
+                <div class="buffered-bar" style="width: {Math.min(100, Math.round(bufferedEndRatio * 100))}%"></div>
+              {/if}
+              <input class="scrub" type="range" min="0" max="1000" value={hasDuration ? (current / duration) * 1000 : 0}
+                disabled={!hasDuration} oninput={onScrub} aria-label={t('video.position')} />
+            </div>
             <span class="timecode">{formatTimecode(current)} / {hasDuration ? formatTimecode(duration) : '—'}</span>
           </div>
           <div class="control-row">
@@ -1713,6 +1780,17 @@
                   <span>{t('video.openPdfStudy')}</span>
                 </button>
               {/if}
+
+              <!-- Offline Buffer & Cache Button -->
+              <button
+                class={isVideoCachedOffline ? 'active' : ''}
+                onclick={triggerOfflineBuffer}
+                title={isVideoCachedOffline ? (t('video.cachedOffline') || 'مخزن بدون إنترنت') : (t('video.bufferOffline') || 'تخزين مؤقت بدون إنترنت')}
+                aria-label={t('video.bufferOffline') || 'Buffer offline'}
+              >
+                <Icon name={isVideoCachedOffline ? 'check' : 'download'} size={15} />
+                <span>{isBufferingOffline ? `${offlineBufferedPct}%` : (isVideoCachedOffline ? (t('video.cachedOffline') || 'مخزن') : (t('video.bufferOffline') || 'تخزين مؤقت'))}</span>
+              </button>
 
               <button onclick={triggerScreenshotAnnotation} title={t('video.captureFrame')} disabled={capturing}>
                 <Icon name="camera" size={17} /><span>{t('video.captureFrame')}</span>
@@ -2459,13 +2537,35 @@
     gap: 10px;
     width: 100%;
   }
+  .scrub-container {
+    position: relative;
+    flex: 1;
+    display: flex;
+    align-items: center;
+    min-width: 0;
+  }
+  .buffered-bar {
+    position: absolute;
+    inset-inline-start: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    height: 4px;
+    background: rgba(255, 255, 255, 0.4);
+    border-radius: 99px;
+    pointer-events: none;
+    z-index: 1;
+    transition: width 0.25s ease;
+  }
   .scrub {
+    position: relative;
+    z-index: 2;
     flex: 1;
     width: 100%;
     min-width: 0;
     height: 22px;
     accent-color: var(--accent);
     cursor: pointer;
+    background: transparent;
   }
   .timecode {
     flex: none;
@@ -2502,6 +2602,10 @@
   .quality select { max-width: 96px; }
 
   /* Resizer Splitter */
+  .video-workspace.is-resizing iframe,
+  .video-workspace.is-resizing video {
+    pointer-events: none;
+  }
   .sidebar-resizer {
     flex: none;
     width: 10px;
