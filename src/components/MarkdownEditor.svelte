@@ -8,7 +8,10 @@
     getNote,
     updateNote,
     createNote,
-    getOrCreateNoteForMaterial
+    getOrCreateNoteForMaterial,
+    listAllNotes,
+    connectNotes,
+    getNoteLinks
   } from '../lib/markdownStore.js';
 
   let {
@@ -38,6 +41,9 @@
   let textareaEl = $state();
   let saveTimer = null;
   let isSaved = $state(true);
+  let showNoteLinkPicker = $state(false);
+  let currentLinks = $state([]);
+  let allAvailableNotes = $derived(listAllNotes().filter((n) => n.id !== activeNote?.id));
 
   // Initialize or load note: strictly untracked, only runs when identity changes!
   $effect(() => {
@@ -71,6 +77,9 @@
     activeNote = n;
     title = n.title || '';
     content = n.content || '';
+    if (n?.id) {
+      currentLinks = getNoteLinks(n.id);
+    }
     if (n.direction) {
       textDirection = n.direction;
       textAlign = n.direction === 'rtl' ? 'right' : 'left';
@@ -80,6 +89,17 @@
       textAlign = textDirection === 'rtl' ? 'right' : 'left';
     }
     isSaved = true;
+  }
+
+  function handleInsertNoteLink(otherNote) {
+    if (!otherNote) return;
+    showNoteLinkPicker = false;
+    insertFormatting(`[[${otherNote.title}]] `);
+    if (activeNote?.id) {
+      connectNotes(activeNote.id, otherNote.id);
+      currentLinks = getNoteLinks(activeNote.id);
+      notify?.(t('notes.saved') || 'Linked to note', 'ok');
+    }
   }
 
   function scheduleAutosave() {
@@ -426,6 +446,34 @@
           <Icon name="columns" size={13} />
         </button>
 
+        <!-- Link Note Button -->
+        <div class="note-link-picker-box">
+          <button
+            type="button"
+            class="fmt-btn"
+            onclick={() => (showNoteLinkPicker = !showNoteLinkPicker)}
+            title={t('notes.connect') || 'Link Note'}
+          >
+            <Icon name="link" size={13} />
+            <span>{t('notes.connect') || 'Link'}</span>
+          </button>
+          {#if showNoteLinkPicker}
+            <div class="note-link-popover">
+              <div class="popover-heading">{t('notes.connectPlaceholder') || 'Select note to link:'}</div>
+              <div class="popover-notes-list">
+                {#each allAvailableNotes as optNote (optNote.id)}
+                  <button type="button" class="link-item-row" onclick={() => handleInsertNoteLink(optNote)}>
+                    <Icon name="file-text" size={12} />
+                    <span class="link-item-title">{optNote.title}</span>
+                  </button>
+                {:else}
+                  <div class="empty-muted-popover">{t('notes.noConnections') || 'No other notes yet'}</div>
+                {/each}
+              </div>
+            </div>
+          {/if}
+        </div>
+
         <!-- Video Timecode button -->
         <button
           type="button"
@@ -540,6 +588,24 @@
       </div>
     {/if}
   </main>
+
+  <!-- Connected Notes Knowledge Graph Bar -->
+  {#if currentLinks.length > 0}
+    <footer class="md-connected-bar hstack">
+      <div class="hstack" style="gap:6px">
+        <Icon name="brain" size={14} />
+        <span class="connected-bar-title">{t('notes.connectedNotes', { n: currentLinks.length })}:</span>
+      </div>
+      <div class="connected-pills-row hstack">
+        {#each currentLinks as lnk (lnk.id)}
+          <span class="connected-pill-tag">
+            <Icon name="link" size={11} />
+            <span>{lnk.title}</span>
+          </span>
+        {/each}
+      </div>
+    </footer>
+  {/if}
 </div>
 
 <style>
@@ -853,6 +919,99 @@
     gap: 6px;
     overflow-y: auto;
     max-height: 200px;
+  }
+
+  /* Note Link Picker Popover */
+  .note-link-picker-box {
+    position: relative;
+    display: inline-flex;
+  }
+  .note-link-popover {
+    position: absolute;
+    top: calc(100% + 4px);
+    right: 0;
+    width: 240px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: var(--shadow);
+    z-index: 100;
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .popover-heading {
+    font-size: 11px;
+    color: var(--muted);
+    font-weight: 600;
+  }
+  .popover-notes-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    max-height: 160px;
+    overflow-y: auto;
+  }
+  .link-item-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 8px;
+    border-radius: 5px;
+    border: none;
+    background: transparent;
+    color: var(--text);
+    font-size: 12px;
+    cursor: pointer;
+    text-align: start;
+  }
+  .link-item-row:hover {
+    background: var(--surface-2);
+    color: var(--accent);
+  }
+  .link-item-title {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .empty-muted-popover {
+    font-size: 11px;
+    color: var(--muted);
+    font-style: italic;
+    padding: 4px;
+  }
+
+  /* Connected Notes Footer Bar */
+  .md-connected-bar {
+    padding: 6px 14px;
+    background: var(--surface-2);
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+    gap: 12px;
+    flex: none;
+    overflow-x: auto;
+  }
+  .connected-bar-title {
+    font-weight: 600;
+    color: var(--accent);
+    font-size: 11.5px;
+    white-space: nowrap;
+  }
+  .connected-pills-row {
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .connected-pill-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 99px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-size: 11px;
   }
   .thumb-btn {
     position: relative;

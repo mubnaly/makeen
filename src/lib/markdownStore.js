@@ -203,3 +203,148 @@ export function searchNotes(query) {
            (n.content && n.content.toLowerCase().includes(q));
   });
 }
+
+// --- Knowledge Graph & Brain Connections API --------------------------------
+
+export function parseWikilinks(content) {
+  if (!content || typeof content !== 'string') return [];
+  const matches = [];
+  const re = /\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g;
+  let m;
+  while ((m = re.exec(content)) !== null) {
+    const title = m[1].trim();
+    if (title && !matches.includes(title)) matches.push(title);
+  }
+  return matches;
+}
+
+export function connectNotes(sourceId, targetId) {
+  if (!sourceId || !targetId || sourceId === targetId) return false;
+  const state = loadState();
+  const source = state.notes.find((n) => n.id === sourceId);
+  const target = state.notes.find((n) => n.id === targetId);
+  if (!source || !target) return false;
+
+  source.links = Array.isArray(source.links) ? source.links : [];
+  target.links = Array.isArray(target.links) ? target.links : [];
+
+  if (!source.links.includes(targetId)) source.links.push(targetId);
+  if (!target.links.includes(sourceId)) target.links.push(sourceId);
+
+  source.updatedAt = Date.now();
+  persistState(state);
+  return true;
+}
+
+export function disconnectNotes(sourceId, targetId) {
+  if (!sourceId || !targetId) return false;
+  const state = loadState();
+  const source = state.notes.find((n) => n.id === sourceId);
+  const target = state.notes.find((n) => n.id === targetId);
+  let changed = false;
+
+  if (source && Array.isArray(source.links)) {
+    const prev = source.links.length;
+    source.links = source.links.filter((id) => id !== targetId);
+    if (source.links.length !== prev) changed = true;
+  }
+  if (target && Array.isArray(target.links)) {
+    const prev = target.links.length;
+    target.links = target.links.filter((id) => id !== sourceId);
+    if (target.links.length !== prev) changed = true;
+  }
+
+  if (changed) {
+    persistState(state);
+    return true;
+  }
+  return false;
+}
+
+export function getNoteLinks(noteId) {
+  if (!noteId) return [];
+  const state = loadState();
+  const note = state.notes.find((n) => n.id === noteId);
+  if (!note) return [];
+
+  const linkedIds = new Set(Array.isArray(note.links) ? note.links : []);
+
+  // Resolve wikilinks in content
+  const wikilinkTitles = parseWikilinks(note.content);
+  for (const title of wikilinkTitles) {
+    const match = state.notes.find((n) => n.id !== noteId && n.title.toLowerCase() === title.toLowerCase());
+    if (match) linkedIds.add(match.id);
+  }
+
+  // Include incoming backlinks
+  for (const other of state.notes) {
+    if (other.id === noteId) continue;
+    if (Array.isArray(other.links) && other.links.includes(noteId)) {
+      linkedIds.add(other.id);
+    } else {
+      const otherWikilinks = parseWikilinks(other.content);
+      if (otherWikilinks.some((t) => t.toLowerCase() === note.title.toLowerCase())) {
+        linkedIds.add(other.id);
+      }
+    }
+  }
+
+  return [...linkedIds].map((id) => state.notes.find((n) => n.id === id)).filter(Boolean);
+}
+
+export function getKnowledgeGraphData() {
+  const state = loadState();
+  const notes = state.notes || [];
+  const folders = state.folders || [];
+  const folderMap = new Map(folders.map((f) => [f.id, f.name]));
+
+  const titleMap = new Map();
+  for (const n of notes) {
+    if (n.title) titleMap.set(n.title.toLowerCase(), n.id);
+  }
+
+  const edgeSet = new Set();
+  const edges = [];
+  const connectionCounts = new Map();
+
+  function addEdge(sourceId, targetId) {
+    if (sourceId === targetId) return;
+    const key = [sourceId, targetId].sort().join(':::');
+    if (!edgeSet.has(key)) {
+      edgeSet.add(key);
+      edges.push({ id: key, source: sourceId, target: targetId });
+      connectionCounts.set(sourceId, (connectionCounts.get(sourceId) || 0) + 1);
+      connectionCounts.set(targetId, (connectionCounts.get(targetId) || 0) + 1);
+    }
+  }
+
+  for (const note of notes) {
+    if (Array.isArray(note.links)) {
+      for (const targetId of note.links) {
+        if (notes.some((n) => n.id === targetId)) {
+          addEdge(note.id, targetId);
+        }
+      }
+    }
+    const wikilinks = parseWikilinks(note.content);
+    for (const title of wikilinks) {
+      const targetId = titleMap.get(title.toLowerCase());
+      if (targetId && targetId !== note.id) {
+        addEdge(note.id, targetId);
+      }
+    }
+  }
+
+  const nodes = notes.map((note) => ({
+    id: note.id,
+    title: note.title || 'Untitled',
+    folderId: note.folderId,
+    folderName: note.folderId ? folderMap.get(note.folderId) || 'Folder' : 'General',
+    materialType: note.materialType || 'standalone',
+    updatedAt: note.updatedAt || note.createdAt || 0,
+    connectionsCount: connectionCounts.get(note.id) || 0,
+    contentPreview: (note.content || '').replace(/[#*`>\-_[\]]/g, '').slice(0, 120).trim()
+  }));
+
+  return { nodes, edges };
+}

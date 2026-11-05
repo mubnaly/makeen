@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import Icon from './Icon.svelte';
   import MarkdownEditor from './MarkdownEditor.svelte';
+  import MarkdownBrainGraph from './MarkdownBrainGraph.svelte';
   import { t } from '../lib/lang.svelte.js';
   import {
     listFolders,
@@ -22,6 +23,7 @@
   let activeNoteId = $state(null);
   let selectedFolderId = $state(null); // null means root/all
   let searchQuery = $state('');
+  let viewMode = $state('editor'); // 'editor' | 'graph'
 
   // Folder creation & editing state
   let isCreatingFolder = $state(false);
@@ -306,6 +308,26 @@
           </button>
         {/if}
       </div>
+
+      <!-- View Switcher (Editor vs Brain Graph) -->
+      <div class="view-mode-bar hstack">
+        <button
+          type="button"
+          class="view-tab-btn {viewMode === 'editor' ? 'active' : ''}"
+          onclick={() => (viewMode = 'editor')}
+        >
+          <Icon name="file-text" size={13} />
+          <span>{t('notes.viewEditor') || 'Editor'}</span>
+        </button>
+        <button
+          type="button"
+          class="view-tab-btn {viewMode === 'graph' ? 'active' : ''}"
+          onclick={() => (viewMode = 'graph')}
+        >
+          <Icon name="brain" size={13} />
+          <span>{t('notes.viewGraph') || 'Brain Graph'}</span>
+        </button>
+      </div>
     </div>
 
     <!-- Create Folder Modal / Input bar -->
@@ -386,9 +408,19 @@
     </div>
   </aside>
 
-  <!-- Right Column: Note Editor & Viewer -->
+  <!-- Right Column: Note Editor & Viewer OR Brain Knowledge Graph -->
   <main class="notes-main-pane">
-    {#if activeNote}
+    {#if viewMode === 'graph'}
+      <MarkdownBrainGraph
+        {activeNoteId}
+        {notify}
+        onOpenNote={(noteId) => {
+          activeNoteId = noteId;
+          viewMode = 'editor';
+        }}
+        onClose={() => (viewMode = 'editor')}
+      />
+    {:else if activeNote}
       <MarkdownEditor
         note={activeNote}
         {captures}
@@ -468,11 +500,45 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    background: var(--surface);
+    padding: 6px 8px;
     border: 1px solid var(--border);
     border-radius: 6px;
-    padding: 4px 8px;
+    background: var(--surface);
   }
+
+  .view-mode-bar {
+    display: flex;
+    gap: 4px;
+    background: var(--surface-3, rgba(0, 0, 0, 0.06));
+    padding: 2px;
+    border-radius: 7px;
+  }
+  .view-tab-btn {
+    flex: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    padding: 5px 8px;
+    font-size: 11.5px;
+    font-weight: 500;
+    border-radius: 5px;
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .view-tab-btn:hover {
+    color: var(--text);
+  }
+  .view-tab-btn.active {
+    background: var(--surface);
+    color: var(--accent);
+    font-weight: 600;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  }
+
   .search-box input {
     flex: 1;
     min-width: 0;

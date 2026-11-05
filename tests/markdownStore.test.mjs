@@ -20,7 +20,12 @@ const {
   updateNote,
   deleteNote,
   getOrCreateNoteForMaterial,
-  searchNotes
+  searchNotes,
+  connectNotes,
+  disconnectNotes,
+  getNoteLinks,
+  getKnowledgeGraphData,
+  parseWikilinks
 } = await import('../src/lib/markdownStore.js');
 
 test('Folder creation, nested folders and breadcrumbs', () => {
@@ -87,4 +92,40 @@ test('Note create, update, delete and material binding', () => {
 
   deleteNote(note.id);
   assert.equal(searchNotes('Updated').length, 0);
+});
+
+test('Knowledge Graph: wikilinks, connecting notes and graph data export', () => {
+  storage.clear();
+
+  // Test wikilinks parser
+  const links = parseWikilinks('Check out [[Quantum Physics]] and [[Linear Algebra|Math]] for details.');
+  assert.deepEqual(links, ['Quantum Physics', 'Linear Algebra']);
+
+  // Create notes
+  const noteA = createNote({ title: 'Quantum Physics', content: 'Intro to quantum.' });
+  const noteB = createNote({ title: 'Linear Algebra', content: 'Vectors and matrices.' });
+  const noteC = createNote({ title: 'Machine Learning', content: 'Uses [[Linear Algebra]] heavily.' });
+
+  // Explicit connection between A and B
+  const connected = connectNotes(noteA.id, noteB.id);
+  assert.equal(connected, true);
+
+  // Check linked notes for noteA
+  const linksForA = getNoteLinks(noteA.id);
+  assert.equal(linksForA.length, 1);
+  assert.equal(linksForA[0].id, noteB.id);
+
+  // Graph data should have 3 nodes and 2 edges (A-B explicit, C-B wikilink)
+  const graph = getKnowledgeGraphData();
+  assert.equal(graph.nodes.length, 3);
+  assert.equal(graph.edges.length, 2);
+
+  // Check degree / connection counts
+  const nodeBData = graph.nodes.find((n) => n.id === noteB.id);
+  assert.equal(nodeBData.connectionsCount, 2);
+
+  // Test disconnect
+  disconnectNotes(noteA.id, noteB.id);
+  const graphAfter = getKnowledgeGraphData();
+  assert.equal(graphAfter.edges.length, 1);
 });
