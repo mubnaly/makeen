@@ -30,6 +30,7 @@
   // The page transform in this file is also called `t`, so the translator is
   // imported as `tr`.
   import { t as tr } from '../lib/lang.svelte.js';
+  import { formatTimecode } from '../lib/media.js';
   import PomodoroWidget from './PomodoroWidget.svelte';
   import MarkdownEditor from './MarkdownEditor.svelte';
 
@@ -48,8 +49,15 @@
     onSelectTab = null,
     onCloseTab = null,
     onNewTab = null,
-    onBack = null
+    onBack = null,
+    backgroundAudioEnabled = false,
+    backgroundVideoState = null,
+    onToggleBgPlay = null,
+    onSeekBg = null,
+    onOpenVideo = null
   } = $props();
+
+  let bgBarVisible = $state(true);
 
   const PALETTE = [
     { key: 'yellow', value: '#F4D03F' },
@@ -1565,6 +1573,21 @@
     <button style={addBarOrder('side-notes')} class={sideOpen && sideTab === 'notes' ? 'active' : ''} onclick={() => toggleSideTab('notes')}
       title={tr('side.notes')} aria-label={tr('side.notes')} aria-pressed={sideOpen && sideTab === 'notes'}><Icon name="file-text" /></button>
 
+    {#if backgroundAudioEnabled && backgroundVideoState}
+      <button
+        class="bg-audio-pill-btn {bgBarVisible ? 'active' : ''}"
+        onclick={() => (bgBarVisible = !bgBarVisible)}
+        title={bgBarVisible ? tr('reader.hideBgBar') : tr('reader.showBgBar')}
+        aria-label={tr('reader.bgAudioBar')}
+        aria-pressed={bgBarVisible}
+      >
+        <Icon name="headphones" size={17} />
+        {#if backgroundVideoState.playing}
+          <span class="audio-playing-dot"></span>
+        {/if}
+      </button>
+    {/if}
+
     <button style={addBarOrder('direction')} onclick={toggleDirection}
       title={`${tr('reader.readingDirection')}: ${readingDir === 'rtl' ? tr('reader.rtl') : tr('reader.ltr')}`}
       aria-label={`${tr('reader.readingDirection')}: ${readingDir === 'rtl' ? tr('reader.rtl') : tr('reader.ltr')}`}>
@@ -1749,6 +1772,56 @@
         <button class="primary" onclick={runSearch}>{tr('reader.find')}</button>
       </div>
       {#if searchStatus}<div class="menu-note">{searchStatus}</div>{/if}
+    </div>
+  {/if}
+
+  {#if backgroundAudioEnabled && backgroundVideoState && bgBarVisible}
+    <div class="background-audio-bar" dir="ltr" role="region" aria-label={tr('reader.bgAudioBar')}>
+      <button
+        class="bg-play-btn"
+        onclick={() => onToggleBgPlay?.()}
+        title={backgroundVideoState.playing ? tr('video.pause') : tr('video.play')}
+        aria-label={backgroundVideoState.playing ? tr('video.pause') : tr('video.play')}
+      >
+        <Icon name={backgroundVideoState.playing ? 'pause' : 'play'} size={15} />
+      </button>
+
+      <span class="bg-time">
+        {formatTimecode(backgroundVideoState.current || 0)} / {formatTimecode(backgroundVideoState.duration || 0)}
+      </span>
+
+      <div class="bg-scrub-container">
+        <input
+          type="range"
+          class="bg-scrub"
+          min="0"
+          max={backgroundVideoState.duration || 100}
+          step="0.5"
+          value={backgroundVideoState.current || 0}
+          oninput={(e) => onSeekBg?.(Number(e.currentTarget.value))}
+          aria-label={tr('video.position')}
+        />
+      </div>
+
+      {#if backgroundVideoState.title}
+        <button
+          class="bg-title-pill"
+          onclick={() => onOpenVideo?.()}
+          title={tr('reader.backToVideo')}
+        >
+          <Icon name="headphones" size={13} />
+          <span class="bg-title-text">{backgroundVideoState.title}</span>
+        </button>
+      {/if}
+
+      <button
+        class="bg-close-btn"
+        onclick={() => (bgBarVisible = false)}
+        title={tr('reader.hideBgBar')}
+        aria-label={tr('reader.hideBgBar')}
+      >
+        <Icon name="x" size={14} />
+      </button>
     </div>
   {/if}
 

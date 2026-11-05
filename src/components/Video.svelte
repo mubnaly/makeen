@@ -39,7 +39,11 @@
     onImport = null,
     captures = [],
     onDeleteCapture = null,
-    initialSidebarOpen = true
+    initialSidebarOpen = true,
+    backgroundAudio = $bindable(false),
+    onPlaybackStateChange = null,
+    registerController = null,
+    onOpenPdfDirectly = null
   } = $props();
 
   let videoEl = $state();
@@ -1044,6 +1048,38 @@
     }
   }
 
+  function toggleBackgroundAudio() {
+    backgroundAudio = !backgroundAudio;
+    try {
+      localStorage.setItem('makeen.bgAudio', backgroundAudio ? '1' : '0');
+    } catch {}
+    notify(backgroundAudio ? t('video.backgroundAudioOn') : t('video.backgroundAudioOff'), 'ok');
+  }
+
+  $effect(() => {
+    onPlaybackStateChange?.({
+      playing,
+      current,
+      duration,
+      title: video?.title || '',
+      video
+    });
+  });
+
+  $effect(() => {
+    registerController?.({
+      togglePlay,
+      seekTo: (sec) => {
+        if (isYoutube) seekTarget(sec);
+        else if (videoEl) {
+          videoEl.currentTime = clampSeek(sec, duration);
+          current = videoEl.currentTime;
+        }
+      },
+      seekBy: (sec) => seekBy(sec)
+    });
+  });
+
   function playState(next) {
     playing = next;
     if (next) {
@@ -1648,6 +1684,33 @@
                   </select>
                 </label>
               </div>
+
+              <!-- Background Audio Playback Toggle Button -->
+              <button
+                class={backgroundAudio ? 'active' : ''}
+                onclick={toggleBackgroundAudio}
+                title={backgroundAudio ? t('video.backgroundAudioOn') : t('video.backgroundAudioOff')}
+                aria-label={t('video.backgroundAudio')}
+                aria-pressed={backgroundAudio}
+              >
+                <Icon name="headphones" size={16} />
+                <span>{t('video.backgroundAudio')}</span>
+              </button>
+
+              {#if backgroundAudio}
+                <!-- Quick shortcut to open PDF for study directly -->
+                <button
+                  class="primary small"
+                  onclick={() => onOpenPdfDirectly?.()}
+                  title={t('video.openPdfStudy')}
+                  aria-label={t('video.openPdfStudy')}
+                  style="display:inline-flex; align-items:center; gap:5px;"
+                >
+                  <Icon name="reader" size={14} />
+                  <span>{t('video.openPdfStudy')}</span>
+                </button>
+              {/if}
+
               <button onclick={triggerScreenshotAnnotation} title={t('video.captureFrame')} disabled={capturing}>
                 <Icon name="camera" size={17} /><span>{t('video.captureFrame')}</span>
               </button>

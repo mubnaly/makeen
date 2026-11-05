@@ -80,6 +80,33 @@
   let activeDoc = $state(null);
   let openTabs = $state([]);
   let activeVideo = $state(null);
+  let backgroundAudio = $state(false);
+  try {
+    backgroundAudio = localStorage.getItem('makeen.bgAudio') === '1';
+  } catch {}
+  let bgVideoState = $state({
+    playing: false,
+    current: 0,
+    duration: 0,
+    title: '',
+    video: null
+  });
+  let bgVideoController = $state(null);
+
+  function handleBgPlaybackStateChange(state) {
+    bgVideoState = { ...bgVideoState, ...state };
+  }
+
+  function openPdfStudyMode() {
+    if (activeDoc) {
+      view = 'Reader';
+    } else if (docs.some((d) => !d.kind || d.kind === 'pdf')) {
+      const firstPdf = docs.find((d) => !d.kind || d.kind === 'pdf');
+      openDoc(firstPdf);
+    } else {
+      pickPdf();
+    }
+  }
   let captures = $state([]);
   let cards = $state([]);
   let selectedCaptures = $state([]);
@@ -1651,7 +1678,12 @@
               onOpenGallery={() => (view = 'Gallery')}
               onBack={() => (view = 'Library')}
               {tabDocs} activeTabId={activeDoc?.id || ''}
-              onSelectTab={selectTab} onCloseTab={closeTab} onNewTab={pickPdf} />
+              onSelectTab={selectTab} onCloseTab={closeTab} onNewTab={pickPdf}
+              backgroundAudioEnabled={backgroundAudio && !!activeVideo}
+              backgroundVideoState={bgVideoState}
+              onToggleBgPlay={() => bgVideoController?.togglePlay()}
+              onSeekBg={(sec) => bgVideoController?.seekTo(sec)}
+              onOpenVideo={() => { view = 'Video'; }} />
           </div>
         {:else}
           <EmptyState icon="reader" title={t('empty.readerTitle')} hint={t('empty.readerHint')}
@@ -1660,18 +1692,7 @@
         {/if}
 
       {:else if view === 'Video'}
-        <Video
-          video={activeVideo}
-          videos={videoDocs}
-          {captures}
-          onDeleteCapture={deleteCapture}
-          {notify}
-          {onCapture}
-          onOpen={(record) => { activeVideo = { ...record }; view = 'Video'; }}
-          onRemove={removeDoc}
-          refreshDocs={() => (docs = library.listDocuments())}
-          onImport={pickVideo}
-        />
+        <!-- Video workspace is rendered persistently below to preserve background playback across views -->
 
       {:else if view === 'Studio'}
         <div style="height:calc(100vh - 92px); margin:-20px;">
@@ -2258,6 +2279,28 @@
             cards = listCards();
           }}
         />
+      {/if}
+
+      <!-- Persistent Video Workspace (renders normally when view === 'Video', stays alive off-screen when backgroundAudio is active) -->
+      {#if view === 'Video' || (backgroundAudio && activeVideo)}
+        <div class="video-view-container" class:background-audio-mode={view !== 'Video'}>
+          <Video
+            video={activeVideo}
+            videos={videoDocs}
+            {captures}
+            onDeleteCapture={deleteCapture}
+            {notify}
+            {onCapture}
+            onOpen={(record) => { activeVideo = { ...record }; view = 'Video'; }}
+            onRemove={removeDoc}
+            refreshDocs={() => (docs = library.listDocuments())}
+            onImport={pickVideo}
+            bind:backgroundAudio
+            onPlaybackStateChange={handleBgPlaybackStateChange}
+            registerController={(ctrl) => { bgVideoController = ctrl; }}
+            onOpenPdfDirectly={openPdfStudyMode}
+          />
+        </div>
       {/if}
     </main>
   </div>
