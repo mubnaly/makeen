@@ -1298,7 +1298,7 @@
 <div class="app {railCollapsed ? 'rail-collapsed' : ''}">
   <!-- Navigation rail -->
   <nav class="rail">
-    <div class="brand"><span class="logo">S</span><span class="name">{t('app.brand')}</span></div>
+    <div class="brand"><img class="logo-img" src="./icon.png" alt="StudyOS" /><span class="name">{t('app.brand')}</span></div>
     {#each NAV as item}
       <button class="nav {view === item.id ? 'active' : ''}" onclick={() => nav(item.id)} title={t(NAV_LABEL[item.id])}>
         <span class="ico"><Icon name={item.icon} /></span><span class="label">{t(NAV_LABEL[item.id])}</span>

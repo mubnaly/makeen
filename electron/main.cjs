@@ -415,6 +415,15 @@ ipcMain.handle('youtube-transcript', async (_e, payload = {}) => {
     const ytDlpRes = await ytHelper.fetchTranscriptYtDlp(videoId, String(payload.lang || 'ar'));
     if (ytDlpRes?.ok) {
       if (entry?.page?.title && !ytDlpRes.title) ytDlpRes.title = entry.page.title;
+      if (entry?.page?.tracks?.length) {
+        const mergedTracks = [...(ytDlpRes.tracks || [])];
+        for (const t of entry.page.tracks) {
+          if (!mergedTracks.some((m) => m.languageCode.toLowerCase() === t.languageCode.toLowerCase())) {
+            mergedTracks.push(t);
+          }
+        }
+        ytDlpRes.tracks = mergedTracks;
+      }
       return ytDlpRes;
     }
   } catch {}

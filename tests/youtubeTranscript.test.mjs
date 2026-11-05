@@ -290,3 +290,18 @@ test('fetchTranscript composes the whole flow', async () => {
   assert.equal(result.selected.languageCode, 'en');
   assert.equal(result.cues[1].text, 'Hello world');
 });
+
+test('groupCuesBySentence merges fragmented phrases into complete sentences', () => {
+  const cues = [
+    { start: 0, duration: 1, text: 'This is the' },
+    { start: 1, duration: 1, text: 'first sentence.' },
+    { start: 2.5, duration: 1, text: 'Here is sentence number' },
+    { start: 3.5, duration: 1, text: 'two!' }
+  ];
+  const sentences = transcript.groupCuesBySentence(cues);
+  assert.equal(sentences.length, 2);
+  assert.equal(sentences[0].text, 'This is the first sentence.');
+  assert.equal(sentences[0].start, 0);
+  assert.equal(sentences[1].text, 'Here is sentence number two!');
+  assert.equal(sentences[1].start, 2.5);
+});

@@ -6,48 +6,98 @@ const path = require('path');
 const os = require('os');
 
 function parseVtt(vttText) {
-  const cues = [];
-  const lines = vttText.split(/\r?\n/);
-  let start = 0;
-  let duration = 0;
-  let textLines = [];
+  const blocks = String(vttText || '').split(/\r?\n\r?\n/);
   const timeRegex = /(?:(\d+):)?(\d{2}):(\d{2})[.,](\d{3})\s*-->\s*(?:(\d+):)?(\d{2}):(\d{2})[.,](\d{3})/;
+  const rawChunks = [];
+  let lastSeenLine = '';
 
-  for (const rawLine of lines) {
-    const line = rawLine.trim();
-    const match = line.match(timeRegex);
-    if (match) {
-      if (textLines.length) {
-        const text = textLines.join(' ').replace(/\s+/g, ' ').trim();
-        if (text) cues.push({ start, duration: Math.max(0.1, duration), text });
-        textLines = [];
-      }
-      const sH = match[1] ? Number(match[1]) : 0;
-      const sM = Number(match[2]);
-      const sS = Number(match[3]);
-      const sMs = Number(match[4]);
-      start = sH * 3600 + sM * 60 + sS + sMs / 1000;
+  for (const block of blocks) {
+    const rawLines = block.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    if (!rawLines.length) continue;
+    const timeMatch = rawLines[0].match(timeRegex);
+    if (!timeMatch) continue;
 
-      const eH = match[5] ? Number(match[5]) : 0;
-      const eM = Number(match[6]);
-      const eS = Number(match[7]);
-      const eMs = Number(match[8]);
-      const end = eH * 3600 + eM * 60 + eS + eMs / 1000;
-      duration = Math.max(0.1, end - start);
-    } else if (line && !line.startsWith('WEBVTT') && !line.startsWith('Kind:') && !line.startsWith('Language:') && !line.startsWith('NOTE')) {
-      const clean = line.replace(/<[^>]+>/g, '').trim();
-      if (clean && !textLines.includes(clean)) textLines.push(clean);
-    } else if (!line && textLines.length) {
-      const text = textLines.join(' ').replace(/\s+/g, ' ').trim();
-      if (text) cues.push({ start, duration: Math.max(0.1, duration), text });
-      textLines = [];
+    const sH = timeMatch[1] ? Number(timeMatch[1]) : 0;
+    const sM = Number(timeMatch[2]);
+    const sS = Number(timeMatch[3]);
+    const sMs = Number(timeMatch[4]);
+    const start = sH * 3600 + sM * 60 + sS + sMs / 1000;
+
+    const eH = timeMatch[5] ? Number(timeMatch[5]) : 0;
+    const eM = Number(timeMatch[6]);
+    const eS = Number(timeMatch[7]);
+    const eMs = Number(timeMatch[8]);
+    const end = eH * 3600 + eM * 60 + eS + eMs / 1000;
+    const duration = Math.max(0.1, end - start);
+
+    const contentLines = rawLines.slice(1).filter((l) =>
+      !l.startsWith('WEBVTT') && !l.startsWith('Kind:') && !l.startsWith('Language:') && !l.startsWith('NOTE')
+    );
+    if (!contentLines.length) continue;
+
+    // In YouTube rolling ASR: the last line of a block contains newly spoken words
+    const lineToUse = contentLines[contentLines.length - 1];
+    const clean = lineToUse.replace(/<[^>]+>/g, '').trim();
+    if (!clean || clean === lastSeenLine) continue;
+
+    rawChunks.push({ start, end, duration, text: clean });
+    lastSeenLine = clean;
+  }
+
+  if (!rawChunks.length) return [];
+
+  // Assemble chunks sentence by sentence
+  const sentences = [];
+  let currentWords = [];
+  let sentStart = null;
+  let sentEnd = null;
+
+  for (let i = 0; i < rawChunks.length; i++) {
+    const ch = rawChunks[i];
+    if (sentStart === null) sentStart = ch.start;
+    sentEnd = ch.end;
+    currentWords.push(ch.text);
+
+    const fullText = currentWords
+      .join(' ')
+      .replace(/\s+/g, ' ')
+      .replace(/\s+([,.;!?؛؟])/g, '$1')
+      .trim();
+
+    const endsWithPunct = /[.!?؛؟](\s|$)/.test(ch.text) || /[.!?؛؟]$/.test(fullText);
+    const nextChunk = rawChunks[i + 1];
+    const longPause = nextChunk && (nextChunk.start - sentEnd > 1.2);
+    const wordCount = fullText.split(/\s+/).length;
+    const isLongSentence = wordCount >= 14;
+
+    if (endsWithPunct || longPause || isLongSentence) {
+      sentences.push({
+        start: Number(sentStart.toFixed(3)),
+        duration: Math.max(0.5, Number((sentEnd - sentStart).toFixed(3))),
+        text: fullText
+      });
+      currentWords = [];
+      sentStart = null;
+      sentEnd = null;
     }
   }
-  if (textLines.length) {
-    const text = textLines.join(' ').replace(/\s+/g, ' ').trim();
-    if (text) cues.push({ start, duration: Math.max(0.1, duration), text });
+
+  if (currentWords.length) {
+    const fullText = currentWords
+      .join(' ')
+      .replace(/\s+/g, ' ')
+      .replace(/\s+([,.;!?؛؟])/g, '$1')
+      .trim();
+    if (fullText) {
+      sentences.push({
+        start: Number((sentStart || 0).toFixed(3)),
+        duration: Math.max(0.5, Number(((sentEnd || sentStart || 0) - (sentStart || 0)).toFixed(3))),
+        text: fullText
+      });
+    }
   }
-  return cues;
+
+  return sentences;
 }
 
 async function fetchTranscriptYtDlp(videoId, preferredLang = 'ar') {
@@ -59,6 +109,8 @@ async function fetchTranscriptYtDlp(videoId, preferredLang = 'ar') {
 
     const proc = spawn('python', [
       '-m', 'yt_dlp',
+      '--ignore-errors',
+      '--no-warnings',
       '--skip-download',
       '--write-sub',
       '--write-auto-sub',
@@ -119,9 +171,12 @@ async function fetchTranscriptYtDlp(videoId, preferredLang = 'ar') {
         const langMatch = chosen.match(/\.([a-z]{2,3}(?:-[A-Za-z0-9]+)?)\.vtt$/i);
         const resolvedLang = langMatch ? langMatch[1] : (preferredLang || 'ar');
 
+        const text = cues.map((c) => c.text).join('\n\n');
+
         resolve({
           ok: true,
           cues,
+          text,
           selected: { languageCode: resolvedLang, label: resolvedLang.startsWith('ar') ? 'العربية' : 'English', kind: 'asr' },
           tracks: tracks.length ? tracks : [{ languageCode: resolvedLang, label: resolvedLang, kind: 'asr' }]
         });

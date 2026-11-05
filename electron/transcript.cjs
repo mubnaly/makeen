@@ -232,6 +232,64 @@ function sortCues(cues) {
     }));
 }
 
+function groupCuesBySentence(cues) {
+  if (!Array.isArray(cues) || !cues.length) return [];
+  const sentences = [];
+  let currentGroup = [];
+  let groupStart = null;
+  let groupEnd = null;
+
+  for (let i = 0; i < cues.length; i++) {
+    const cue = cues[i];
+    if (!cue || !cue.text) continue;
+    const cleanText = String(cue.text).replace(/\s+/g, ' ').trim();
+    if (!cleanText) continue;
+
+    if (currentGroup.length > 0) {
+      const prev = currentGroup[currentGroup.length - 1];
+      if (cleanText === prev || (cleanText.length > prev.length && cleanText.startsWith(prev))) {
+        currentGroup[currentGroup.length - 1] = cleanText;
+        groupEnd = Math.max(groupEnd || 0, cue.start + (cue.duration || 0));
+        continue;
+      }
+    }
+
+    if (groupStart === null) groupStart = cue.start;
+    groupEnd = cue.start + (cue.duration || 0);
+    currentGroup.push(cleanText);
+
+    const fullText = currentGroup.join(' ').replace(/\s+/g, ' ').replace(/\s+([,.;!?؛؟])/g, '$1').trim();
+    const hasTerminator = /[.!?؛؟](\s|$)/.test(cleanText) || /[.!?؛؟]$/.test(fullText);
+    const nextCue = cues[i + 1];
+    const hasPause = nextCue && (nextCue.start - groupEnd > 1.2);
+    const isLong = currentGroup.length >= 14;
+
+    if (hasTerminator || hasPause || isLong) {
+      sentences.push({
+        start: Number(groupStart.toFixed(3)),
+        duration: Math.max(0.5, Number((groupEnd - groupStart).toFixed(3))),
+        text: fullText
+      });
+      currentGroup = [];
+      groupStart = null;
+      groupEnd = null;
+    }
+  }
+
+  if (currentGroup.length) {
+    const fullText = currentGroup.join(' ').replace(/\s+/g, ' ').replace(/\s+([,.;!?؛؟])/g, '$1').trim();
+    if (fullText) {
+      sentences.push({
+        start: Number((groupStart || 0).toFixed(3)),
+        duration: Math.max(0.5, Number(((groupEnd || groupStart || 0) - (groupStart || 0)).toFixed(3))),
+        text: fullText
+      });
+    }
+  }
+
+  return sentences;
+}
+
 // YouTube's fmt=json3 response.
 function parseTimedTextJson(text) {
   let data;
@@ -553,6 +611,7 @@ module.exports = {
   parseTimedTextJson,
   parseTimedTextXml,
   parseTimestamp,
+  groupCuesBySentence,
   cuesFromDom,
   cuesFromTranscriptJson,
   formatStamp,

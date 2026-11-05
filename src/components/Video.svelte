@@ -83,15 +83,17 @@
   let playlistUrlInput = $state('');
   let capturing = $state(false);
 
-  // Subtitles & Annotation (subtitles enabled by default for active study)
-  let showSubtitles = $state(true);
+  // Subtitles & Annotation (toggleable from controls with language choice)
+  let showSubtitles = $state(false);
+  let subtitleActiveLang = $state('off');
+  let availableSubtitleTracks = $state([]);
   let annotatingCapture = $state(null);
 
   // Resizable Right Sidebar & Tabs (both normal & fullscreen)
   let sidebarOpen = $state(true);
   let sidebarTab = $state('videos'); // 'videos' | 'chapters' | 'bookmarks' | 'captures' | 'transcript' | 'editor'
   let sidebarWidth = $state(
-    typeof window !== 'undefined' ? Math.round(window.innerWidth * 0.30) : 380
+    typeof window !== 'undefined' ? Math.round(window.innerWidth * 0.25) : 340
   );
   let isResizing = false;
 
@@ -617,6 +619,9 @@
     if (levels.length) {
       ytQualities = levels;
     }
+    if (snapshot.captionTracks && Array.isArray(snapshot.captionTracks) && snapshot.captionTracks.length > 0) {
+      availableSubtitleTracks = snapshot.captionTracks;
+    }
     if (snapshot.playlist && Array.isArray(snapshot.playlist) && snapshot.playlist.length > 0) {
       handlePlaylistLoaded(snapshot.playlist, snapshot.title);
     }
@@ -762,11 +767,104 @@
     return ytCurrentVideoId || transcriptVideoId || '';
   }
 
-  async function toggleSubtitles() {
-    showSubtitles = !showSubtitles;
-    if (showSubtitles && !transcript && !transcriptLoading) {
-      await loadTranscript(transcriptLang || '');
+  function groupCuesBySentence(cues) {
+    if (!Array.isArray(cues) || !cues.length) return [];
+    const sentences = [];
+    let currentGroup = [];
+    let groupStart = null;
+    let groupEnd = null;
+
+    for (let i = 0; i < cues.length; i++) {
+      const cue = cues[i];
+      if (!cue || !cue.text) continue;
+      const cleanText = String(cue.text).replace(/\s+/g, ' ').trim();
+      if (!cleanText) continue;
+
+      if (currentGroup.length > 0) {
+        const prev = currentGroup[currentGroup.length - 1];
+        if (cleanText === prev || (cleanText.length > prev.length && cleanText.startsWith(prev))) {
+          currentGroup[currentGroup.length - 1] = cleanText;
+          groupEnd = Math.max(groupEnd || 0, cue.start + (cue.duration || 0));
+          continue;
+        }
+      }
+
+      if (groupStart === null) groupStart = cue.start;
+      groupEnd = cue.start + (cue.duration || 0);
+      currentGroup.push(cleanText);
+
+      const fullText = currentGroup.join(' ').replace(/\s+/g, ' ').replace(/\s+([,.;!?؛؟])/g, '$1').trim();
+      const hasTerminator = /[.!?؛؟](\s|$)/.test(cleanText) || /[.!?؛؟]$/.test(fullText);
+      const nextCue = cues[i + 1];
+      const hasPause = nextCue && (nextCue.start - groupEnd > 1.2);
+      const isLong = currentGroup.length >= 14;
+
+      if (hasTerminator || hasPause || isLong) {
+        sentences.push({
+          start: Number(groupStart.toFixed(3)),
+          duration: Math.max(0.5, Number((groupEnd - groupStart).toFixed(3))),
+          text: fullText
+        });
+        currentGroup = [];
+        groupStart = null;
+        groupEnd = null;
+      }
     }
+
+    if (currentGroup.length) {
+      const fullText = currentGroup.join(' ').replace(/\s+/g, ' ').replace(/\s+([,.;!?؛؟])/g, '$1').trim();
+      if (fullText) {
+        sentences.push({
+          start: Number((groupStart || 0).toFixed(3)),
+          duration: Math.max(0.5, Number(((groupEnd || groupStart || 0) - (groupStart || 0)).toFixed(3))),
+          text: fullText
+        });
+      }
+    }
+
+    return sentences;
+  }
+
+  function setSubtitleLang(lang) {
+    subtitleActiveLang = lang;
+    if (!lang || lang === 'off') {
+      showSubtitles = false;
+      subtitleActiveLang = 'off';
+      if (isYoutube) ytPost('setCaptions', 'off');
+      if (videoEl?.textTracks) {
+        for (let i = 0; i < videoEl.textTracks.length; i++) {
+          videoEl.textTracks[i].mode = 'disabled';
+        }
+      }
+    } else {
+      showSubtitles = true;
+      subtitleActiveLang = lang;
+      if (isYoutube) ytPost('setCaptions', lang);
+      if (videoEl?.textTracks) {
+        for (let i = 0; i < videoEl.textTracks.length; i++) {
+          const tr = videoEl.textTracks[i];
+          tr.mode = tr.language === lang ? 'showing' : 'disabled';
+        }
+      }
+      loadTranscript(lang);
+    }
+  }
+
+  async function toggleSubtitles() {
+    if (showSubtitles && subtitleActiveLang !== 'off') {
+      setSubtitleLang('off');
+    } else {
+      const targetLang = transcriptLang || (availableSubtitleTracks[0]?.languageCode) || 'ar';
+      setSubtitleLang(targetLang);
+    }
+  }
+
+  function getSubtitleOptions() {
+    const list = [...availableSubtitleTracks];
+    const seen = new Set(list.map((t) => (t.languageCode || '').toLowerCase()));
+    if (!seen.has('ar')) list.push({ languageCode: 'ar', label: 'العربية' });
+    if (!seen.has('en')) list.push({ languageCode: 'en', label: 'English' });
+    return list;
   }
 
   function handleTranscriptResult(result, preferred) {
@@ -781,8 +879,17 @@
             });
       return;
     }
-    transcript = result;
+    const grouped = groupCuesBySentence(result.cues || []);
+    transcript = {
+      ...result,
+      cues: grouped.length ? grouped : (result.cues || [])
+    };
     transcriptLang = result.selected?.languageCode || preferred;
+    subtitleActiveLang = transcriptLang;
+    showSubtitles = true;
+    if (result.tracks && Array.isArray(result.tracks) && result.tracks.length) {
+      availableSubtitleTracks = result.tracks;
+    }
     transcriptError = '';
   }
 
@@ -791,7 +898,7 @@
     const videoId = transcriptSourceId();
     if (!videoId) { transcriptError = t('video.transcriptNotReady'); return; }
     const my = ++transcriptToken;
-    const preferred = lang || ui.lang;
+    const preferred = lang || (subtitleActiveLang !== 'off' ? subtitleActiveLang : (ui.lang || 'ar'));
     transcriptLoading = true;
     transcriptError = '';
 
@@ -799,12 +906,22 @@
     const bridge = globalThis.window?.studyos;
     if (typeof bridge?.youtubeTranscript === 'function') {
       try {
-        const result = await bridge.youtubeTranscript({ videoId, lang: preferred });
+        let result = await bridge.youtubeTranscript({ videoId, lang: preferred });
         if (my !== transcriptToken) return;
         if (result && result.ok) {
           handleTranscriptResult(result, preferred);
           transcriptLoading = false;
           return;
+        }
+        // If preferred language had no captions or 429, try English fallback
+        if (preferred !== 'en') {
+          result = await bridge.youtubeTranscript({ videoId, lang: 'en' });
+          if (my !== transcriptToken) return;
+          if (result && result.ok) {
+            handleTranscriptResult(result, 'en');
+            transcriptLoading = false;
+            return;
+          }
         }
       } catch (e) { /* fallback below */ }
     }
@@ -1494,6 +1611,27 @@
                   <span>{isBlackScreen ? t('video.showVideo') : t('video.blackScreen')}</span>
                 </button>
               {/if}
+              <!-- Subtitles CC Button & Language Dropdown -->
+              <div class="subtitles-dock hstack" style="gap:2px;">
+                <button class={showSubtitles && subtitleActiveLang !== 'off' ? 'active' : ''} onclick={toggleSubtitles}
+                  title={showSubtitles && subtitleActiveLang !== 'off' ? t('video.subtitlesOff') : t('video.subtitles')}
+                  aria-label={t('video.subtitles')}
+                  aria-pressed={showSubtitles && subtitleActiveLang !== 'off'}>
+                  <Icon name="cc" size={16} />
+                  <span>{t('video.subtitles')}</span>
+                </button>
+                <label class="quality" title={t('video.subtitles')}>
+                  <select
+                    value={showSubtitles ? subtitleActiveLang : 'off'}
+                    onchange={(e) => setSubtitleLang(e.currentTarget.value)}
+                    aria-label={t('video.subtitles')}>
+                    <option value="off">{t('video.subtitlesOff')}</option>
+                    {#each getSubtitleOptions() as opt (opt.languageCode)}
+                      <option value={opt.languageCode}>{opt.label}</option>
+                    {/each}
+                  </select>
+                </label>
+              </div>
               <button onclick={triggerScreenshotAnnotation} title={t('video.captureFrame')} disabled={capturing}>
                 <Icon name="camera" size={17} /><span>{t('video.captureFrame')}</span>
               </button>
@@ -2320,8 +2458,9 @@
     overflow: hidden;
     box-shadow: var(--shadow);
     z-index: 10;
-    width: var(--sidebar-w, 30%);
-    max-width: 35%;
+    width: var(--sidebar-w, 25%);
+    min-width: 260px;
+    max-width: 40%;
   }
   .sidebar-tabs-bar {
     display: flex;
@@ -2693,9 +2832,9 @@
     background: var(--surface);
   }
 
-  /* Transcript List */
+  /* Transcript List & Sentence by Sentence Cues */
   .transcript-list {
-    max-height: 48vh;
+    max-height: calc(100vh - 240px);
     overflow-y: auto;
     border: 1px solid var(--border);
     border-radius: 8px;
@@ -2704,15 +2843,17 @@
   }
   .cue {
     display: flex;
-    gap: 8px;
+    gap: 10px;
     width: 100%;
-    padding: 6px 8px;
+    padding: 8px 10px;
     border: 0;
     border-bottom: 1px solid var(--border);
     background: transparent;
     text-align: start;
     cursor: pointer;
-    font-size: 12px;
+    font-size: 13px;
+    line-height: 1.55;
+    transition: background 0.15s ease;
   }
   .cue:last-child { border-bottom: 0; }
   .cue:hover { background: var(--accent-soft); }
@@ -2720,18 +2861,20 @@
     background: var(--accent-soft);
     border-inline-start: 3px solid var(--accent);
     font-weight: 600;
+    color: var(--accent);
   }
   .cue-time {
     flex: none;
-    min-width: 42px;
+    min-width: 44px;
     color: var(--muted);
-    font-size: 10.5px;
+    font-size: 11px;
     font-family: monospace;
+    padding-top: 2px;
   }
   .cue-text {
     flex: 1;
     min-width: 0;
-    line-height: 1.45;
+    word-break: break-word;
   }
   .transcript-state {
     display: flex;

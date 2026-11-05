@@ -158,10 +158,11 @@ input:focus, select:focus, textarea:focus, button:focus-visible {
   padding: 6px 8px 14px;
   color: var(--accent);
 }
-.rail .brand .logo {
-  width: 26px; height: 26px; border-radius: 7px;
+.rail .brand .logo,
+.rail .brand .logo-img {
+  width: 28px; height: 28px; border-radius: 7px;
   background: var(--accent); color: #fff;
-  display: grid; place-items: center; flex: none;
+  display: block; object-fit: cover; flex: none;
 }
 .rail button.nav {
   display: flex; align-items: center; gap: 10px;
