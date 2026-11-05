@@ -91,7 +91,7 @@
   let sidebarOpen = $state(true);
   let sidebarTab = $state('videos'); // 'videos' | 'chapters' | 'bookmarks' | 'captures' | 'transcript' | 'editor'
   let sidebarWidth = $state(
-    typeof window !== 'undefined' ? Math.max(300, Math.round(window.innerWidth * 0.33)) : 420
+    typeof window !== 'undefined' ? Math.round(window.innerWidth * 0.30) : 380
   );
   let isResizing = false;
 
@@ -245,8 +245,8 @@
     isResizing = true;
     const onPointerMove = (ev) => {
       if (!isResizing) return;
-      const minW = Math.max(260, Math.round(window.innerWidth * 0.20));
-      const maxW = Math.round(window.innerWidth * 0.65);
+      const minW = Math.max(240, Math.round(window.innerWidth * 0.18));
+      const maxW = Math.round(window.innerWidth * 0.35);
       const newWidth = Math.max(minW, Math.min(maxW, window.innerWidth - ev.clientX));
       sidebarWidth = newWidth;
     };
@@ -2320,6 +2320,8 @@
     overflow: hidden;
     box-shadow: var(--shadow);
     z-index: 10;
+    width: var(--sidebar-w, 30%);
+    max-width: 35%;
   }
   .sidebar-tabs-bar {
     display: flex;

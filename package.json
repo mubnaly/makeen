@@ -21,7 +21,8 @@
   "dependencies": {
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "6.4.299",
-    "plyr": "3.8.5"
+    "plyr": "3.8.5",
+    "qrcode": "^1.5.4"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "7.3.1",
@@ -35,7 +36,10 @@
     "appId": "com.studyos.desktop",
     "productName": "StudyOS",
     "compression": "maximum",
-    "electronLanguages": ["en", "ar"],
+    "electronLanguages": [
+      "en",
+      "ar"
+    ],
     "fileAssociations": [
       {
         "ext": "pdf",

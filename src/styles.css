@@ -1658,6 +1658,75 @@ button:active:not([disabled]) { transform: translateY(1px); }
   background: rgba(168, 85, 247, 0.15);
   color: #a855f7;
 }
+
+/* --- Project Resource Views & Sharing Modal --- */
+.project-resource-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+}
+.project-resource-card {
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-2, rgba(0, 0, 0, 0.03));
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+.project-resource-card:hover {
+  border-color: var(--accent);
+}
+.share-modal {
+  position: relative;
+  width: 100%;
+  max-width: 480px;
+  margin: auto;
+  padding: 22px;
+  max-height: 90vh;
+  overflow-y: auto;
+  z-index: 1001;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.share-modal-content {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  align-items: center;
+  margin-top: 10px;
+}
+.qr-code-wrapper {
+  background: #ffffff;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 240px;
+  min-width: 240px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+.qr-code-img {
+  width: 220px;
+  height: 220px;
+  display: block;
+}
+.qr-help-text {
+  font-size: 12px;
+  text-align: center;
+  margin: 0;
+  line-height: 1.5;
+}
+.share-actions-row {
+  gap: 8px;
+  width: 100%;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
 .resource-badge.image {
   background: rgba(16, 185, 129, 0.15);
   color: #10b981;

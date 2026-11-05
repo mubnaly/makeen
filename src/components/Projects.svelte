@@ -19,6 +19,7 @@
     addResourceToFolder, removeResourceFromFolder, moveResourceInFolder
   } from '../lib/projects.js';
   import { t as tr } from '../lib/lang.svelte.js';
+  import { generateQrDataUrl, buildProjectShareSummary } from '../lib/qr.js';
 
   let {
     projects = [],
@@ -223,6 +224,202 @@
     channelVideos.filter((v) => !channelSearchQuery.trim() || (v.title || '').toLowerCase().includes(channelSearchQuery.trim().toLowerCase()))
   );
   const studyListVideos = $derived(channelVideos.filter((v) => v.inStudyList));
+
+  // Category view tabs & Project Share modal state
+  let projectTab = $state('all'); // 'all' | 'videos' | 'pdfs' | 'folders' | 'sets' | 'draft'
+  let shareModalOpen = $state(false);
+  let shareQrDataUrl = $state('');
+  let shareTarget = $state('summary'); // 'summary' | specific video id
+  let shareLoading = $state(false);
+  let projectSearchVideoQuery = $state('');
+  let projectSearchPdfQuery = $state('');
+
+  const allProjectVideosList = $derived.by(() => {
+    const list = [];
+    const seen = new Set();
+
+    // 1. Linked videos
+    for (const v of linkedVideos) {
+      if (!seen.has(v.id)) {
+        seen.add(v.id);
+        list.push({
+          id: v.id,
+          title: v.title || v.id,
+          source: 'project',
+          sourceName: tr('projects.sources') || 'Project Source',
+          type: 'video',
+          url: v.url || '',
+          duration: v.duration || 0,
+          raw: v
+        });
+      }
+    }
+
+    // 2. Folder videos
+    for (const f of projectFolders) {
+      for (const item of f.items || []) {
+        if (item.type === 'video' || item.type === 'youtube') {
+          const key = `folder-${f.id}-${item.refId || item.id}`;
+          if (!seen.has(key)) {
+            seen.add(key);
+            list.push({
+              id: item.refId || item.id,
+              title: item.title || item.refId,
+              source: 'folder',
+              sourceName: f.name,
+              type: item.type,
+              url: item.url || '',
+              duration: item.duration || 0,
+              folderItem: item
+            });
+          }
+        }
+      }
+    }
+
+    // 3. Channel videos
+    for (const cv of channelVideos) {
+      if (!seen.has(cv.id)) {
+        seen.add(cv.id);
+        list.push({
+          id: cv.id,
+          title: cv.title || cv.id,
+          source: 'channel',
+          sourceName: activeProject?.channel?.title || 'YouTube Channel',
+          type: 'channelVideo',
+          url: cv.url || (cv.id ? `https://www.youtube.com/watch?v=${cv.id}` : ''),
+          duration: cv.duration || 0,
+          thumbnail: cv.thumbnail || (cv.id ? `https://i.ytimg.com/vi/${cv.id}/hqdefault.jpg` : ''),
+          rawChannel: cv
+        });
+      }
+    }
+
+    return list;
+  });
+
+  const filteredProjectVideosList = $derived.by(() => {
+    const q = projectSearchVideoQuery.trim().toLowerCase();
+    if (!q) return allProjectVideosList;
+    return allProjectVideosList.filter((v) =>
+      (v.title || '').toLowerCase().includes(q) || (v.sourceName || '').toLowerCase().includes(q)
+    );
+  });
+
+  const allProjectPdfsList = $derived.by(() => {
+    const list = [];
+    const seen = new Set();
+
+    // 1. Linked docs
+    for (const d of linkedDocs) {
+      if (!seen.has(d.id)) {
+        seen.add(d.id);
+        list.push({
+          id: d.id,
+          title: d.title || d.id,
+          source: 'project',
+          sourceName: tr('projects.sources') || 'Project Source',
+          pages: d.pages || 0,
+          raw: d
+        });
+      }
+    }
+
+    // 2. Folder docs
+    for (const f of projectFolders) {
+      for (const item of f.items || []) {
+        if (item.type === 'pdf') {
+          const key = `folder-${f.id}-${item.refId || item.id}`;
+          if (!seen.has(key)) {
+            seen.add(key);
+            list.push({
+              id: item.refId || item.id,
+              title: item.title || item.refId,
+              source: 'folder',
+              sourceName: f.name,
+              folderItem: item
+            });
+          }
+        }
+      }
+    }
+
+    return list;
+  });
+
+  const filteredProjectPdfsList = $derived.by(() => {
+    const q = projectSearchPdfQuery.trim().toLowerCase();
+    if (!q) return allProjectPdfsList;
+    return allProjectPdfsList.filter((p) =>
+      (p.title || '').toLowerCase().includes(q) || (p.sourceName || '').toLowerCase().includes(q)
+    );
+  });
+
+  async function openShareModal() {
+    shareModalOpen = true;
+    shareTarget = 'summary';
+    await updateQrCode();
+  }
+
+  async function updateQrCode() {
+    shareLoading = true;
+    try {
+      let content = '';
+      if (shareTarget === 'summary') {
+        content = buildProjectShareSummary(activeProject, videos, docs);
+      } else {
+        const vid = allProjectVideosList.find((v) => v.id === shareTarget);
+        if (vid && vid.url) {
+          content = vid.url;
+        } else if (vid) {
+          content = `https://www.youtube.com/watch?v=${vid.id}`;
+        }
+      }
+      shareQrDataUrl = await generateQrDataUrl(content, 260);
+    } finally {
+      shareLoading = false;
+    }
+  }
+
+  async function copyShareText() {
+    const summary = buildProjectShareSummary(activeProject, videos, docs);
+    try {
+      await navigator.clipboard.writeText(summary);
+      notify(tr('projects.shareDataCopied'), 'ok');
+    } catch {
+      notify('Failed to copy', 'error');
+    }
+  }
+
+  function exportProjectJson() {
+    if (!activeProject) return;
+    const blob = new Blob([JSON.stringify(activeProject, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${safeBaseName(activeProject.name || 'project')}.studyos.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    notify('Project JSON exported', 'ok');
+  }
+
+  function downloadQrImage() {
+    if (!shareQrDataUrl) return;
+    const a = document.createElement('a');
+    a.href = shareQrDataUrl;
+    a.download = `${safeBaseName(activeProject?.name || 'qr')}-qrcode.png`;
+    a.click();
+  }
+
+  function playAnyVideo(v) {
+    if (v.source === 'channel') {
+      onPlayChannelVideo?.(v.rawChannel || v, activeProject);
+    } else if (v.folderItem) {
+      openFolderResource(v.folderItem);
+    } else {
+      onOpenSource('video', v.id);
+    }
+  }
 
   async function fetchChannelData(channelUrl) {
     const bridge = globalThis.window?.studyos;
@@ -488,6 +685,9 @@
         <h2 style="margin:0">{activeProject.name}</h2>
         <div class="meta">{tr('projects.updated', { when: new Date(activeProject.updatedAt).toLocaleDateString() })}</div>
       </div>
+      <button class="small" onclick={openShareModal} title={tr('projects.shareProject')}>
+        <Icon name="share" size={14} /><span>{tr('projects.shareProject')}</span>
+      </button>
       <span class="badge">{tr('projects.imagesCount', { n: counts.images })}</span>
     </div>
 
@@ -499,19 +699,165 @@
       <span class="project-chip"><Icon name="scroll" size={13} /> {tr('projects.blockCount', { n: counts.blocks })}</span>
     </div>
 
-    <div class="card mt">
-      <div class="section-title" style="margin-top:0">{tr('projects.details')}</div>
-      <label class="field-label">{tr('projects.name')}
-        <input type="text" value={activeProject.name} maxlength="80"
-          onchange={(e) => save({ name: e.currentTarget.value.trim() || activeProject.name })} />
-      </label>
-      <label class="field-label">{tr('projects.description')}
-        <textarea rows="2" maxlength="600" value={activeProject.description}
-          placeholder={tr('projects.descriptionPlaceholder')}
-          onchange={(e) => save({ description: e.currentTarget.value })}></textarea>
-      </label>
-      <p class="muted project-help">{tr('projects.descriptionHelp')}</p>
+    <!-- Category Filter Bar (Tabs) -->
+    <div class="project-view-tabs hstack mt" style="gap:6px; flex-wrap:wrap; border-bottom:1px solid var(--border); padding-bottom:10px;">
+      <button class="small {projectTab === 'all' ? 'primary' : ''}" onclick={() => projectTab = 'all'}>
+        <Icon name="grid" size={13} /><span>{tr('projects.viewAll')}</span>
+      </button>
+      <button class="small {projectTab === 'videos' ? 'primary' : ''}" onclick={() => projectTab = 'videos'}>
+        <Icon name="video" size={13} /><span>{tr('projects.viewVideos')}</span>
+        <span class="badge" style="font-size:10px; margin-inline-start:4px;">{allProjectVideosList.length}</span>
+      </button>
+      <button class="small {projectTab === 'pdfs' ? 'primary' : ''}" onclick={() => projectTab = 'pdfs'}>
+        <Icon name="reader" size={13} /><span>{tr('projects.viewPdfs')}</span>
+        <span class="badge" style="font-size:10px; margin-inline-start:4px;">{allProjectPdfsList.length}</span>
+      </button>
+      <button class="small {projectTab === 'folders' ? 'primary' : ''}" onclick={() => projectTab = 'folders'}>
+        <Icon name="folder" size={13} /><span>{tr('projects.viewFolders')}</span>
+        <span class="badge" style="font-size:10px; margin-inline-start:4px;">{projectFolders.length}</span>
+      </button>
+      <button class="small {projectTab === 'sets' ? 'primary' : ''}" onclick={() => projectTab = 'sets'}>
+        <Icon name="flashcards" size={13} /><span>{tr('projects.viewSets')}</span>
+        <span class="badge" style="font-size:10px; margin-inline-start:4px;">{counts.sets}</span>
+      </button>
+      <button class="small {projectTab === 'draft' ? 'primary' : ''}" onclick={() => projectTab = 'draft'}>
+        <Icon name="file-text" size={13} /><span>{tr('projects.viewComposer')}</span>
+      </button>
     </div>
+
+    <!-- Category View: Videos only -->
+    {#if projectTab === 'videos'}
+      <div class="card mt">
+        <div class="hstack" style="justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+          <div class="hstack" style="gap:8px; align-items:center;">
+            <Icon name="video" size={18} />
+            <div class="section-title" style="margin:0">{tr('projects.viewVideos')} ({allProjectVideosList.length})</div>
+          </div>
+          <div class="search-wrap hstack grow" style="max-width:300px;">
+            <Icon name="search" size={14} />
+            <input
+              type="search"
+              placeholder={tr('projects.searchVideos')}
+              bind:value={projectSearchVideoQuery}
+              class="grow"
+              style="padding:6px 10px; font-size:13px;"
+            />
+          </div>
+        </div>
+
+        {#if filteredProjectVideosList.length === 0}
+          <div class="empty muted mt" style="padding:32px; text-align:center;">
+            {allProjectVideosList.length === 0 ? tr('projects.noVideosInProject') : tr('projects.noVideosMatch')}
+          </div>
+        {:else}
+          <div class="project-resource-grid mt">
+            {#each filteredProjectVideosList as v (v.id)}
+              <div class="project-resource-card">
+                <div class="video-preview-box">
+                  <img
+                    src={v.thumbnail || `https://i.ytimg.com/vi/${v.id}/hqdefault.jpg`}
+                    alt={v.title}
+                    class="v-thumb"
+                    loading="lazy"
+                    onerror={(e) => { e.currentTarget.style.display = 'none'; }}
+                  />
+                  {#if v.duration > 0}
+                    <span class="duration-pill">{formatTimecode(v.duration)}</span>
+                  {/if}
+                  <button class="play-overlay" onclick={() => playAnyVideo(v)} title={tr('projects.playVideo')}>
+                    <Icon name="play" size={26} />
+                  </button>
+                </div>
+                <div class="video-content" style="padding:10px; display:flex; flex-direction:column; gap:6px;">
+                  <div class="v-title" title={v.title} style="font-weight:600; font-size:13px; line-height:1.4;">{v.title}</div>
+                  <div class="hstack" style="gap:6px; font-size:11px; align-items:center;">
+                    <span class="badge" style="font-size:10px;">{v.sourceName}</span>
+                    {#if v.type === 'youtube' || v.type === 'channelVideo'}
+                      <span class="muted">YouTube</span>
+                    {/if}
+                  </div>
+                  <div class="hstack mt" style="justify-content:space-between; align-items:center;">
+                    <button class="primary small" onclick={() => playAnyVideo(v)}>
+                      <Icon name="play" size={12} /><span>{tr('projects.playVideo')}</span>
+                    </button>
+                    {#if v.url}
+                      <a href={v.url} target="_blank" rel="noopener noreferrer" class="button small" title={tr('projects.viewOnYoutube')}>
+                        <Icon name="link" size={12} />
+                      </a>
+                    {/if}
+                  </div>
+                </div>
+              </div>
+            {/each}
+          </div>
+        {/if}
+      </div>
+    {/if}
+
+    <!-- Category View: PDFs only -->
+    {#if projectTab === 'pdfs'}
+      <div class="card mt">
+        <div class="hstack" style="justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+          <div class="hstack" style="gap:8px; align-items:center;">
+            <Icon name="reader" size={18} />
+            <div class="section-title" style="margin:0">{tr('projects.viewPdfs')} ({allProjectPdfsList.length})</div>
+          </div>
+          <div class="search-wrap hstack grow" style="max-width:300px;">
+            <Icon name="search" size={14} />
+            <input
+              type="search"
+              placeholder={tr('projects.searchExisting')}
+              bind:value={projectSearchPdfQuery}
+              class="grow"
+              style="padding:6px 10px; font-size:13px;"
+            />
+          </div>
+        </div>
+
+        {#if filteredProjectPdfsList.length === 0}
+          <div class="empty muted mt" style="padding:32px; text-align:center;">
+            {allProjectPdfsList.length === 0 ? tr('projects.noPdfsInProject') : tr('projects.noVideosMatch')}
+          </div>
+        {:else}
+          <div class="project-resource-grid mt">
+            {#each filteredProjectPdfsList as p (p.id)}
+              <div class="project-resource-card" style="padding:14px; gap:8px;">
+                <div class="hstack" style="gap:10px; align-items:center;">
+                  <span class="resource-badge pdf" style="width:36px; height:36px; display:inline-flex; align-items:center; justify-content:center; border-radius:8px; background:rgba(239,68,68,0.1); color:#ef4444;">
+                    <Icon name="reader" size={20} />
+                  </span>
+                  <div class="grow" style="min-width:0; overflow:hidden;">
+                    <div style="font-weight:600; font-size:13px; text-overflow:ellipsis; overflow:hidden; white-space:nowrap;" title={p.title}>{p.title}</div>
+                    <div class="muted" style="font-size:11px;">{p.sourceName}</div>
+                  </div>
+                </div>
+                <div class="hstack mt" style="justify-content:flex-end;">
+                  <button class="primary small" onclick={() => onOpenSource('pdf', p.id)}>
+                    <Icon name="reader" size={12} /><span>{tr('projects.openSource')}</span>
+                  </button>
+                </div>
+              </div>
+            {/each}
+          </div>
+        {/if}
+      </div>
+    {/if}
+
+    {#if projectTab === 'all'}
+      <div class="card mt">
+        <div class="section-title" style="margin-top:0">{tr('projects.details')}</div>
+        <label class="field-label">{tr('projects.name')}
+          <input type="text" value={activeProject.name} maxlength="80"
+            onchange={(e) => save({ name: e.currentTarget.value.trim() || activeProject.name })} />
+        </label>
+        <label class="field-label">{tr('projects.description')}
+          <textarea rows="2" maxlength="600" value={activeProject.description}
+            placeholder={tr('projects.descriptionPlaceholder')}
+            onchange={(e) => save({ description: e.currentTarget.value })}></textarea>
+        </label>
+        <p class="muted project-help">{tr('projects.descriptionHelp')}</p>
+      </div>
+    {/if}
 
     <!-- YouTube Channel & Study List Section -->
     {#if activeProject.channel || (activeProject.channelVideos && activeProject.channelVideos.length)}
@@ -619,6 +965,7 @@
     {/if}
 
     <!-- Folders & Resources Section -->
+    {#if projectTab === 'all' || projectTab === 'folders'}
     <div class="card mt folders-card">
       <div class="hstack" style="justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
         <div class="hstack" style="gap:8px; align-items:center;">
@@ -806,7 +1153,9 @@
         </div>
       {/if}
     </div>
+    {/if}
 
+    {#if projectTab === 'all' || projectTab === 'sets'}
     <div class="project-cols mt">
       <div class="card">
         <div class="hstack" style="justify-content:space-between; align-items:center;">
@@ -921,7 +1270,9 @@
         {/if}
       </div>
     </div>
+    {/if}
 
+    {#if projectTab === 'all' || projectTab === 'draft'}
     <div class="card mt">
       <div class="section-head" style="margin:0">
         <div>
@@ -981,6 +1332,7 @@
       </div>
       <p class="muted project-help">{tr('projects.composerHelp')}</p>
     </div>
+    {/if}
   {/key}
 {/if}
 
@@ -1051,6 +1403,65 @@
           </div>
         </div>
       {/if}
+    </div>
+  </div>
+{/if}
+
+<!-- Share Project Modal (with QR Code) -->
+{#if shareModalOpen && activeProject}
+  <div class="modal-backdrop" onclick={() => (shareModalOpen = false)} role="presentation">
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+    <div class="share-modal card" onclick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" tabindex="-1">
+      <div class="section-head" style="margin-top:0">
+        <h3 style="margin:0;"><Icon name="share" size={16} /> <span>{tr('projects.shareProject')}</span></h3>
+        <button class="icon-btn" onclick={() => (shareModalOpen = false)} aria-label={tr('common.cancel')}>
+          <Icon name="x" size={14} />
+        </button>
+      </div>
+
+      <div class="share-modal-content">
+        <div class="field-label" style="width:100%;">
+          <span>{tr('projects.qrCode')}</span>
+          <select
+            bind:value={shareTarget}
+            onchange={updateQrCode}
+            style="width:100%; margin-top:6px; padding:6px 10px;"
+          >
+            <option value="summary">{tr('projects.allResources')} ({allProjectVideosList.length} {tr('projects.viewVideos')}, {allProjectPdfsList.length} {tr('projects.viewPdfs')})</option>
+            {#each allProjectVideosList as v}
+              <option value={v.id}>{v.title}</option>
+            {/each}
+          </select>
+        </div>
+
+        <div class="qr-code-wrapper">
+          {#if shareLoading}
+            <div class="muted">Loading...</div>
+          {:else if shareQrDataUrl}
+            <img src={shareQrDataUrl} alt="QR Code" class="qr-code-img" />
+          {/if}
+        </div>
+
+        <p class="muted qr-help-text">
+          {tr('projects.qrCodeHelp')}
+        </p>
+
+        <div class="share-actions-row hstack">
+          <button class="primary small" onclick={copyShareText} title={tr('projects.copyShareData')}>
+            <Icon name="link" size={13} />
+            <span>{tr('projects.copyShareData')}</span>
+          </button>
+          <button class="small" onclick={downloadQrImage} disabled={!shareQrDataUrl} title={tr('projects.exportQrImage')}>
+            <Icon name="download" size={13} />
+            <span>{tr('projects.exportQrImage')}</span>
+          </button>
+          <button class="small" onclick={exportProjectJson} title={tr('projects.shareExportJson')}>
+            <Icon name="download" size={13} />
+            <span>{tr('projects.shareExportJson')}</span>
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 {/if}

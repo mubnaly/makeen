@@ -168,6 +168,57 @@ function createWindow() {
     return { action: 'deny' };
   });
 
+  // Enable native right-click context menu across the app (Cut, Copy, Paste, Select All)
+  win.webContents.on('context-menu', (_event, params) => {
+    const menuTemplate = [];
+
+    if (params.isEditable) {
+      menuTemplate.push(
+        { role: 'undo', label: 'تراجع (Undo)' },
+        { role: 'redo', label: 'إعادة (Redo)' },
+        { type: 'separator' },
+        { role: 'cut', label: 'قص (Cut)' },
+        { role: 'copy', label: 'نسخ (Copy)' },
+        { role: 'paste', label: 'لصق (Paste)' },
+        { role: 'pasteAndMatchStyle', label: 'لصق كنص عادي' },
+        { type: 'separator' },
+        { role: 'selectAll', label: 'تحديد الكل (Select All)' }
+      );
+    } else if (params.selectionText && params.selectionText.trim().length > 0) {
+      menuTemplate.push(
+        { role: 'copy', label: 'نسخ (Copy)' },
+        { role: 'selectAll', label: 'تحديد الكل (Select All)' }
+      );
+    } else if (params.linkURL) {
+      menuTemplate.push(
+        {
+          label: 'نسخ الرابط (Copy Link)',
+          click: () => {
+            const { clipboard } = require('electron');
+            clipboard.writeText(params.linkURL);
+          }
+        },
+        {
+          label: 'فتح في المتصفح',
+          click: () => {
+            shell.openExternal(params.linkURL);
+          }
+        }
+      );
+    } else {
+      menuTemplate.push(
+        { role: 'copy', label: 'نسخ (Copy)' },
+        { role: 'paste', label: 'لصق (Paste)' },
+        { role: 'selectAll', label: 'تحديد الكل (Select All)' }
+      );
+    }
+
+    if (menuTemplate.length > 0) {
+      const contextMenu = Menu.buildFromTemplate(menuTemplate);
+      contextMenu.popup({ window: win, x: params.x, y: params.y });
+    }
+  });
+
   mainWindow = win;
   // base './' in the Vite build makes this work over file://.
   win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
@@ -212,24 +263,15 @@ ipcMain.handle('pick-local-pdf', async () => {
 });
 
 app.whenReady().then(async () => {
-  // Fix YouTube embed playback restrictions in embedded iframe:
-  // When YouTube videos have restricted embed settings or check referrers,
-  // setting Referer/Origin to https://www.youtube.com/ allows videos to play seamlessly.
+  // YouTube embed response header normalization:
+  // Remove frame blocking headers (X-Frame-Options, frame-ancestors) so embedded players render smoothly.
   try {
     const ytFilter = {
       urls: [
         '*://*.youtube.com/*',
-        '*://*.youtube-nocookie.com/*',
-        '*://*.googlevideo.com/*'
+        '*://*.youtube-nocookie.com/*'
       ]
     };
-
-    session.defaultSession.webRequest.onBeforeSendHeaders(ytFilter, (details, callback) => {
-      const headers = { ...details.requestHeaders };
-      headers['Referer'] = 'https://www.youtube.com/';
-      headers['Origin'] = 'https://www.youtube.com';
-      callback({ cancel: false, requestHeaders: headers });
-    });
 
     session.defaultSession.webRequest.onHeadersReceived(ytFilter, (details, callback) => {
       const headers = { ...details.responseHeaders };
