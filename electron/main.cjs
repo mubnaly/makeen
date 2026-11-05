@@ -659,6 +659,62 @@ ipcMain.handle('export-transcript-pdf', async (_e, payload = {}) => {
   }
 });
 
+// Speech-to-Text: Offline transcription using local Whisper Python runner
+ipcMain.handle('transcribe-audio', async (_e, payload = {}) => {
+  const bytes = payload.audioBytes;
+  if (!bytes || (!bytes.length && !bytes.byteLength)) {
+    return { ok: false, error: 'noAudioData' };
+  }
+  const lang = String(payload.lang || 'ar').trim();
+  const model = String(payload.model || 'tiny').trim();
+
+  let tmpAudio = '';
+  try {
+    const ext = payload.mimeType?.includes('wav') ? 'wav' : 'webm';
+    tmpAudio = path.join(app.getPath('temp'), `studyos-stt-${process.pid}-${Date.now()}.${ext}`);
+    const buffer = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes.buffer || bytes);
+    await fs.writeFile(tmpAudio, buffer);
+
+    const scriptPath = path.join(__dirname, 'stt.py');
+    const args = [scriptPath, '--audio', tmpAudio, '--lang', lang, '--model', model];
+
+    return await new Promise((resolve) => {
+      const proc = spawn('python', args);
+      let stdout = '';
+      let stderr = '';
+      proc.stdout?.on('data', (d) => { stdout += d.toString('utf8'); });
+      proc.stderr?.on('data', (d) => { stderr += d.toString('utf8'); });
+
+      proc.on('close', (code) => {
+        try {
+          if (stdout.trim()) {
+            const parsed = JSON.parse(stdout.trim());
+            resolve(parsed);
+            return;
+          }
+          if (code !== 0) {
+            resolve({ ok: false, error: stderr.slice(0, 300) || `Process exited with code ${code}` });
+            return;
+          }
+          resolve({ ok: true, text: '' });
+        } catch (err) {
+          resolve({ ok: false, error: String(err?.message || err), raw: stdout });
+        }
+      });
+
+      proc.on('error', (err) => {
+        resolve({ ok: false, error: String(err?.message || err) });
+      });
+    });
+  } catch (error) {
+    return { ok: false, error: String(error?.message || error) };
+  } finally {
+    if (tmpAudio) {
+      fs.unlink(tmpAudio).catch(() => {});
+    }
+  }
+});
+
 ipcMain.handle('notify', (_e, { title, body }) => {
   if (Notification.isSupported()) new Notification({ title: String(title || 'StudyOS'), body: String(body || '') }).show();
   return true;

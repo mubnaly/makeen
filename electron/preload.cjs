@@ -23,6 +23,7 @@ contextBridge.exposeInMainWorld('studyos', {
   exportTranscriptPdf: (payload) => ipcRenderer.invoke('export-transcript-pdf', payload),
   captureRegion: (rect, quality) => ipcRenderer.invoke('capture-region', { rect, quality }),
   setYoutubeQuality: (quality) => ipcRenderer.invoke('set-youtube-quality', { quality }),
+  transcribeAudio: (payload) => ipcRenderer.invoke('transcribe-audio', payload),
 
   // PDF opening on Desktop: startup args, "Open With", and native file dialog
   getInitialPdf: () => ipcRenderer.invoke('get-initial-pdf'),

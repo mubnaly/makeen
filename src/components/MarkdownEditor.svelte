@@ -3,6 +3,7 @@
   import Icon from './Icon.svelte';
   import { t, dir } from '../lib/lang.svelte.js';
   import { renderMarkdown, exportMarkdownFile, exportMarkdownAsPdf } from '../lib/markdown.js';
+  import { startSpeechRecording, transcribeAudio } from '../lib/speech.js';
   import {
     getNote,
     updateNote,
@@ -168,6 +169,61 @@
   function handleExportPdf() {
     exportMarkdownAsPdf(title, content);
     notify?.(t('notes.exportingPdf') || 'Opening print dialog for PDF export...', 'ok');
+  }
+
+  // Voice Dictation (Offline Speech-to-Text via local Whisper)
+  let isRecording = $state(false);
+  let recordingTimer = $state(0);
+  let recordingInterval = null;
+  let activeRecorderInstance = null;
+  let isTranscribing = $state(false);
+
+  async function toggleVoiceRecording() {
+    if (isTranscribing) return;
+
+    if (!isRecording) {
+      try {
+        activeRecorderInstance = await startSpeechRecording();
+        isRecording = true;
+        recordingTimer = 0;
+        if (recordingInterval) clearInterval(recordingInterval);
+        recordingInterval = setInterval(() => {
+          recordingTimer++;
+        }, 1000);
+        notify?.(t('stt.recording') || 'Listening... click to transcribe', 'info');
+      } catch (err) {
+        isRecording = false;
+        notify?.(t('stt.micDenied') || 'Microphone access denied', 'error');
+      }
+    } else {
+      if (recordingInterval) {
+        clearInterval(recordingInterval);
+        recordingInterval = null;
+      }
+      isRecording = false;
+      isTranscribing = true;
+      notify?.(t('stt.transcribing') || 'Transcribing voice offline...', 'info');
+
+      try {
+        const audio = await activeRecorderInstance.stop();
+        activeRecorderInstance = null;
+
+        const res = await transcribeAudio(audio.bytes, audio.mimeType, 'ar');
+        if (res?.ok && res.text && res.text.trim()) {
+          const transcribedText = res.text.trim();
+          insertFormatting(transcribedText + ' ');
+          notify?.(t('stt.success') || 'Voice transcribed successfully!', 'ok');
+        } else if (res?.ok) {
+          notify?.(t('stt.noSpeech') || 'No speech detected', 'info');
+        } else {
+          notify?.(res?.error || t('stt.error') || 'Voice transcription failed', 'error');
+        }
+      } catch (err) {
+        notify?.(t('stt.error') || 'Voice transcription failed', 'error');
+      } finally {
+        isTranscribing = false;
+      }
+    }
   }
 </script>
 
@@ -417,6 +473,30 @@
             {/if}
           </div>
         {/if}
+
+        <div class="fmt-divider"></div>
+
+        <!-- Voice Dictation / Speech-to-Text Button -->
+        <button
+          type="button"
+          class="fmt-btn voice-dictation-btn {isRecording ? 'recording' : ''} {isTranscribing ? 'transcribing' : ''}"
+          onclick={toggleVoiceRecording}
+          disabled={isTranscribing}
+          title={isRecording ? (t('stt.recording') || 'Stop & Transcribe') : (t('stt.record') || 'Voice Typing')}
+        >
+          {#if isTranscribing}
+            <Icon name="repeat" size={13} />
+            <span class="voice-label">...</span>
+          {:else if isRecording}
+            <Icon name="mic" size={13} />
+            <span class="voice-timer">
+              {String(Math.floor(recordingTimer / 60)).padStart(2, '0')}:{String(recordingTimer % 60).padStart(2, '0')}
+            </span>
+          {:else}
+            <Icon name="mic" size={13} />
+            {#if !compact}<span class="voice-label">{t('stt.record') || 'إملاء'}</span>{/if}
+          {/if}
+        </button>
 
         <div class="fmt-divider"></div>
 
@@ -1010,5 +1090,38 @@
   }
   .is-compact .md-viewer-container {
     padding: 10px 12px;
+  }
+
+  /* Voice Dictation (Speech-to-Text) Button Styling */
+  .voice-dictation-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 8px;
+    border-radius: 6px;
+    font-size: 11.5px;
+    font-weight: 600;
+    transition: all 0.2s ease;
+  }
+  .voice-dictation-btn.recording {
+    background: #ef4444 !important;
+    color: #ffffff !important;
+    border-color: #dc2626 !important;
+    animation: voice-pulse 1.2s infinite ease-in-out;
+  }
+  .voice-dictation-btn.transcribing {
+    background: var(--accent-soft) !important;
+    color: var(--accent) !important;
+    opacity: 0.85;
+  }
+  .voice-timer {
+    font-family: monospace;
+    font-size: 11px;
+    font-weight: 700;
+  }
+  @keyframes voice-pulse {
+    0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.5); }
+    50% { transform: scale(1.04); box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); }
+    100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
   }
 </style>
