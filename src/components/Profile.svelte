@@ -68,6 +68,60 @@
     if (h > 0) return `${h} ${t('profile.hours')} ${remM} ${t('profile.min')}`;
     return `${m} ${t('profile.min')}`;
   }
+
+  const credentialId = $derived.by(() => {
+    if (currentUser?.id && currentUser.id !== 'guest') {
+      const clean = currentUser.id.replace(/[^a-zA-Z0-9]/g, '').slice(-6).toUpperCase();
+      return `MK-${clean || '7824'}-AC`;
+    }
+    return 'MK-GUEST-01';
+  });
+
+  const academicRank = $derived.by(() => {
+    const hours = summary.totalStudyHours || 0;
+    if (hours >= 100) return ui.lang === 'ar' ? 'عالم متمرس (Master Scholar)' : 'Master Scholar';
+    if (hours >= 40) return ui.lang === 'ar' ? 'باحث معتمد (Senior Researcher)' : 'Senior Researcher';
+    if (hours >= 10) return ui.lang === 'ar' ? 'طالب مجتهد (Diligent Learner)' : 'Diligent Learner';
+    return ui.lang === 'ar' ? 'متعلم واعد (Aspiring Student)' : 'Aspiring Student';
+  });
+
+  const memberSinceFormatted = $derived.by(() => {
+    const ts = currentUser?.createdAt || stats?.firstStudyDay || Date.now();
+    return new Date(ts).toLocaleDateString(ui.lang === 'ar' ? 'ar-EG' : 'en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+  });
+
+  function exportLearningPassport() {
+    const passportData = {
+      makeenVersion: '2.0',
+      credentialId,
+      user: {
+        id: currentUser?.id || 'guest',
+        name: currentUser?.name || currentUser?.username || 'Learner',
+        email: currentUser?.email || '',
+        avatar: avatar.name || 'Default'
+      },
+      academicRank,
+      metrics: {
+        totalStudyHours: summary.totalStudyHours,
+        totalStudyMinutes: summary.totalStudyMinutes,
+        totalReadingHours: summary.totalReadingHours,
+        totalPagesRead: summary.totalPagesRead,
+        totalVideoHours: summary.totalVideoHours,
+        cardsMastered: summary.totalCardsReviewed,
+        pomodoroSessions: summary.pomodorosCompleted,
+        studyScore: summary.studyScore
+      },
+      issuedAt: new Date().toISOString()
+    };
+    const blob = new Blob([JSON.stringify(passportData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Makeen-Learning-Passport-${credentialId}.json`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    notify?.(ui.lang === 'ar' ? 'تم تصدير جواز مَكِين المعرفي بنجاح!' : 'Passport exported successfully!', 'ok');
+  }
 </script>
 
 <div class="profile-page" dir={ui.dir}>
@@ -184,6 +238,44 @@
     </div>
   </div>
 
+  <!-- Learning Credential Passport Card -->
+  <section class="credential-passport-card card">
+    <div class="passport-header">
+      <div class="passport-title-wrap">
+        <span class="passport-emblem"><Icon name="star" size={20} /></span>
+        <div>
+          <h3 class="passport-title">{ui.lang === 'ar' ? 'جواز مَكِين المعرفي والوثائق الأكاديمية' : 'Makeen Learning Passport & Credentials'}</h3>
+          <p class="passport-desc">{ui.lang === 'ar' ? 'هوية تعليمية موثقة محلياً تُسجّل ساعات دراستك ومشاريعك وبطاقاتك' : 'Local-first verified academic passport recording your study hours, projects, and mastery'}</p>
+        </div>
+      </div>
+      <div class="passport-actions">
+        <button class="credential-btn" onclick={exportLearningPassport} title={ui.lang === 'ar' ? 'تصدير الجواز المعرفي' : 'Export Passport'}>
+          <Icon name="download" size={14} />
+          <span>{ui.lang === 'ar' ? 'تصدير الوثيقة' : 'Export Credential'}</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="passport-body-grid">
+      <div class="passport-field">
+        <span class="field-label">{ui.lang === 'ar' ? 'رقم الهوية الأكاديمية' : 'Credential ID'}</span>
+        <span class="field-value monospace">{credentialId}</span>
+      </div>
+      <div class="passport-field">
+        <span class="field-label">{ui.lang === 'ar' ? 'الرتبة المعرفية' : 'Academic Rank'}</span>
+        <span class="field-value accent-text">{academicRank}</span>
+      </div>
+      <div class="passport-field">
+        <span class="field-label">{ui.lang === 'ar' ? 'حالة التوثيق' : 'Verification Status'}</span>
+        <span class="field-value status-verified"><Icon name="check" size={13} /> {ui.lang === 'ar' ? 'معتمد محلياً وموثق' : 'Verified & Active'}</span>
+      </div>
+      <div class="passport-field">
+        <span class="field-label">{ui.lang === 'ar' ? 'تاريخ البدء' : 'Member Since'}</span>
+        <span class="field-value">{memberSinceFormatted}</span>
+      </div>
+    </div>
+  </section>
+
   <!-- Detailed Study Breakdown Sections -->
   <div class="details-section">
     <!-- Pomodoro Sessions Breakdown -->
@@ -270,10 +362,10 @@
                 class="preset-item {avatar.id === p.id ? 'active' : ''}"
                 style="background:{p.bg}"
                 onclick={() => selectPresetAvatar(p)}
-                title={p.name}
+                title={ui.lang === 'ar' && p.nameAr ? p.nameAr : p.name}
               >
                 <Icon name={p.icon || 'user'} size={28} />
-                <span class="preset-name">{p.name}</span>
+                <span class="preset-name">{ui.lang === 'ar' && p.nameAr ? p.nameAr : p.name}</span>
               </button>
             {/each}
           </div>
@@ -434,6 +526,103 @@
     grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
     gap: 16px;
     margin-bottom: 28px;
+  }
+
+  /* Credential Passport Card */
+  .credential-passport-card {
+    background: linear-gradient(135deg, var(--surface) 0%, rgba(16, 185, 129, 0.05) 100%);
+    border: 1px solid var(--accent, #10b981);
+    border-radius: var(--radius);
+    padding: 22px 28px;
+    margin-bottom: 28px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+  }
+  .passport-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 16px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .passport-title-wrap {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .passport-emblem {
+    width: 40px;
+    height: 40px;
+    border-radius: 12px;
+    background: var(--accent-soft, rgba(16, 185, 129, 0.15));
+    color: var(--accent, #10b981);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .passport-title {
+    margin: 0 0 2px 0;
+    font-size: 16px;
+    font-weight: 700;
+  }
+  .passport-desc {
+    margin: 0;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .credential-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 6px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .credential-btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .passport-body-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+  }
+  .passport-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .field-label {
+    font-size: 11px;
+    color: var(--muted);
+    font-weight: 500;
+  }
+  .field-value {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .field-value.monospace {
+    font-family: monospace;
+    letter-spacing: 1px;
+  }
+  .field-value.accent-text {
+    color: var(--accent, #10b981);
+  }
+  .field-value.status-verified {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: #10b981;
   }
   .metric-card {
     background: var(--surface);

@@ -29,8 +29,8 @@
   let newShareUrls = $state('');
   let importingId = $state(null);
 
-  function reload() {
-    shares = listCommunityShares();
+  async function reload() {
+    shares = await listCommunityShares();
   }
 
   onMount(() => {
@@ -76,7 +76,7 @@
     }
   }
 
-  function handlePublish() {
+  async function handlePublish() {
     if (!newShareTitle.trim()) return;
 
     let playlistData = null;
@@ -88,7 +88,7 @@
       };
     }
 
-    publishCommunityShare({
+    await publishCommunityShare({
       type: newShareType,
       title: newShareTitle.trim(),
       author: newShareAuthor.trim() || (ui.lang === 'ar' ? 'طالب مَكِين' : 'Makeen Learner'),
@@ -102,7 +102,7 @@
     newShareDescription = '';
     newShareUrls = '';
     isShareModalOpen = false;
-    reload();
+    await reload();
     notify(t('community.publishedSuccess') || 'تم نشر المحتوى بنجاح في المجتمع المفتوح!', 'ok');
   }
 
@@ -230,17 +230,29 @@
     <div class="shares-grid">
       {#each filteredShares as item (item.id)}
         <div class="share-card card">
-          <div class="share-card-top">
-            <div class="share-icon-wrap {item.type}">
-              <Icon name={typeIcon(item.type)} size={22} />
+          {#if item.thumbnail}
+            <div class="share-thumbnail-box">
+              <img src={item.thumbnail} alt={item.title} class="share-thumbnail-img" loading="lazy" />
+              <div class="thumbnail-overlay-badges">
+                {#if item.badge}
+                  <span class="highlight-badge">{item.badge}</span>
+                {/if}
+                <span class="type-badge youtube-badge"><Icon name="video" size={12} /> {item.channel || 'YouTube'}</span>
+              </div>
             </div>
-            <div class="share-badges hstack" style="gap:6px;">
-              {#if item.badge}
-                <span class="highlight-badge">{item.badge}</span>
-              {/if}
-              <span class="type-badge">{typeLabel(item.type)}</span>
+          {:else}
+            <div class="share-card-top">
+              <div class="share-icon-wrap {item.type}">
+                <Icon name={typeIcon(item.type)} size={22} />
+              </div>
+              <div class="share-badges hstack" style="gap:6px;">
+                {#if item.badge}
+                  <span class="highlight-badge">{item.badge}</span>
+                {/if}
+                <span class="type-badge">{typeLabel(item.type)}</span>
+              </div>
             </div>
-          </div>
+          {/if}
 
           <div class="share-card-body">
             <h4 class="share-title">{ui.lang === 'ar' ? item.title : (item.titleEn || item.title)}</h4>
@@ -544,6 +556,41 @@
   .share-card:hover {
     transform: translateY(-2px);
     box-shadow: var(--shadow-glass, var(--shadow));
+  }
+  .share-thumbnail-box {
+    position: relative;
+    width: 100%;
+    height: 150px;
+    border-radius: var(--radius);
+    overflow: hidden;
+    margin-bottom: 12px;
+    background: #000;
+  }
+  .share-thumbnail-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transition: transform 0.3s ease;
+  }
+  .share-card:hover .share-thumbnail-img {
+    transform: scale(1.04);
+  }
+  .thumbnail-overlay-badges {
+    position: absolute;
+    bottom: 8px;
+    left: 8px;
+    right: 8px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    pointer-events: none;
+    gap: 6px;
+  }
+  .type-badge.youtube-badge {
+    background: rgba(0, 0, 0, 0.75);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    backdrop-filter: blur(8px);
   }
   .share-card-top {
     display: flex;

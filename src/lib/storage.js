@@ -193,8 +193,8 @@ export function createSidecarStore({ kv = webKV(), bridge = fileBridge(), deboun
 // missing ones so existing user data survives.
 
 const DB_NAME = 'studyos-files';
-const STORES = ['pdfs', 'captures', 'cards', 'tasks'];
-const DB_VERSION = 3;
+const STORES = ['pdfs', 'captures', 'cards', 'tasks', 'community'];
+const DB_VERSION = 4;
 
 function openDb() {
   return new Promise((resolve, reject) => {
@@ -392,6 +392,32 @@ export async function clearTasks() {
     return;
   }
   for (const t of await idbAll('tasks')) await idbDelete('tasks', t.id);
+}
+
+// --- community shares ------------------------------------------------
+export async function putCommunityShare(share) {
+  const record = toPlain(share);
+  if (!hasIndexedDb()) {
+    memoryStore.set(`comm:${record.id}`, record);
+    return record;
+  }
+  await idbPut('community', record, record.id);
+  return record;
+}
+
+export async function listCommunitySharesDb() {
+  if (!hasIndexedDb()) {
+    return [...memoryStore.entries()].filter(([k]) => k.startsWith('comm:')).map(([, v]) => v);
+  }
+  return await idbAll('community');
+}
+
+export async function deleteCommunityShareDb(id) {
+  if (!hasIndexedDb()) {
+    memoryStore.delete(`comm:${id}`);
+    return;
+  }
+  await idbDelete('community', id);
 }
 
 // Legacy prototype tasks were { id, title, done, due }; normalize them to the

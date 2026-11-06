@@ -5,14 +5,18 @@ const STATS_KEY = 'studyos.study_stats';
 const AVATAR_KEY = 'studyos.user_avatar';
 
 export const LEARNER_AVATARS = [
-  { id: 'grad', name: 'Scholar Graduate', icon: 'user', bg: '#4f46e5' },
-  { id: 'bookworm', name: 'Diligent Reader', icon: 'reader', bg: '#059669' },
-  { id: 'coder', name: 'Tech Learner', icon: 'projects', bg: '#0284c7' },
-  { id: 'scientist', name: 'Researcher', icon: 'search', bg: '#7c3aed' },
-  { id: 'artist', name: 'Creative Mind', icon: 'pencil', bg: '#db2777' },
-  { id: 'explorer', name: 'Explorer', icon: 'globe', bg: '#d97706' },
-  { id: 'champion', name: 'Top Achiever', icon: 'check-square', bg: '#ea580c' },
-  { id: 'thinker', name: 'Deep Thinker', icon: 'flashcards', bg: '#10b981' }
+  { id: 'scholar', name: 'Scholar Graduate', nameAr: 'طالب علم أكاديمي', nameEn: 'Scholar Graduate', icon: 'user', bg: '#4f46e5' },
+  { id: 'bookworm', name: 'Diligent Reader', nameAr: 'قارئ نهم ومحب للكتب', nameEn: 'Diligent Reader', icon: 'reader', bg: '#059669' },
+  { id: 'thinker', name: 'Deep Thinker', nameAr: 'مفكر وفيلسوف', nameEn: 'Deep Thinker', icon: 'brain', bg: '#7c3aed' },
+  { id: 'coder', name: 'Tech Learner', nameAr: 'مبرمج ومهندس نظم', nameEn: 'Tech Learner', icon: 'projects', bg: '#0284c7' },
+  { id: 'researcher', name: 'Researcher', nameAr: 'باحث ومحقق معرفي', nameEn: 'Researcher', icon: 'book', bg: '#0d9488' },
+  { id: 'explorer', name: 'Explorer', nameAr: 'مستكشف المعرفة', nameEn: 'Explorer', icon: 'globe', bg: '#d97706' },
+  { id: 'passionate', name: 'Passionate Learner', nameAr: 'متعلم شغوف', nameEn: 'Passionate Learner', icon: 'flame', bg: '#ea580c' },
+  { id: 'achiever', name: 'Honor Achiever', nameAr: 'متميز ومتفوق', nameEn: 'Honor Achiever', icon: 'star', bg: '#eab308' },
+  { id: 'author', name: 'Author & Scribe', nameAr: 'كاتب وأديب', nameEn: 'Author & Scribe', icon: 'pencil', bg: '#db2777' },
+  { id: 'audio_learner', name: 'Audio Learner', nameAr: 'مستمع ومتعلم صوتي', nameEn: 'Audio Learner', icon: 'headphones', bg: '#6366f1' },
+  { id: 'memory_master', name: 'Memory Master', nameAr: 'خبير الاستذكار المتباعد', nameEn: 'Memory Master', icon: 'flashcards', bg: '#10b981' },
+  { id: 'contemplator', name: 'Serene Contemplator', nameAr: 'باحث السكينة والتدبر', nameEn: 'Serene Contemplator', icon: 'moon', bg: '#334155' }
 ];
 
 export function loadUserAvatar() {
