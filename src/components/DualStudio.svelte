@@ -30,8 +30,15 @@
     onPickVideo = null
   } = $props();
 
+  function defaultSplitMode() {
+    if (typeof window !== 'undefined' && window.innerWidth <= 768 && window.innerHeight >= window.innerWidth) {
+      return 'vertical'; // Stacks top (video) & bottom (pdf) on portrait phones
+    }
+    return 'horizontal'; // Side by side on tablet/landscape and desktop
+  }
+
   // --- Layout & Splitter State ---
-  let splitMode = $state('horizontal'); // 'horizontal' | 'vertical'
+  let splitMode = $state(defaultSplitMode()); // 'horizontal' | 'vertical'
   let splitRatio = $state(50); // percentage 20 to 80
   let isDragging = $state(false);
   let isMarkdownOpen = $state(false);
@@ -606,5 +613,35 @@
     overflow: hidden;
     display: flex;
     flex-direction: column;
+  }
+
+  /* DualStudio Mobile rule: Stack vertically in portrait, split horizontally in landscape */
+  @media (max-width: 768px) and (orientation: portrait) {
+    .split-area {
+      flex-direction: column !important;
+    }
+    .studio-pane {
+      width: 100% !important;
+    }
+    .studio-splitter.horizontal {
+      display: none !important;
+    }
+    .studio-splitter.vertical {
+      height: 6px !important;
+      width: 100% !important;
+    }
+    .studio-header {
+      flex-wrap: wrap !important;
+      padding: 6px 10px !important;
+      gap: 6px !important;
+    }
+    .studio-markdown-drawer {
+      position: fixed !important;
+      top: 0;
+      bottom: 0;
+      right: 0;
+      width: min(340px, 90vw) !important;
+      z-index: 1000 !important;
+    }
   }
 </style>

@@ -394,6 +394,14 @@
     background: var(--surface-2, rgba(0, 0, 0, 0.04));
     padding: 4px;
     border-radius: var(--radius);
+    overflow-x: auto;
+    max-width: 100%;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    flex-wrap: nowrap;
+  }
+  .filter-tabs::-webkit-scrollbar {
+    display: none;
   }
   .filter-tabs button {
     display: flex;
@@ -407,6 +415,8 @@
     border-radius: var(--radius-sm, 6px);
     cursor: pointer;
     font-weight: 500;
+    flex: none;
+    white-space: nowrap;
   }
   .filter-tabs button.active {
     background: var(--surface);
@@ -422,6 +432,7 @@
     border-radius: var(--radius);
     padding: 6px 12px;
     width: 260px;
+    max-width: 100%;
   }
   .search-box input {
     background: transparent;
@@ -433,8 +444,8 @@
   }
   .trash-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
-    gap: 16px;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 14px;
   }
   .trash-card {
     background: var(--surface);

@@ -95,9 +95,7 @@
   let annotatingCapture = $state(null);
 
   // Resizable Right Sidebar & Tabs (both normal & fullscreen)
-  let sidebarOpen = $state(
-    typeof window !== 'undefined' && window.innerWidth <= 768 ? false : initialSidebarOpen
-  );
+  let sidebarOpen = $state(initialSidebarOpen);
   let sidebarTab = $state('videos'); // 'videos' | 'chapters' | 'bookmarks' | 'captures' | 'transcript' | 'editor'
   let sidebarWidth = $state(
     typeof window !== 'undefined' ? Math.round(window.innerWidth * 0.25) : 340
@@ -1604,7 +1602,43 @@
       <EmptyState icon="video" title={t('empty.videoTitle')} hint={t('video.empty')}
         actionLabel={t('video.import')} onaction={onImport} />
     {:else if !video}
-      <div class="empty">{t('video.select')}</div>
+      <div class="video-picker-stage card">
+        <div class="video-picker-head">
+          <div class="hstack" style="justify-content:space-between; align-items:center;">
+            <div class="hstack" style="gap:8px;">
+              <Icon name="video" size={20} />
+              <h3 style="margin:0; font-size:16px;">{t('video.drawerVideos')} ({videos.length})</h3>
+            </div>
+            <button class="primary small" onclick={onImport}>
+              <Icon name="upload" size={14} /><span>{t('video.import')}</span>
+            </button>
+          </div>
+          <div class="yt-add" style="margin-top:12px;">
+            <input type="text" placeholder={t('video.youtubePlaceholder')} bind:value={ytInput}
+              onkeydown={(e) => e.key === 'Enter' && addYoutube()} aria-label={t('video.addYoutube')} />
+            <button class="primary small" onclick={addYoutube} disabled={!ytInput.trim()}>
+              <Icon name="play" size={13} /><span>{t('video.addYoutube')}</span>
+            </button>
+          </div>
+        </div>
+        <div class="video-picker-grid">
+          {#each videos as v (v.id)}
+            <div class="video-pick-card clickable" onclick={() => openVideo(v)} role="button" tabindex="0" onkeydown={(e) => e.key === 'Enter' && openVideo(v)}>
+              <div class="pick-thumb">
+                <Icon name={v.provider === 'youtube' ? 'play' : 'video'} size={24} />
+              </div>
+              <div class="pick-info">
+                <div class="pick-title">{v.title}</div>
+                <div class="pick-meta muted">
+                  {#if v.ytType === 'playlist'}<span class="badge">{t('video.playlist')}</span> {:else if v.provider === 'youtube'}<span class="badge">YouTube</span> {/if}
+                  {#if v.lastSeconds}{t('video.resumeAt', { time: formatTimecode(v.lastSeconds) })} · {/if}
+                  {formatTimecode(v.durationSeconds)}
+                </div>
+              </div>
+            </div>
+          {/each}
+        </div>
+      </div>
     {:else if loading && !isYoutube}
       <div class="empty">{t('video.loading')}</div>
     {:else if loadError}
@@ -3162,9 +3196,107 @@
     margin-left: 2px;
   }
 
-  /* Mobile layout & screen adaptation */
-  @media (max-width: 768px) {
-    .video-workspace {
+  /* Video Picker Empty State Grid */
+  .video-picker-stage {
+    padding: 16px;
+    margin: 16px auto;
+    max-width: 840px;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    box-sizing: border-box;
+  }
+  .video-picker-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 12px;
+  }
+  .video-pick-card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .video-pick-card:hover {
+    border-color: var(--accent);
+    transform: translateY(-1px);
+    background: var(--surface-3, rgba(0, 0, 0, 0.04));
+  }
+  .pick-thumb {
+    width: 42px;
+    height: 42px;
+    border-radius: 8px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    display: grid;
+    place-items: center;
+    flex: none;
+  }
+  .pick-info {
+    flex: 1;
+    min-width: 0;
+  }
+  .pick-title {
+    font-size: 13.5px;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .pick-meta {
+    font-size: 11.5px;
+    margin-top: 3px;
+  }
+
+  /* Compact controls across all mobile, touch, and landscape devices */
+  @media (max-width: 1024px), (max-height: 720px) {
+    .control-row button span,
+    .control-row .tool-group button span {
+      display: none !important;
+    }
+    .control-row button,
+    .control-row .tool-group button {
+      padding: 4px 6px !important;
+      min-width: 32px !important;
+      height: 32px !important;
+      justify-content: center !important;
+      border-radius: 6px !important;
+      flex: none !important;
+    }
+    .control-row {
+      flex-wrap: nowrap !important;
+      overflow-x: auto !important;
+      scrollbar-width: none !important;
+      -webkit-overflow-scrolling: touch;
+      gap: 3px !important;
+      padding-bottom: 2px !important;
+    }
+    .control-row::-webkit-scrollbar {
+      display: none !important;
+    }
+    .tool-group {
+      flex-wrap: nowrap !important;
+      gap: 3px !important;
+    }
+    .speed select, .quality select {
+      padding: 2px 4px !important;
+      font-size: 11px !important;
+      height: 32px !important;
+      max-width: 58px !important;
+    }
+  }
+
+  /* Vertical Mode / Portrait on phones:
+     RULE: In vertical mode, do NOT split vertically (side-by-side).
+     Split horizontally: Video on top, sidebar/tabs underneath! */
+  @media (max-width: 768px) and (orientation: portrait), (max-width: 600px) {
+    .video-workspace:not(.is-fullscreen) {
       flex-direction: column !important;
       height: 100% !important;
       max-height: 100% !important;
@@ -3195,7 +3327,7 @@
       height: auto !important;
       aspect-ratio: 16 / 9 !important;
       min-height: 180px !important;
-      max-height: 40vh !important;
+      max-height: 38vh !important;
     }
     .sidebar-resizer {
       display: none !important;
@@ -3206,13 +3338,12 @@
       max-width: 100% !important;
       flex: 1 !important;
       height: auto !important;
-      min-height: 380px !important;
+      min-height: 360px !important;
       border-radius: 0 !important;
       border-inline: none !important;
       border-bottom: none !important;
-      border-top: none !important;
+      border-top: 1px solid var(--border) !important;
     }
-    /* Compact controls on mobile */
     .controls {
       padding: 6px 8px 8px !important;
       gap: 3px !important;
@@ -3221,31 +3352,8 @@
       gap: 6px !important;
     }
     .timecode {
-      min-width: 68px !important;
+      min-width: 65px !important;
       font-size: 10px !important;
-    }
-    .control-row {
-      gap: 3px !important;
-      flex-wrap: wrap !important;
-    }
-    /* Hide long button labels on mobile! Show only sleek icons! */
-    .control-row button span,
-    .control-row .tool-group button span {
-      display: none !important;
-    }
-    .control-row button,
-    .control-row .tool-group button {
-      padding: 5px !important;
-      min-width: 32px !important;
-      height: 32px !important;
-      justify-content: center !important;
-      border-radius: 6px !important;
-    }
-    .speed select, .quality select {
-      padding: 2px 4px !important;
-      font-size: 11px !important;
-      height: 32px !important;
-      max-width: 60px !important;
     }
     .video-workspace.is-fullscreen .video-sidebar {
       position: fixed !important;
@@ -3259,29 +3367,33 @@
     }
   }
 
-  @media (max-height: 520px) and (orientation: landscape) {
+  /* Tablet / Landscape Mode:
+     RULE: In tablet/landscape mode, do NOT split horizontally (top-bottom).
+     Split vertically (side-by-side): Video on one side, Sidebar on the other! */
+  @media (orientation: landscape) and (max-height: 720px), (min-width: 769px) and (orientation: landscape) {
     .video-workspace:not(.is-fullscreen) {
       flex-direction: row !important;
       height: 100% !important;
       max-height: 100% !important;
     }
-    .video-workspace:not(.is-fullscreen) .video-frame {
+    .video-stage {
+      flex: 1 !important;
+      min-width: 0 !important;
+      height: 100% !important;
+    }
+    .player-card {
+      height: 100% !important;
+    }
+    .video-frame {
+      flex: 1 !important;
+      height: 100% !important;
       min-height: 140px !important;
     }
-    .video-workspace:not(.is-fullscreen) .video-sidebar {
-      width: 260px !important;
-      min-width: 220px !important;
-      max-width: 320px !important;
-    }
-    .control-row button span,
-    .control-row .tool-group button span {
-      display: none !important;
-    }
-    .control-row button,
-    .control-row .tool-group button {
-      padding: 4px !important;
-      min-width: 28px !important;
-      height: 28px !important;
+    .video-sidebar {
+      width: 300px !important;
+      min-width: 250px !important;
+      max-width: 360px !important;
+      height: 100% !important;
     }
   }
 </style>

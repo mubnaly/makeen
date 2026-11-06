@@ -832,11 +832,35 @@ canvas, .page-wrap .text-layer { direction: ltr; }
 }
 
 /* --- motion ----------------------------------------------------------------- */
-@keyframes view-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes view-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 @keyframes toast-in { from { opacity: 0; transform: translateY(12px) scale(0.96); } to { opacity: 1; transform: none; } }
 @keyframes pop-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 @keyframes card-turn { from { opacity: 0; transform: translateX(28px) scale(0.985); } to { opacity: 1; transform: none; } }
 @keyframes bar-grow { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+@keyframes modal-scale-in { from { opacity: 0; transform: scale(0.95) translateY(8px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+@keyframes fade-in-backdrop { from { opacity: 0; } to { opacity: 1; } }
+
+/* System-Wide Interactive Micro-Animations */
+button:not(:disabled):active,
+.button:not(:disabled):active {
+  transform: scale(0.96) !important;
+  transition: transform 0.08s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+.clickable,
+[role="button"] {
+  transition: transform 0.15s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.15s ease, background-color 0.12s ease;
+}
+
+/* Card hover elevation */
+.card {
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.15s ease;
+}
+.card.clickable:hover,
+.card[role="button"]:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-glass, var(--shadow));
+}
 
 /* Every screen settles in as it mounts (each branch of the view remounts on
    navigation), with a light stagger down the page. */
@@ -1058,6 +1082,7 @@ button:active:not([disabled]) { transform: translateY(1px); }
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
     z-index: 1100;
+    animation: fade-in-backdrop 0.2s ease both;
   }
   .mobile-drawer {
     display: flex !important;
@@ -1075,6 +1100,17 @@ button:active:not([disabled]) { transform: translateY(1px); }
     flex-direction: column;
     padding: max(16px, env(safe-area-inset-top, 16px)) 16px max(16px, env(safe-area-inset-bottom, 16px));
     overflow-y: auto;
+    animation: slideInFromEnd 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  @keyframes slideInFromEnd {
+    from {
+      transform: translateX(30px);
+      opacity: 0.6;
+    }
+    to {
+      transform: translateX(0);
+      opacity: 1;
+    }
   }
   .drawer-header {
     display: flex;

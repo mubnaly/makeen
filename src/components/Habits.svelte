@@ -255,74 +255,76 @@
         </button>
       </div>
     {:else}
-      <div class="habits-table card">
-        <!-- Table Header Days -->
-        <div class="table-header-row">
-          <div class="col-info">{t('habits.habitName')}</div>
-          <div class="col-days">
-            {#each recentDays as d}
-              <div class="day-head {d.isToday ? 'today' : ''}">
-                <span class="day-name">{d.dayName}</span>
-                <span class="day-num">{d.dayNum}</span>
-              </div>
-            {/each}
-          </div>
-          <div class="col-actions"></div>
-        </div>
-
-        <!-- Habit Rows -->
-        {#each habits as h (h.id)}
-          {@const streak = getHabitStreak(h, todayKey)}
-          <div class="habit-row">
-            <div class="col-info">
-              <span class="habit-icon" style={`background:${h.color}20; color:${h.color};`}>
-                <Icon name={h.icon || 'check'} size={15} />
-              </span>
-              <div class="habit-details">
-                <span class="habit-name">{h.title}</span>
-                <span class="habit-meta">
-                  {h.targetCount > 1 ? `${h.targetCount}x / يوم` : ''}
-                  {#if streak > 0}
-                    <span class="streak-pill hstack" style="gap:2px;">
-                      <Icon name="flame" size={11} />
-                      <span>{streak} {t('habits.days')}</span>
-                    </span>
-                  {/if}
-                </span>
-              </div>
-            </div>
-
-            <!-- Day Check Bubbles -->
+      <div class="habits-table-wrap">
+        <div class="habits-table card">
+          <!-- Table Header Days -->
+          <div class="table-header-row">
+            <div class="col-info">{t('habits.habitName')}</div>
             <div class="col-days">
               {#each recentDays as d}
-                {@const count = Number(h.history?.[d.key]) || 0}
-                {@const isDone = count >= (Number(h.targetCount) || 1)}
-                <button
-                  class="day-bubble {isDone ? 'is-done' : count > 0 ? 'is-partial' : ''} {d.isToday ? 'is-today-col' : ''}"
-                  style={isDone ? `background:${h.color}; border-color:${h.color}; color:#fff;` : ''}
-                  onclick={() => handleCheck(h.id, d.key, 1)}
-                  title={`${d.dayName} ${d.dayNum}: ${count}/${h.targetCount}`}
-                >
-                  {#if isDone}
-                    <Icon name="check" size={12} />
-                  {:else if count > 0}
-                    <span style="font-size:10px; font-weight:700;">{count}</span>
-                  {/if}
-                </button>
+                <div class="day-head {d.isToday ? 'today' : ''}">
+                  <span class="day-name">{d.dayName}</span>
+                  <span class="day-num">{d.dayNum}</span>
+                </div>
               {/each}
             </div>
-
-            <div class="col-actions">
-              <button
-                class="icon-action-btn"
-                onclick={() => handleDeleteHabit(h.id, h.title)}
-                title={t('common.delete')}
-              >
-                <Icon name="trash" size={13} />
-              </button>
-            </div>
+            <div class="col-actions"></div>
           </div>
-        {/each}
+
+          <!-- Habit Rows -->
+          {#each habits as h (h.id)}
+            {@const streak = getHabitStreak(h, todayKey)}
+            <div class="habit-row">
+              <div class="col-info">
+                <span class="habit-icon" style={`background:${h.color}20; color:${h.color};`}>
+                  <Icon name={h.icon || 'check'} size={15} />
+                </span>
+                <div class="habit-details">
+                  <span class="habit-name">{h.title}</span>
+                  <span class="habit-meta">
+                    {h.targetCount > 1 ? `${h.targetCount}x / يوم` : ''}
+                    {#if streak > 0}
+                      <span class="streak-pill hstack" style="gap:2px;">
+                        <Icon name="flame" size={11} />
+                        <span>{streak} {t('habits.days')}</span>
+                      </span>
+                    {/if}
+                  </span>
+                </div>
+              </div>
+
+              <!-- Day Check Bubbles -->
+              <div class="col-days">
+                {#each recentDays as d}
+                  {@const count = Number(h.history?.[d.key]) || 0}
+                  {@const isDone = count >= (Number(h.targetCount) || 1)}
+                  <button
+                    class="day-bubble {isDone ? 'is-done' : count > 0 ? 'is-partial' : ''} {d.isToday ? 'is-today-col' : ''}"
+                    style={isDone ? `background:${h.color}; border-color:${h.color}; color:#fff;` : ''}
+                    onclick={() => handleCheck(h.id, d.key, 1)}
+                    title={`${d.dayName} ${d.dayNum}: ${count}/${h.targetCount}`}
+                  >
+                    {#if isDone}
+                      <Icon name="check" size={12} />
+                    {:else if count > 0}
+                      <span style="font-size:10px; font-weight:700;">{count}</span>
+                    {/if}
+                  </button>
+                {/each}
+              </div>
+
+              <div class="col-actions">
+                <button
+                  class="icon-action-btn"
+                  onclick={() => handleDeleteHabit(h.id, h.title)}
+                  title={t('common.delete')}
+                >
+                  <Icon name="trash" size={13} />
+                </button>
+              </div>
+            </div>
+          {/each}
+        </div>
       </div>
     {/if}
   </div>
@@ -444,9 +446,11 @@
   .goals-input-row {
     display: flex;
     gap: 8px;
+    align-items: center;
   }
   .goals-input-row input {
     flex: 1;
+    min-width: 0;
   }
 
   .goals-list {
@@ -522,6 +526,7 @@
   }
   .quick-add-input-row input {
     flex: 1;
+    min-width: 0;
     font-size: 13.5px;
   }
   .habit-presets-row {
@@ -562,11 +567,18 @@
   }
 
   /* Table Grid */
+  .habits-table-wrap {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    border-radius: var(--radius);
+  }
   .habits-table {
     padding: 12px;
     display: flex;
     flex-direction: column;
     gap: 6px;
+    min-width: 520px;
   }
   .table-header-row,
   .habit-row {

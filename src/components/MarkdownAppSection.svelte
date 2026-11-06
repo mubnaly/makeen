@@ -25,6 +25,7 @@
   let selectedFolderId = $state(null); // null means root/all
   let searchQuery = $state('');
   let viewMode = $state('editor'); // 'editor' | 'graph'
+  let mobileView = $state('tree'); // 'tree' | 'editor' on mobile screens
 
   // Folder creation & editing state
   let isCreatingFolder = $state(false);
@@ -131,6 +132,7 @@
     });
     reloadData();
     activeNoteId = newNote.id;
+    mobileView = 'editor';
     notify?.(t('notes.noteCreated') || 'New note created', 'ok');
   }
 
@@ -255,7 +257,10 @@
           <div
             class="note-tree-leaf {activeNoteId === note.id ? 'active' : ''}"
             style="--depth:{depth + 1}"
-            onclick={() => (activeNoteId = note.id)}
+            onclick={() => {
+              activeNoteId = note.id;
+              mobileView = 'editor';
+            }}
           >
             <Icon name="file-text" size={13} />
             <span class="leaf-title">{note.title || 'Untitled Note'}</span>
@@ -277,7 +282,7 @@
   </div>
 {/snippet}
 
-<div class="notes-workspace">
+<div class="notes-workspace" class:mobile-show-tree={mobileView === 'tree'} class:mobile-show-editor={mobileView === 'editor'}>
   <!-- Left Column: Folders & Notes Navigation Explorer -->
   <aside class="notes-sidebar">
     <div class="sidebar-header">
@@ -405,7 +410,10 @@
           <div
             class="note-tree-leaf {activeNoteId === rootNote.id ? 'active' : ''}"
             style="--depth:0"
-            onclick={() => (activeNoteId = rootNote.id)}
+            onclick={() => {
+              activeNoteId = rootNote.id;
+              mobileView = 'editor';
+            }}
           >
             <Icon name="file-text" size={13} />
             <span class="leaf-title">{rootNote.title || 'Untitled Note'}</span>
@@ -428,6 +436,12 @@
 
   <!-- Right Column: Note Editor & Viewer OR Brain Knowledge Graph -->
   <main class="notes-main-pane">
+    <div class="mobile-back-bar">
+      <button type="button" class="back-to-tree-btn hstack" onclick={() => (mobileView = 'tree')}>
+        <Icon name="chevron-left" size={15} />
+        <span>{t('notes.backToTree') || 'العودة للمجلدات والملاحظات'}</span>
+      </button>
+    </div>
     {#if viewMode === 'graph'}
       <MarkdownBrainGraph
         {activeNoteId}
@@ -808,5 +822,56 @@
     margin: 0;
     font-size: 13px;
     max-width: 320px;
+  }
+  .mobile-back-bar {
+    display: none;
+  }
+
+  /* Mobile screen splitting rule: Never split vertically into columns on portrait phones! */
+  @media (max-width: 768px) {
+    .notes-workspace {
+      position: relative;
+    }
+    .notes-workspace.mobile-show-tree .notes-sidebar {
+      display: flex !important;
+      width: 100% !important;
+      flex: 1 !important;
+      border-inline-end: none !important;
+    }
+    .notes-workspace.mobile-show-tree .notes-main-pane {
+      display: none !important;
+    }
+    .notes-workspace.mobile-show-editor .notes-sidebar {
+      display: none !important;
+    }
+    .notes-workspace.mobile-show-editor .notes-main-pane {
+      display: flex !important;
+      flex-direction: column !important;
+      width: 100% !important;
+      flex: 1 !important;
+    }
+    .mobile-back-bar {
+      display: flex !important;
+      align-items: center;
+      padding: 6px 10px;
+      background: var(--surface-2);
+      border-bottom: 1px solid var(--border);
+    }
+    .back-to-tree-btn {
+      background: transparent;
+      border: none;
+      color: var(--accent);
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 8px;
+      border-radius: 6px;
+    }
+    .back-to-tree-btn:hover {
+      background: var(--accent-soft);
+    }
   }
 </style>

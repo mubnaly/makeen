@@ -249,6 +249,10 @@
       activeDoc = docs.find((d) => d.id === savedActive && openTabs.includes(d.id))
         || docs.find((d) => d.id === openTabs[0]) || null;
     }
+    const initialVideoDoc = docs.find((d) => kindOf(d) === 'video');
+    if (initialVideoDoc && !activeVideo) {
+      activeVideo = { ...initialVideoDoc };
+    }
     theme = initialTheme();
     imageQuality = loadImageQuality();
     projects = listProjects();
@@ -487,6 +491,8 @@
     } else if (id === 'Video') {
       if (activeVideo?.id) {
         activeVideo = library.getDocument(activeVideo.id) || activeVideo;
+      } else if (videoDocs.length > 0) {
+        activeVideo = { ...videoDocs[0] };
       }
     }
     view = id;
