@@ -19,6 +19,7 @@
   } from '../lib/youtube.js';
   import { deliverBytes } from '../lib/export.js';
   import { safeBaseName } from '../lib/filenames.js';
+  import { loadDefaultVideoQuality, saveDefaultVideoQuality } from '../lib/videoSettings.js';
   import { autoScrollbar } from '../lib/actions.js';
   import { viewModeFor, setViewMode } from '../lib/viewmode.js';
   import { notesToDocx } from '../lib/docxExport.js';
@@ -71,16 +72,24 @@
   let ytError = $state('');
   const PREFERRED_QUALITY_KEY = 'studyos.video.quality';
   function loadPreferredQuality() {
-    try {
-      return localStorage.getItem(PREFERRED_QUALITY_KEY) || 'small';
-    } catch {
-      return 'small';
-    }
+    return loadDefaultVideoQuality();
   }
 
   let ytQualities = $state([]);
   let ytQuality = $state('small');
   let userSelectedQuality = $state(loadPreferredQuality());
+
+  $effect(() => {
+    const onQualityPrefChanged = (e) => {
+      if (e.detail?.quality && e.detail.quality !== userSelectedQuality) {
+        setQuality(e.detail.quality);
+      }
+    };
+    window.addEventListener('studyos:video-quality-changed', onQualityPrefChanged);
+    return () => {
+      window.removeEventListener('studyos:video-quality-changed', onQualityPrefChanged);
+    };
+  });
   let ytCurrentVideoId = $state('');
   let ytShowNativeControls = $state(false);
   let isAddOpen = $state(false);
@@ -104,6 +113,15 @@
 
   // Black screen mode (video picture off / pure audio, no visualizer effects)
   let isBlackScreen = $state(false);
+
+  // Audio track detection (mp3, wav, m4a, ogg, flac, aac)
+  const isAudio = $derived.by(() => {
+    const fn = String(video?.filename || video?.title || video?.url || '').toLowerCase();
+    return (
+      video?.kind === 'audio' ||
+      /\.(mp3|wav|m4a|ogg|flac|aac|opus|weba)($|\?)/i.test(fn)
+    );
+  });
 
   // Video chapters / sections
   let chapters = $state([]);
@@ -1325,12 +1343,10 @@
     if (isYoutube) {
       if (!ytFrame) return;
       setPlaybackPosition(video.id, current);
-      refreshDocs?.();
       return;
     }
     if (!videoEl) return;
     setPlaybackPosition(video.id, videoEl.currentTime);
-    refreshDocs?.();
   }
 
   function isTypingInput(node) {
@@ -1769,6 +1785,20 @@
               onended={() => { playState(false); checkPlaylistNext(); }}
               onclick={togglePlay}
             ></video>
+            {#if isAudio}
+              <div class="audio-player-display" onclick={togglePlay} role="button" tabindex="0">
+                <div class="audio-disc-card" class:is-playing={playing}>
+                  <div class="disc-groove">
+                    <Icon name="volume" size={44} />
+                  </div>
+                </div>
+                <div class="audio-meta-card">
+                  <span class="audio-badge">Audio / صوت</span>
+                  <h3 class="audio-track-title">{video?.title || video?.filename || 'Audio Track'}</h3>
+                  <span class="audio-track-time">{formatTimecode(current)} / {formatTimecode(duration)}</span>
+                </div>
+              </div>
+            {/if}
           {/if}
         </div>
 
@@ -1914,8 +1944,15 @@
 
   <!-- Resizer Splitter Bar (Flexible divider, works in standard & fullscreen) -->
   {#if sidebarOpen}
-    <div class="sidebar-resizer" onpointerdown={startSidebarResize} role="separator" aria-orientation="vertical" tabindex="0">
-      <div class="resizer-bar"></div>
+    <div
+      class="studio-splitter sidebar-resizer horizontal"
+      class:is-active={isResizing}
+      onpointerdown={startSidebarResize}
+      role="separator"
+      aria-orientation="vertical"
+      tabindex="0"
+    >
+      <div class="splitter-grip"></div>
     </div>
 
     <!-- Right: The 5-Tab Study Sidebar (Present in both normal & fullscreen mode!) -->
@@ -2699,32 +2736,108 @@
   .speed select, .quality select { padding: 4px 6px; }
   .quality select { max-width: 96px; }
 
-  /* Resizer Splitter */
+  /* Audio Player Display */
+  .audio-player-display {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: radial-gradient(circle at center, rgba(16, 185, 129, 0.12) 0%, rgba(10, 10, 15, 0.95) 100%);
+    gap: 18px;
+    z-index: 5;
+    cursor: pointer;
+  }
+  .audio-disc-card {
+    width: 130px;
+    height: 130px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.15), rgba(255, 255, 255, 0.05));
+    border: 2px solid rgba(255, 255, 255, 0.2);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.3s ease;
+  }
+  .audio-disc-card.is-playing {
+    animation: disc-spin 12s linear infinite;
+  }
+  @keyframes disc-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
+  .disc-groove {
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 0 20px rgba(16, 185, 129, 0.4);
+  }
+  .audio-meta-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    text-align: center;
+    max-width: 85%;
+  }
+  .audio-badge {
+    font-size: 10px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    font-weight: 700;
+    padding: 3px 10px;
+    border-radius: 99px;
+    background: var(--accent-soft, rgba(16, 185, 129, 0.2));
+    color: var(--accent);
+    border: 1px solid var(--accent);
+  }
+  .audio-track-title {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text, #fff);
+  }
+  .audio-track-time {
+    font-size: 13px;
+    color: var(--muted, #888);
+  }
+
+  /* Resizer Splitter matching DualStudio */
   .video-workspace.is-resizing iframe,
   .video-workspace.is-resizing video {
     pointer-events: none;
   }
-  .sidebar-resizer {
-    flex: none;
-    width: 10px;
-    cursor: col-resize;
+  .sidebar-resizer.studio-splitter {
+    position: relative;
+    background: var(--border);
+    transition: background 0.15s ease;
     display: flex;
     align-items: center;
     justify-content: center;
     user-select: none;
     touch-action: none;
-    background: transparent;
-    z-index: 15;
+    z-index: 20;
+    flex-shrink: 0;
+    width: 8px;
+    height: 100%;
+    cursor: col-resize;
   }
-  .resizer-bar {
-    width: 3px;
-    height: 48px;
-    border-radius: 99px;
-    background: var(--border);
-    transition: background 0.2s;
-  }
-  .sidebar-resizer:hover .resizer-bar {
+  .sidebar-resizer.studio-splitter:hover,
+  .sidebar-resizer.studio-splitter.is-active {
     background: var(--accent);
+  }
+  .sidebar-resizer .splitter-grip {
+    background: rgba(255, 255, 255, 0.45);
+    border-radius: 4px;
+    width: 3px;
+    height: 32px;
   }
 
   /* 5-Tab Sidebar */

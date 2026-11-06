@@ -347,10 +347,16 @@
   $effect(() => {
     const id = doc?.id;
     if (!id) return;
-    untrack(() => loadForDoc(doc));
+    // Only reload if the document ID actually changed or is not yet loaded
+    if (loadedDocId !== id || !pdfDoc) {
+      untrack(() => loadForDoc(doc));
+    }
   });
 
-  async function loadForDoc(d) {
+  async function loadForDoc(d, force = false) {
+    if (!force && loadedDocId === d?.id && pdfDoc && !loading) {
+      return;
+    }
     const token = ++loadToken;
     teardown();
     loadedDocId = d.id;

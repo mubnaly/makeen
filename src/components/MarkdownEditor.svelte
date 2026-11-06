@@ -5,7 +5,7 @@
   import { renderMarkdown, exportMarkdownFile, exportMarkdownAsPdf, toggleMarkdownTask } from '../lib/markdown.js';
   import { EMOJI_CATEGORIES } from '../lib/emojis.js';
   import { processMarkdownEnter, processMarkdownTab } from '../lib/markdownEditorUtils.js';
-  import { startSpeechRecording, transcribeAudio } from '../lib/speech.js';
+  import { startRealtimeSpeech, startSpeechRecording, transcribeAudio } from '../lib/speech.js';
   import {
     getNote,
     updateNote,
@@ -246,17 +246,66 @@
     }
   }
 
-  // Voice Dictation (Offline Speech-to-Text via local Whisper)
+  // Voice Dictation (Realtime Speech-to-Text via Web Speech API with fallback)
   let isRecording = $state(false);
   let recordingTimer = $state(0);
   let recordingInterval = null;
   let activeRecorderInstance = null;
   let isTranscribing = $state(false);
 
+  // Markdown statistics
+  const wordCount = $derived.by(() => {
+    const txt = (content || '').trim();
+    if (!txt) return 0;
+    return txt.split(/\s+/).filter(Boolean).length;
+  });
+  const charCount = $derived((content || '').length);
+
+  function copyMarkdownContent() {
+    if (!content) return;
+    try {
+      navigator.clipboard?.writeText(content);
+      notify?.(t('notes.copied') || 'Markdown copied to clipboard!', 'ok');
+    } catch {
+      notify?.(t('common.error') || 'Error copying text', 'error');
+    }
+  }
+
   async function toggleVoiceRecording() {
     if (isTranscribing) return;
 
     if (!isRecording) {
+      // 1. Try real-time Web Speech API first
+      const realtimeEngine = startRealtimeSpeech({
+        lang: dir() === 'rtl' ? 'ar-SA' : 'en-US',
+        onResult: ({ final, interim }) => {
+          const phrase = final || interim;
+          if (phrase) {
+            insertFormatting(phrase + ' ');
+            scheduleAutosave();
+          }
+        },
+        onError: (err) => {
+          console.warn('Realtime speech error:', err);
+        },
+        onEnd: () => {
+          if (isRecording) {
+            isRecording = false;
+            if (recordingInterval) clearInterval(recordingInterval);
+          }
+        }
+      });
+
+      if (realtimeEngine) {
+        activeRecorderInstance = realtimeEngine;
+        isRecording = true;
+        recordingTimer = 0;
+        recordingInterval = setInterval(() => { recordingTimer++; }, 1000);
+        notify?.(t('stt.recording') || 'Listening in real-time... speak now', 'info');
+        return;
+      }
+
+      // 2. Fallback to MediaRecorder + local bridge
       try {
         activeRecorderInstance = await startSpeechRecording();
         isRecording = true;
@@ -276,27 +325,39 @@
         recordingInterval = null;
       }
       isRecording = false;
-      isTranscribing = true;
-      notify?.(t('stt.transcribing') || 'Transcribing voice offline...', 'info');
 
-      try {
-        const audio = await activeRecorderInstance.stop();
-        activeRecorderInstance = null;
-
-        const res = await transcribeAudio(audio.bytes, audio.mimeType, 'ar');
-        if (res?.ok && res.text && res.text.trim()) {
-          const transcribedText = res.text.trim();
-          insertFormatting(transcribedText + ' ');
-          notify?.(t('stt.success') || 'Voice transcribed successfully!', 'ok');
-        } else if (res?.ok) {
-          notify?.(t('stt.noSpeech') || 'No speech detected', 'info');
-        } else {
-          notify?.(res?.error || t('stt.error') || 'Voice transcription failed', 'error');
+      if (activeRecorderInstance?.stop) {
+        // If it's the realtime speech engine
+        if (typeof activeRecorderInstance.abort === 'function') {
+          activeRecorderInstance.stop();
+          activeRecorderInstance = null;
+          notify?.(t('stt.success') || 'Voice captured successfully!', 'ok');
+          return;
         }
-      } catch (err) {
-        notify?.(t('stt.error') || 'Voice transcription failed', 'error');
-      } finally {
-        isTranscribing = false;
+
+        // If it was the fallback MediaRecorder
+        isTranscribing = true;
+        notify?.(t('stt.transcribing') || 'Transcribing voice offline...', 'info');
+
+        try {
+          const audio = await activeRecorderInstance.stop();
+          activeRecorderInstance = null;
+
+          const res = await transcribeAudio(audio.bytes, audio.mimeType, 'ar');
+          if (res?.ok && res.text && res.text.trim()) {
+            const transcribedText = res.text.trim();
+            insertFormatting(transcribedText + ' ');
+            notify?.(t('stt.success') || 'Voice transcribed successfully!', 'ok');
+          } else if (res?.ok) {
+            notify?.(t('stt.noSpeech') || 'No speech detected', 'info');
+          } else {
+            notify?.(res?.error || t('stt.error') || 'Voice transcription failed', 'error');
+          }
+        } catch (err) {
+          notify?.(t('stt.error') || 'Voice transcription failed', 'error');
+        } finally {
+          isTranscribing = false;
+        }
       }
     }
   }
@@ -315,6 +376,11 @@
         dir={textDirection}
       />
       <div class="md-header-actions">
+        <!-- Word count badge -->
+        <span class="md-stats-badge" title={`${charCount} حرف`}>
+          {wordCount} {t('notes.words') || 'كلمة'}
+        </span>
+
         <!-- Save indicator -->
         <span class="save-indicator {isSaved ? 'saved' : 'saving'}" title={isSaved ? (t('notes.saved') || 'Saved') : (t('notes.saving') || 'Saving...')}>
           <Icon name={isSaved ? 'check' : 'repeat'} size={13} />
@@ -365,6 +431,15 @@
         >
           <Icon name="download" size={13} />
           <span>PDF</span>
+        </button>
+        <button
+          type="button"
+          class="fmt-btn"
+          onclick={copyMarkdownContent}
+          title={t('notes.copyMarkdown') || 'Copy Markdown'}
+        >
+          <Icon name="copy" size={13} />
+          <span>{t('common.copy') || 'Copy'}</span>
         </button>
 
         <div class="fmt-divider"></div>
@@ -536,12 +611,18 @@
 
         <div class="fmt-divider"></div>
 
-        <!-- Code block & Table -->
+        <!-- Code block, Table, Math & Divider -->
         <button type="button" class="fmt-btn" onclick={() => insertFormatting('```\n', '\n```', 'كود')} title="Code Block">
           &lt;/&gt;
         </button>
         <button type="button" class="fmt-btn" onclick={() => insertFormatting('\n| العمود 1 | العمود 2 |\n|---|---|\n| القيمة 1 | القيمة 2 |\n')} title="Table">
           <Icon name="columns" size={13} />
+        </button>
+        <button type="button" class="fmt-btn" onclick={() => insertFormatting('$ ', ' $', 'E = mc^2')} title="Math Formula ($...$)">
+          $$
+        </button>
+        <button type="button" class="fmt-btn" onclick={() => insertFormatting('\n\n---\n\n')} title="Horizontal Line (---)">
+          <Icon name="minus" size={13} />
         </button>
 
         <!-- Link Note Button -->
@@ -766,6 +847,17 @@
     display: flex;
     align-items: center;
     gap: 8px;
+  }
+
+  .md-stats-badge {
+    font-size: 11px;
+    color: var(--muted);
+    background: rgba(125, 125, 125, 0.08);
+    border: 1px solid var(--border);
+    padding: 2px 8px;
+    border-radius: 99px;
+    white-space: nowrap;
+    user-select: none;
   }
 
   .save-indicator {

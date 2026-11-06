@@ -30,7 +30,7 @@
   import { imagesToPdf, deliverBytes } from './lib/export.js';
   import { labelPng } from './lib/labels.js';
   import { sheetToXlsx } from './lib/xlsx.js';
-  import { decksOf, cardsOfDeck, deckSheetRows, deckFileNames, deckAnkiBundle, IMAGE_COLUMN, DECK_COLUMNS, DEFAULT_DECK, TODAY_SET, isTodaySet, isDue, todayIso, setsOf, addCardToSet, removeCardFromSet, renameSet, mergeSets, changedCards, moveCardToSet, duplicateCardInto } from './lib/flashcards.js';
+  import { decksOf, cardsOfDeck, deckSheetRows, deckFileNames, deckAnkiBundle, parseFlashcardsText, IMAGE_COLUMN, DECK_COLUMNS, DEFAULT_DECK, TODAY_SET, isTodaySet, isDue, todayIso, setsOf, addCardToSet, removeCardFromSet, renameSet, mergeSets, changedCards, moveCardToSet, duplicateCardInto } from './lib/flashcards.js';
   import { imageFileName, dataImageBytes } from './lib/filenames.js';
   import { trackUsage } from './lib/usage.js';
   import { loadViewModes, setViewMode as persistViewMode } from './lib/viewmode.js';
@@ -1219,6 +1219,31 @@
       exportingDeck = '';
     }
   }
+
+  let flashcardsFileInput = $state();
+
+  async function handleImportFlashcards(e) {
+    const file = e.target?.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const defaultDeckName = isTodaySet(activeDeckName) ? DEFAULT_DECK : (activeDeckName || DEFAULT_DECK);
+      const parsed = parseFlashcardsText(text, defaultDeckName);
+      if (!parsed.length) {
+        notify(t('flashcards.noCardsFound') || 'No flashcards found in file', 'error');
+        return;
+      }
+      for (const c of parsed) {
+        await putCard(c);
+      }
+      cards = [...cards, ...parsed];
+      notify(t('flashcards.importedSuccess', { count: parsed.length }) || `Imported ${parsed.length} flashcards!`, 'ok');
+    } catch (err) {
+      notify(t('flashcards.importFailed') || 'Failed to import flashcards', 'error');
+    } finally {
+      if (flashcardsFileInput) flashcardsFileInput.value = '';
+    }
+  }
   // The rating reschedules through the interval table (Settings → Spaced
   // repetition), so what a button promises is exactly what the due date gets.
   async function rateCard(difficulty) {
@@ -1456,15 +1481,15 @@
       <button class="primary import-btn" onclick={pickPdf} title={`${t('topbar.importPdf')} (Ctrl+O)`}>
         <Icon name="upload" size={15} /><span>{t('topbar.importPdf')}</span>
       </button>
-      <button class="import-btn" onclick={pickVideo} title={t('topbar.importVideo')}>
-        <Icon name="video" size={15} /><span>{importingVideo ? t('video.importing') : t('topbar.importVideo')}</span>
+      <button class="import-btn" onclick={pickVideo} title={t('topbar.importMedia') || 'استيراد فيديو أو صوت'}>
+        <Icon name="video" size={15} /><span>{importingVideo ? t('video.importing') : (t('topbar.importMedia') || t('topbar.importVideo'))}</span>
       </button>
       <button class="more-drawer-btn" onclick={() => (mobileDrawerOpen = !mobileDrawerOpen)} title={t('nav.other')} aria-label={t('nav.other')}>
         <Icon name="menu" size={18} />
         <span class="more-label">{t('nav.more')}</span>
       </button>
       <input bind:this={pdfInput} type="file" accept="application/pdf" onchange={importPdf} style="display:none" />
-      <input bind:this={videoInput} type="file" accept="video/*" onchange={importVideo} style="display:none" />
+      <input bind:this={videoInput} type="file" accept="video/*,audio/*,.mp4,.webm,.mkv,.mov,.avi,.mp3,.wav,.m4a,.ogg,.aac,.flac" onchange={importVideo} style="display:none" />
     </header>
 
     <main class="view">
@@ -2029,6 +2054,17 @@
                 <button onclick={() => exportDeck('anki')} disabled={!!exportingDeck || activeDeckCards.length === 0}>
                   {exportingDeck === 'anki' ? t('common.exporting') : t('flashcards.exportAnki')}
                 </button>
+                <button onclick={() => flashcardsFileInput?.click()} title={t('flashcards.importAction') || 'Import Anki / CSV'}>
+                  <Icon name="upload" size={13} />
+                  <span>{t('flashcards.importAction') || 'استيراد Anki / CSV'}</span>
+                </button>
+                <input
+                  bind:this={flashcardsFileInput}
+                  type="file"
+                  accept=".txt,.tsv,.csv,.anki,.apkg"
+                  onchange={handleImportFlashcards}
+                  style="display:none"
+                />
               </div>
               <div class="muted" style="font-size:11px; margin-top:6px">{t('flashcards.ankiHint')}</div>
             </aside>

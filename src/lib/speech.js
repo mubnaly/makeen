@@ -1,18 +1,108 @@
 /**
- * StudyOS Offline Speech-to-Text Recorder & Bridge
- * Records audio from user microphone and uses local Whisper to transcribe in Arabic.
+ * Makeen Speech-to-Text Recorder & Realtime Dictation
+ * Supports Web Speech API (realtime Arabic/English voice recognition in Chrome/Edge/Android WebView)
+ * with graceful fallback to MediaRecorder & local bridge.
  */
 
+let activeRecognition = null;
 let activeStream = null;
 let activeRecorder = null;
 
-export async function isSpeechAvailable() {
-  return typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getUserMedia;
+export function isSpeechAvailable() {
+  if (typeof window === 'undefined') return false;
+  return !!(
+    window.SpeechRecognition ||
+    window.webkitSpeechRecognition ||
+    navigator.mediaDevices?.getUserMedia
+  );
 }
 
 /**
- * Start recording from the microphone.
- * Returns an object with `stop()`, `cancel()`, and `onData`.
+ * Start realtime dictation using Web Speech API if supported.
+ * Calls `onResult({ text, isFinal })`, `onError(err)`, `onEnd()`.
+ */
+export function startRealtimeSpeech({
+  lang = 'ar-SA',
+  onResult = () => {},
+  onError = () => {},
+  onEnd = () => {}
+} = {}) {
+  const SpeechRecognition = typeof window !== 'undefined'
+    ? (window.SpeechRecognition || window.webkitSpeechRecognition)
+    : null;
+
+  if (!SpeechRecognition) {
+    return null;
+  }
+
+  if (activeRecognition) {
+    try { activeRecognition.abort(); } catch {}
+    activeRecognition = null;
+  }
+
+  try {
+    const recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.maxAlternatives = 1;
+    recognition.lang = lang || 'ar-SA';
+
+    recognition.onresult = (event) => {
+      let interim = '';
+      let final = '';
+
+      for (let i = event.resultIndex; i < event.results.length; ++i) {
+        const item = event.results[i];
+        const text = item[0]?.transcript || '';
+        if (item.isFinal) {
+          final += text;
+        } else {
+          interim += text;
+        }
+      }
+
+      onResult({
+        final: final.trim(),
+        interim: interim.trim(),
+        full: (final + ' ' + interim).trim()
+      });
+    };
+
+    recognition.onerror = (e) => {
+      if (e.error === 'no-speech') return; // Ignore silent pauses
+      onError(e.error || 'speech_error');
+    };
+
+    recognition.onend = () => {
+      activeRecognition = null;
+      onEnd();
+    };
+
+    recognition.start();
+    activeRecognition = recognition;
+
+    return {
+      stop() {
+        if (activeRecognition) {
+          try { activeRecognition.stop(); } catch {}
+          activeRecognition = null;
+        }
+      },
+      abort() {
+        if (activeRecognition) {
+          try { activeRecognition.abort(); } catch {}
+          activeRecognition = null;
+        }
+      }
+    };
+  } catch (err) {
+    onError(String(err?.message || err));
+    return null;
+  }
+}
+
+/**
+ * Fallback audio recorder for offline Whisper or backend transcription.
  */
 export async function startSpeechRecording() {
   if (activeStream) {
@@ -29,7 +119,7 @@ export async function startSpeechRecording() {
   });
   activeStream = stream;
 
-  const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+  const mimeType = (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported('audio/webm;codecs=opus'))
     ? 'audio/webm;codecs=opus'
     : 'audio/webm';
 
@@ -85,13 +175,6 @@ function stopCurrentStream() {
   activeRecorder = null;
 }
 
-/**
- * Send audio bytes to Electron offline speech-to-text bridge.
- * @param {Uint8Array} audioBytes
- * @param {string} mimeType
- * @param {string} lang
- * @returns {Promise<{ ok: boolean, text?: string, error?: string }>}
- */
 export async function transcribeAudio(audioBytes, mimeType = 'audio/webm', lang = 'ar') {
   if (!audioBytes || audioBytes.length === 0) {
     return { ok: false, error: 'emptyAudio' };

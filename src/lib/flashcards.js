@@ -350,3 +350,49 @@ export function deckFileNames(deck = DEFAULT_DECK) {
   const base = safeFileBase(deck);
   return { xlsx: `${base} - flashcards.xlsx`, anki: `${base} - Anki.zip` };
 }
+
+// --- Import Anki / CSV / TSV text flashcards -------------------------------
+export function parseFlashcardsText(text, defaultDeck = DEFAULT_DECK) {
+  if (!text || typeof text !== 'string') return [];
+  const lines = text.split(/\r?\n/);
+  const cards = [];
+
+  for (let line of lines) {
+    line = line.trim();
+    if (!line) continue;
+    if (line.startsWith('#')) continue; // Skip Anki directive comments
+
+    let parts;
+    if (line.includes('\t')) {
+      parts = line.split('\t');
+    } else if (line.includes(';') && (line.match(/;/g) || []).length >= 1) {
+      parts = line.split(';');
+    } else if (line.includes(',') && (line.match(/,/g) || []).length >= 1) {
+      parts = line.split(',');
+    } else {
+      parts = [line, ''];
+    }
+
+    const front = (parts[0] || '').trim();
+    const back = (parts[1] || '').trim();
+    if (!front && !back) continue;
+
+    let deck = defaultDeck;
+    if (parts[2] && parts[2].trim()) {
+      const tagCandidate = parts[2].trim().split(/\s+/)[0];
+      if (tagCandidate && tagCandidate !== 'studyos') deck = tagCandidate;
+    }
+
+    cards.push({
+      id: 'card-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 7),
+      front: front || 'Untitled Question',
+      back: back || '—',
+      deck: deck || defaultDeck,
+      sets: [deck || defaultDeck],
+      due: todayIso(),
+      difficulty: 'new',
+      createdAt: new Date().toISOString()
+    });
+  }
+  return cards;
+}

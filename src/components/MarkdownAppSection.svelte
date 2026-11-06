@@ -34,6 +34,29 @@
   let editingFolderId = $state(null);
   let editingFolderName = $state('');
   let expandedFolderIds = $state(new Set());
+  let mdFileInput = $state();
+
+  async function handleImportMdFile(e) {
+    const file = e.target?.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const rawName = file.name.replace(/\.(md|markdown|txt)$/i, '');
+      const note = createNote({
+        title: rawName || 'Imported Note',
+        content: text,
+        folderId: selectedFolderId === '__ALL__' ? null : selectedFolderId
+      });
+      reloadData();
+      activeNoteId = note.id;
+      mobileView = 'editor';
+      notify?.(t('notes.importedSuccess', { title: note.title }) || `Imported ${note.title}`, 'ok');
+    } catch (err) {
+      notify?.(t('notes.importFailed') || 'Failed to import markdown file', 'error');
+    } finally {
+      if (mdFileInput) mdFileInput.value = '';
+    }
+  }
 
   function reloadData() {
     folders = listFolders();
@@ -304,6 +327,21 @@
           >
             <Icon name="folderPlus" size={15} />
           </button>
+          <button
+            type="button"
+            class="icon-action-btn"
+            onclick={() => mdFileInput?.click()}
+            title={t('notes.importMd') || 'Import Markdown File (.md)'}
+          >
+            <Icon name="upload" size={14} />
+          </button>
+          <input
+            bind:this={mdFileInput}
+            type="file"
+            accept=".md,.markdown,.txt"
+            onchange={handleImportMdFile}
+            style="display:none;"
+          />
           <button
             type="button"
             class="primary small hstack"

@@ -16,6 +16,7 @@
   import { getDailyTemplate, saveDailyTemplate, DEFAULT_DAILY_TEMPLATE } from '../lib/markdownStore.js';
   import { loadTrashRetentionDays, saveTrashRetentionDays, emptyAllTrash } from '../lib/trash.js';
   import { savePdfAutosaveSettings } from '../lib/storage.js';
+  import { loadDefaultVideoQuality, saveDefaultVideoQuality, VIDEO_QUALITY_OPTIONS } from '../lib/videoSettings.js';
 
   let {
     theme = 'midnight',
@@ -37,6 +38,7 @@
 
   let prayerSettings = $state(loadPrayerSettings());
   let dailyTemplate = $state(getDailyTemplate());
+  let videoQuality = $state(loadDefaultVideoQuality());
   let restoreInputEl = $state();
   let isRestoring = $state(false);
 
@@ -116,6 +118,25 @@
             {#each LANGS as l}<option value={l.code}>{l.label}</option>{/each}
           </select>
           <span class="muted" style="font-size:12px">{t('settings.languageHelp')}</span>
+        </div>
+
+        <div class="section-title mt">{t('settings.videoQuality')}</div>
+        <div class="hstack" style="gap:10px; flex-wrap:wrap;">
+          <Icon name="video" size={16} />
+          <select
+            value={videoQuality}
+            onchange={(e) => {
+              videoQuality = e.currentTarget.value;
+              saveDefaultVideoQuality(videoQuality);
+              notify(t('settings.saved') || 'Saved', 'ok');
+            }}
+            aria-label={t('settings.videoQuality')}
+          >
+            {#each VIDEO_QUALITY_OPTIONS as opt}
+              <option value={opt.id}>{ui.lang === 'ar' ? opt.labelAr : opt.labelEn}</option>
+            {/each}
+          </select>
+          <span class="muted" style="font-size:12px">{t('settings.videoQualityHint')}</span>
         </div>
 
         <div class="section-title mt">{t('settings.appearance')}</div>
