@@ -23,6 +23,7 @@
   import Habits from './components/Habits.svelte';
   import UserGuide from './components/UserGuide.svelte';
   import Settings from './components/Settings.svelte';
+  import Community from './components/Community.svelte';
   import { getCurrentUser } from './lib/auth.js';
   import { createSidecarStore, fileBridge, listCaptures, listCards, putCapture, putCard, deleteCaptureById, deleteCardById, clearCaptures, clearCards, clearTasks, migrateLocalCollections, listTasks } from './lib/storage.js';
   import { savePdfBytes, deleteFileBytes, loadPdfAutosaveSettings, savePdfAutosaveSettings } from './lib/storage.js';
@@ -54,6 +55,7 @@
     { id: 'Today', icon: 'today' },
     { id: 'Profile', icon: 'user' },
     { id: 'Library', icon: 'library' },
+    { id: 'Community', icon: 'globe' },
     { id: 'Projects', icon: 'projects' },
     { id: 'Notes', icon: 'file-text' },
     { id: 'Habits', icon: 'check' },
@@ -68,7 +70,7 @@
     { id: 'Settings', icon: 'settings' }
   ];
   const NAV_LABEL = {
-    Today: 'nav.today', Profile: 'nav.profile', Library: 'nav.library', Projects: 'nav.projects',
+    Today: 'nav.today', Profile: 'nav.profile', Library: 'nav.library', Community: 'nav.community', Projects: 'nav.projects',
     Notes: 'nav.notes', Habits: 'nav.habits', Reader: 'nav.reader', Video: 'nav.video',
     Studio: 'nav.dualStudio', Planner: 'nav.planner', Gallery: 'nav.gallery', Flashcards: 'nav.flashcards', Trash: 'nav.trash', Guide: 'nav.guide', Settings: 'nav.settings'
   };
@@ -83,6 +85,7 @@
 
   const DRAWER_NAV = [
     { id: 'Library', icon: 'library', labelKey: 'nav.library' },
+    { id: 'Community', icon: 'globe', labelKey: 'nav.community' },
     { id: 'Habits', icon: 'check', labelKey: 'nav.habits' },
     { id: 'Planner', icon: 'planner', labelKey: 'nav.planner' },
     { id: 'Gallery', icon: 'gallery', labelKey: 'nav.gallery' },
@@ -2112,6 +2115,12 @@
           {projects}
           {notify}
           onOpenAuth={() => (authOpen = true)}
+        />
+
+      {:else if view === 'Community'}
+        <Community
+          {notify}
+          onOpenView={(target) => nav(target)}
         />
 
       {:else if view === 'Trash'}

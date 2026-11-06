@@ -928,11 +928,46 @@
     }
   }
 
+  const GLOBAL_SUBTITLE_LANGUAGES = [
+    { languageCode: 'ar', label: 'العربية (Arabic)' },
+    { languageCode: 'en', label: 'English' },
+    { languageCode: 'fr', label: 'Français (French)' },
+    { languageCode: 'es', label: 'Español (Spanish)' },
+    { languageCode: 'tr', label: 'Türkçe (Turkish)' },
+    { languageCode: 'de', label: 'Deutsch (German)' },
+    { languageCode: 'ur', label: 'اردو (Urdu)' },
+    { languageCode: 'id', label: 'Bahasa Indonesia' },
+    { languageCode: 'ru', label: 'Русский (Russian)' },
+    { languageCode: 'fa', label: 'فارسی (Persian)' },
+    { languageCode: 'zh', label: '中文 (Chinese)' },
+    { languageCode: 'ja', label: '日本語 (Japanese)' },
+    { languageCode: 'ko', label: '한국어 (Korean)' },
+    { languageCode: 'hi', label: 'हिन्दी (Hindi)' },
+    { languageCode: 'pt', label: 'Português (Portuguese)' },
+    { languageCode: 'it', label: 'Italiano (Italian)' },
+    { languageCode: 'ms', label: 'Bahasa Melayu' },
+    { languageCode: 'bn', label: 'বাংলা (Bengali)' },
+    { languageCode: 'sw', label: 'Kiswahili' }
+  ];
+
   function getSubtitleOptions() {
     const list = [...availableSubtitleTracks];
     const seen = new Set(list.map((t) => (t.languageCode || '').toLowerCase()));
-    if (!seen.has('ar')) list.push({ languageCode: 'ar', label: 'العربية' });
-    if (!seen.has('en')) list.push({ languageCode: 'en', label: 'English' });
+    if (transcript?.tracks) {
+      for (const tr of transcript.tracks) {
+        const code = (tr.languageCode || '').toLowerCase();
+        if (code && !seen.has(code)) {
+          seen.add(code);
+          list.push(tr);
+        }
+      }
+    }
+    for (const item of GLOBAL_SUBTITLE_LANGUAGES) {
+      if (!seen.has(item.languageCode.toLowerCase())) {
+        seen.add(item.languageCode.toLowerCase());
+        list.push(item);
+      }
+    }
     return list;
   }
 
@@ -1144,8 +1179,35 @@
     });
   });
 
+  function updateMediaSession() {
+    if (typeof navigator === 'undefined' || !('mediaSession' in navigator) || !video) return;
+    try {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: video.title || video.filename || 'Makeen Video',
+        artist: 'Makeen مَكِين',
+        album: 'Makeen Study Player',
+        artwork: [
+          { src: './icon.png', sizes: '512x512', type: 'image/png' }
+        ]
+      });
+      navigator.mediaSession.playbackState = playing ? 'playing' : 'paused';
+      navigator.mediaSession.setActionHandler('play', () => { if (!playing) togglePlay(); });
+      navigator.mediaSession.setActionHandler('pause', () => { if (playing) togglePlay(); });
+      navigator.mediaSession.setActionHandler('seekbackward', () => seekBy(-10));
+      navigator.mediaSession.setActionHandler('seekforward', () => seekBy(10));
+      if (hasDuration && typeof navigator.mediaSession.setPositionState === 'function') {
+        navigator.mediaSession.setPositionState({
+          duration: duration || 0,
+          playbackRate: rate || 1,
+          position: Math.min(duration || 0, Math.max(0, current || 0))
+        });
+      }
+    } catch {}
+  }
+
   function playState(next) {
     playing = next;
+    updateMediaSession();
     if (next) {
       schedulePositionSave();
       pokeFsToolbar();
