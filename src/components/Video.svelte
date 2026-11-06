@@ -95,7 +95,9 @@
   let annotatingCapture = $state(null);
 
   // Resizable Right Sidebar & Tabs (both normal & fullscreen)
-  let sidebarOpen = $state(initialSidebarOpen);
+  let sidebarOpen = $state(
+    typeof window !== 'undefined' && window.innerWidth <= 768 ? false : initialSidebarOpen
+  );
   let sidebarTab = $state('videos'); // 'videos' | 'chapters' | 'bookmarks' | 'captures' | 'transcript' | 'editor'
   let sidebarWidth = $state(
     typeof window !== 'undefined' ? Math.round(window.innerWidth * 0.25) : 340
@@ -2280,7 +2282,7 @@
   .video-workspace {
     position: relative;
     display: flex;
-    flex-direction: row !important;
+    flex-direction: row;
     direction: ltr !important;
     align-items: stretch;
     width: 100%;
@@ -2781,36 +2783,55 @@
     color: #64748b;
   }
 
-  /* Fullscreen single-line bottom dock auto-hides after 3 seconds */
+  /* Fullscreen single-line bottom dock auto-hides after 2.5 seconds */
   .video-workspace.is-fullscreen .controls {
     position: absolute;
     bottom: 0;
     inset-inline: 0;
     z-index: 30;
-    background: linear-gradient(transparent, rgba(0, 0, 0, 0.88) 45%, rgba(0, 0, 0, 0.98));
+    background: linear-gradient(transparent, rgba(0, 0, 0, 0.75) 40%, rgba(0, 0, 0, 0.95));
     border-top: none;
-    padding: 14px 20px 18px;
+    padding: 8px 16px 12px;
     color: #fff;
     transition: opacity 0.35s cubic-bezier(0.16, 1, 0.3, 1), transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
   }
-  .video-workspace.is-fullscreen .controls button {
+  .video-workspace.is-fullscreen .control-row {
+    gap: 4px;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+  }
+  .video-workspace.is-fullscreen .control-row button span,
+  .video-workspace.is-fullscreen .control-row .tool-group button span {
+    display: none !important;
+  }
+  .video-workspace.is-fullscreen .control-row button,
+  .video-workspace.is-fullscreen .control-row .tool-group button {
+    padding: 6px 8px;
+    min-width: 32px;
+    height: 32px;
+    justify-content: center;
+    border-radius: 6px;
     color: #fff;
-    background: rgba(255, 255, 255, 0.12);
-    border-color: rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.15);
+    border: 1px solid rgba(255, 255, 255, 0.2);
   }
-  .video-workspace.is-fullscreen .controls button:hover {
-    background: rgba(255, 255, 255, 0.25);
+  .video-workspace.is-fullscreen .control-row button:hover {
+    background: rgba(255, 255, 255, 0.28);
   }
-  .video-workspace.is-fullscreen .controls button.active {
+  .video-workspace.is-fullscreen .control-row button.active {
     background: var(--accent);
     border-color: var(--accent);
   }
-  .video-workspace.is-fullscreen .controls select {
-    background: rgba(255, 255, 255, 0.12);
+  .video-workspace.is-fullscreen .control-row select {
+    background: rgba(255, 255, 255, 0.15);
     color: #fff;
-    border-color: rgba(255, 255, 255, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    font-size: 11px;
+    padding: 4px 6px;
+    height: 32px;
+    max-width: 65px;
   }
-  .video-workspace.is-fullscreen .controls select option {
+  .video-workspace.is-fullscreen .control-row select option {
     background: #222;
     color: #fff;
   }
@@ -3139,5 +3160,128 @@
     padding: 1px 5px;
     font-weight: 700;
     margin-left: 2px;
+  }
+
+  /* Mobile layout & screen adaptation */
+  @media (max-width: 768px) {
+    .video-workspace {
+      flex-direction: column !important;
+      height: 100% !important;
+      max-height: 100% !important;
+      overflow-y: auto !important;
+      overflow-x: hidden !important;
+      -webkit-overflow-scrolling: touch;
+    }
+    .video-stage {
+      flex: none !important;
+      width: 100% !important;
+      height: auto !important;
+      max-height: none !important;
+    }
+    .player-card {
+      height: auto !important;
+      max-height: none !important;
+      border-radius: 0 !important;
+      border-inline: none !important;
+      border-top: none !important;
+      border-bottom: 1px solid var(--border) !important;
+    }
+    .player-head {
+      padding: 6px 10px !important;
+      font-size: 13px !important;
+    }
+    .video-frame {
+      width: 100% !important;
+      height: auto !important;
+      aspect-ratio: 16 / 9 !important;
+      min-height: 180px !important;
+      max-height: 40vh !important;
+    }
+    .sidebar-resizer {
+      display: none !important;
+    }
+    .video-sidebar {
+      width: 100% !important;
+      min-width: 0 !important;
+      max-width: 100% !important;
+      flex: 1 !important;
+      height: auto !important;
+      min-height: 380px !important;
+      border-radius: 0 !important;
+      border-inline: none !important;
+      border-bottom: none !important;
+      border-top: none !important;
+    }
+    /* Compact controls on mobile */
+    .controls {
+      padding: 6px 8px 8px !important;
+      gap: 3px !important;
+    }
+    .timeline-row {
+      gap: 6px !important;
+    }
+    .timecode {
+      min-width: 68px !important;
+      font-size: 10px !important;
+    }
+    .control-row {
+      gap: 3px !important;
+      flex-wrap: wrap !important;
+    }
+    /* Hide long button labels on mobile! Show only sleek icons! */
+    .control-row button span,
+    .control-row .tool-group button span {
+      display: none !important;
+    }
+    .control-row button,
+    .control-row .tool-group button {
+      padding: 5px !important;
+      min-width: 32px !important;
+      height: 32px !important;
+      justify-content: center !important;
+      border-radius: 6px !important;
+    }
+    .speed select, .quality select {
+      padding: 2px 4px !important;
+      font-size: 11px !important;
+      height: 32px !important;
+      max-width: 60px !important;
+    }
+    .video-workspace.is-fullscreen .video-sidebar {
+      position: fixed !important;
+      top: 0;
+      bottom: 0;
+      inset-inline-end: 0;
+      width: min(320px, 85vw) !important;
+      max-width: 85vw !important;
+      z-index: 100 !important;
+      box-shadow: -8px 0 32px rgba(0, 0, 0, 0.6) !important;
+    }
+  }
+
+  @media (max-height: 520px) and (orientation: landscape) {
+    .video-workspace:not(.is-fullscreen) {
+      flex-direction: row !important;
+      height: 100% !important;
+      max-height: 100% !important;
+    }
+    .video-workspace:not(.is-fullscreen) .video-frame {
+      min-height: 140px !important;
+    }
+    .video-workspace:not(.is-fullscreen) .video-sidebar {
+      width: 260px !important;
+      min-width: 220px !important;
+      max-width: 320px !important;
+    }
+    .control-row button span,
+    .control-row .tool-group button span {
+      display: none !important;
+    }
+    .control-row button,
+    .control-row .tool-group button {
+      padding: 4px !important;
+      min-width: 28px !important;
+      height: 28px !important;
+    }
   }
 </style>

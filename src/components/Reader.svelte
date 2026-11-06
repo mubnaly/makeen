@@ -187,6 +187,7 @@
   let loadToken = 0;
   let undoVersion = $state(0);
   let toolbarSettingsOpen = $state(false);
+  let isBarWrapped = $state(false);
   let dragFromIndex = -1;
 
   const undoState = $derived({
@@ -1549,12 +1550,22 @@
 
   <!-- One icon-only line, in normal and fullscreen modes alike. Every control is
        a flex item; `order` comes from the saved toolbar customisation. -->
-  <div class="fs-bar reader-bar" dir="ltr" role="toolbar" aria-label={tr('reader.fullscreen')} use:autoScrollbar>
+  <div class="fs-bar reader-bar" class:is-wrapped={isBarWrapped} dir="ltr" role="toolbar" aria-label={tr('reader.fullscreen')} use:autoScrollbar>
     {#if onBack}
       <button style={addBarOrder('back')} onclick={() => onBack?.()} title={tr('common.back')} aria-label={tr('common.back')}>
         <Icon name="arrow-left" size={17} />
       </button>
     {/if}
+    <!-- Toggle Wrap / All Tools Button (for mobile & easy access) -->
+    <button
+      class="wrap-tools-btn {isBarWrapped ? 'active' : ''}"
+      onclick={() => (isBarWrapped = !isBarWrapped)}
+      title={isBarWrapped ? (tr('reader.collapseTools') || 'صف واحد') : (tr('reader.expandTools') || 'عرض كل الأدوات')}
+      aria-label={isBarWrapped ? tr('reader.collapseTools') : tr('reader.expandTools')}
+      aria-pressed={isBarWrapped}
+    >
+      <Icon name={isBarWrapped ? 'chevron-up' : 'grid'} size={17} />
+    </button>
     {#if fullscreen}
       <button style={addBarOrder('tabs')} class={barMenu === 'tabs' ? 'active' : ''} onclick={() => (barMenu = barMenu === 'tabs' ? '' : 'tabs')}
         title={tr('reader.tabs')} aria-label={tr('reader.tabs')} aria-expanded={barMenu === 'tabs'}><Icon name="tabs" size={17} /></button>
