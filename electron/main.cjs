@@ -15,8 +15,11 @@ const { spawn } = require('child_process');
 function findPdfArg(argv) {
   if (!Array.isArray(argv)) return null;
   for (const arg of argv) {
-    if (typeof arg === 'string' && /\.pdf$/i.test(arg.trim())) {
-      return arg.trim().replace(/^"|"$/g, '');
+    if (typeof arg === 'string') {
+      const clean = arg.trim().replace(/^"|"$/g, '');
+      if (/\.pdf$/i.test(clean)) {
+        return clean;
+      }
     }
   }
   return null;

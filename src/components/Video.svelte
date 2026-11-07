@@ -146,6 +146,8 @@
   let playlists = $state(listPlaylists());
   let newPlaylistTitle = $state('');
   let creatingPlaylist = $state(false);
+  let pickerTab = $state('individual'); // 'individual' | 'playlists'
+  const individualVideos = $derived((videos || []).filter((v) => !v.playlistId && !v.isPlaylistChild));
 
   // Transcript panel
   let transcriptOpen = $state(false);
@@ -818,7 +820,9 @@
     isAddOpen = false;
     refreshDocs?.();
     notify(t('video.youtubeAdded', { title: doc.ytType === 'playlist' ? t('video.playlist') : doc.title }), 'ok');
-    onOpen?.(doc);
+    if (!video) {
+      onOpen?.(doc);
+    }
   }
 
   function handleAddPlaylistDirect() {
@@ -1682,40 +1686,86 @@
     {:else if !video}
       <div class="video-picker-stage card">
         <div class="video-picker-head">
-          <div class="hstack" style="justify-content:space-between; align-items:center;">
-            <div class="hstack" style="gap:8px;">
-              <Icon name="video" size={20} />
-              <h3 style="margin:0; font-size:16px;">{t('video.drawerVideos')} ({videos.length})</h3>
+          <div class="hstack" style="justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+            <div class="video-tabs-switcher hstack" style="gap:8px;">
+              <button
+                type="button"
+                class="filter-pill {pickerTab === 'individual' ? 'active' : ''}"
+                onclick={() => (pickerTab = 'individual')}
+              >
+                <Icon name="video" size={14} />
+                <span>{t('video.tabIndividual')} ({individualVideos.length})</span>
+              </button>
+              <button
+                type="button"
+                class="filter-pill {pickerTab === 'playlists' ? 'active' : ''}"
+                onclick={() => (pickerTab = 'playlists')}
+              >
+                <Icon name="list" size={14} />
+                <span>{t('video.tabPlaylists')} ({playlists.length})</span>
+              </button>
             </div>
+
             <button class="primary small" onclick={onImport}>
               <Icon name="upload" size={14} /><span>{t('video.import')}</span>
             </button>
           </div>
-          <div class="yt-add" style="margin-top:12px;">
-            <input type="text" placeholder={t('video.youtubePlaceholder')} bind:value={ytInput}
-              onkeydown={(e) => e.key === 'Enter' && addYoutube()} aria-label={t('video.addYoutube')} />
-            <button class="primary small" onclick={addYoutube} disabled={!ytInput.trim()}>
-              <Icon name="play" size={13} /><span>{t('video.addYoutube')}</span>
-            </button>
-          </div>
-        </div>
-        <div class="video-picker-grid">
-          {#each videos as v (v.id)}
-            <div class="video-pick-card clickable" onclick={() => openVideo(v)} role="button" tabindex="0" onkeydown={(e) => e.key === 'Enter' && openVideo(v)}>
-              <div class="pick-thumb">
-                <Icon name={v.provider === 'youtube' ? 'play' : 'video'} size={24} />
-              </div>
-              <div class="pick-info">
-                <div class="pick-title">{v.title}</div>
-                <div class="pick-meta muted">
-                  {#if v.ytType === 'playlist'}<span class="badge">{t('video.playlist')}</span> {:else if v.provider === 'youtube'}<span class="badge">YouTube</span> {/if}
-                  {#if v.lastSeconds}{t('video.resumeAt', { time: formatTimecode(v.lastSeconds) })} · {/if}
-                  {formatTimecode(v.durationSeconds)}
-                </div>
-              </div>
+
+          {#if pickerTab === 'individual'}
+            <div class="yt-add" style="margin-top:12px;">
+              <input type="text" placeholder={t('video.youtubePlaceholder')} bind:value={ytInput}
+                onkeydown={(e) => e.key === 'Enter' && addYoutube()} aria-label={t('video.addYoutube')} />
+              <button class="primary small" onclick={addYoutube} disabled={!ytInput.trim()}>
+                <Icon name="play" size={13} /><span>{t('video.addYoutube')}</span>
+              </button>
             </div>
-          {/each}
+          {/if}
         </div>
+
+        {#if pickerTab === 'individual'}
+          {#if individualVideos.length === 0}
+            <div class="empty muted" style="padding:40px; text-align:center;">{t('video.empty')}</div>
+          {:else}
+            <div class="video-picker-grid">
+              {#each individualVideos as v (v.id)}
+                <div class="video-pick-card clickable" onclick={() => openVideo(v)} role="button" tabindex="0" onkeydown={(e) => e.key === 'Enter' && openVideo(v)}>
+                  <div class="pick-thumb">
+                    <Icon name={v.provider === 'youtube' ? 'play' : 'video'} size={24} />
+                  </div>
+                  <div class="pick-info">
+                    <div class="pick-title">{v.title}</div>
+                    <div class="pick-meta muted">
+                      {#if v.ytType === 'playlist'}<span class="badge">{t('video.playlist')}</span> {:else if v.provider === 'youtube'}<span class="badge">YouTube</span> {/if}
+                      {#if v.lastSeconds}{t('video.resumeAt', { time: formatTimecode(v.lastSeconds) })} · {/if}
+                      {formatTimecode(v.durationSeconds)}
+                    </div>
+                  </div>
+                </div>
+              {/each}
+            </div>
+          {/if}
+        {:else}
+          <!-- Playlists Tab -->
+          {#if playlists.length === 0}
+            <div class="empty muted" style="padding:40px; text-align:center;">{t('video.noPlaylists')}</div>
+          {:else}
+            <div class="video-picker-grid">
+              {#each playlists as pl (pl.id)}
+                <div class="video-pick-card clickable" onclick={() => handlePlayAllPlaylist(pl)} role="button" tabindex="0" onkeydown={(e) => e.key === 'Enter' && handlePlayAllPlaylist(pl)}>
+                  <div class="pick-thumb" style="background:var(--accent-soft); color:var(--accent);">
+                    <Icon name="list" size={26} />
+                  </div>
+                  <div class="pick-info">
+                    <div class="pick-title" style="font-weight:700;">{pl.title}</div>
+                    <div class="pick-meta muted">
+                      {pl.videoIds?.length || 0} فيديو · انقر للتشغيل
+                    </div>
+                  </div>
+                </div>
+              {/each}
+            </div>
+          {/if}
+        {/if}
       </div>
     {:else if loading && !isYoutube}
       <div class="empty">{t('video.loading')}</div>
@@ -1966,10 +2016,10 @@
       <!-- Top Tab Navigation Switcher with Horizontal Scroll -->
       <div class="sidebar-tabs-bar" role="tablist">
         <button class={sidebarTab === 'videos' ? 'active' : ''} onclick={() => (sidebarTab = 'videos')} title={t('video.drawerVideos')}>
-          <Icon name="video" size={15} /><span>{t('video.drawerVideos')}</span>
+          <Icon name="video" size={15} /><span>{t('video.tabIndividual')}</span>
         </button>
         <button class={sidebarTab === 'playlists' ? 'active' : ''} onclick={() => (sidebarTab = 'playlists')} title={t('video.playlists')}>
-          <Icon name="list" size={15} /><span>{t('video.playlists')}</span>
+          <Icon name="list" size={15} /><span>{t('video.tabPlaylists')}</span>
           {#if playlists.length}<span class="tab-badge">{playlists.length}</span>{/if}
         </button>
         <button class={sidebarTab === 'chapters' ? 'active' : ''} onclick={() => (sidebarTab = 'chapters')} title={t('video.chapters')}>
@@ -2000,7 +2050,7 @@
         {#if sidebarTab === 'videos'}
           <div class="tab-panel">
             <div class="panel-header hstack" style="justify-content:space-between">
-              <span class="section-title" style="margin:0">{t('video.drawerVideos')} ({videos.length})</span>
+              <span class="section-title" style="margin:0">{t('video.drawerVideos')} ({individualVideos.length})</span>
               <button class="primary small" onclick={onImport} title={t('video.import')}>
                 <Icon name="upload" size={14} /><span>{t('video.import')}</span>
               </button>
@@ -2045,11 +2095,11 @@
             </div>
 
             <!-- Video Library List -->
-            {#if videos.length === 0}
+            {#if individualVideos.length === 0}
               <div class="empty muted" style="margin-top:20px">{t('video.empty')}</div>
             {:else}
               <div class="sidebar-video-list">
-                {#each videos as v (v.id)}
+                {#each individualVideos as v (v.id)}
                   <div class="video-row {v.id === video?.id ? 'active' : ''}">
                     <button class="video-click" onclick={() => openVideo(v)}>
                       <Icon name={v.provider === 'youtube' ? 'play' : 'video'} size={16} />

@@ -98,11 +98,14 @@ function drawShape(ctx, g, style) {
   ctx.save();
   ctx.globalAlpha = style.opacity ?? 1;
   ctx.strokeStyle = style.color || '#e74c3c';
-  ctx.fillStyle = style.fill_color || style.color || 'rgba(231,76,60,0.18)';
+  ctx.fillStyle = style.fill_color || style.color || 'rgba(231,76,60,0.22)';
   ctx.lineWidth = width;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
   const filled = !!style.fill_color;
+  if (filled) {
+    ctx.globalCompositeOperation = 'multiply';
+  }
 
   switch (shape) {
     case 'line':

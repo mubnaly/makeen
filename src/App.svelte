@@ -24,6 +24,7 @@
   import UserGuide from './components/UserGuide.svelte';
   import Settings from './components/Settings.svelte';
   import Community from './components/Community.svelte';
+  import ScreenRecorder from './components/ScreenRecorder.svelte';
   import { getCurrentUser } from './lib/auth.js';
   import { createSidecarStore, fileBridge, listCaptures, listCards, putCapture, putCard, deleteCaptureById, deleteCardById, clearCaptures, clearCards, clearTasks, migrateLocalCollections, listTasks } from './lib/storage.js';
   import { savePdfBytes, deleteFileBytes, loadPdfAutosaveSettings, savePdfAutosaveSettings } from './lib/storage.js';
@@ -169,6 +170,8 @@
   let searchInput = $state();
   let pdfInput = $state();
   let videoInput = $state();
+  let recorderOpen = $state(false);
+  let flashcardsExcelInput = $state();
   let activeDeck = $state('');
   let exportingDeck = $state('');
   let srsSettings = $state(loadSrsSettings());
@@ -281,18 +284,19 @@
     }, 5000);
 
     // Desktop integration: Open PDF from command-line argument, file association, or double-click
-    if (typeof window !== 'undefined' && window.studyos?.getInitialPdf) {
-      window.studyos.getInitialPdf().then((initial) => {
+    const desktopBridge = (typeof window !== 'undefined' && (window.makeen || window.studyos)) || null;
+    if (desktopBridge?.getInitialPdf) {
+      desktopBridge.getInitialPdf().then((initial) => {
         if (initial && initial.ok && initial.bytes) {
-          importPdfBytes(initial.name, initial.bytes, { open: true });
+          importPdfBytes(initial.name, initial.bytes, { open: true, filePath: initial.path || '' });
         }
-      });
+      }).catch(() => {});
     }
     let unsubscribeOpenPdf = null;
-    if (typeof window !== 'undefined' && window.studyos?.onOpenPdf) {
-      unsubscribeOpenPdf = window.studyos.onOpenPdf((payload) => {
+    if (desktopBridge?.onOpenPdf) {
+      unsubscribeOpenPdf = desktopBridge.onOpenPdf((payload) => {
         if (payload && payload.ok && payload.bytes) {
-          importPdfBytes(payload.name, payload.bytes, { open: true });
+          importPdfBytes(payload.name, payload.bytes, { open: true, filePath: payload.path || '' });
         }
       });
     }
@@ -1484,6 +1488,9 @@
       <button class="import-btn" onclick={pickVideo} title={t('topbar.importMedia') || 'استيراد فيديو أو صوت'}>
         <Icon name="video" size={15} /><span>{importingVideo ? t('video.importing') : (t('topbar.importMedia') || t('topbar.importVideo'))}</span>
       </button>
+      <button class="import-btn recorder-btn" onclick={() => (recorderOpen = true)} title={t('recorder.recordScreen')} style="border-color:#e74c3c;">
+        <Icon name="camera" size={15} /><span>{t('recorder.recordScreen')}</span>
+      </button>
       <button class="more-drawer-btn" onclick={() => (mobileDrawerOpen = !mobileDrawerOpen)} title={t('nav.other')} aria-label={t('nav.other')}>
         <Icon name="menu" size={18} />
         <span class="more-label">{t('nav.more')}</span>
@@ -1870,11 +1877,17 @@
       {:else if view === 'Flashcards'}
         <div class="section-head">
           <h2 style="margin:0">{t('flashcards.title')} ({cards.length})</h2>
-          <div class="hstack">
+          <div class="hstack" style="gap:8px; flex-wrap:wrap;">
             <div class="view-toggle" role="group" aria-label={t('common.gridView')}>
               <button class={modeOf('flashcards') === 'grid' ? 'active' : ''} onclick={() => setMode('flashcards', 'grid')} title={t('common.gridView')} aria-label={t('common.gridView')} aria-pressed={modeOf('flashcards') === 'grid'}><Icon name="grid" size={15} /></button>
               <button class={modeOf('flashcards') === 'list' ? 'active' : ''} onclick={() => setMode('flashcards', 'list')} title={t('common.listView')} aria-label={t('common.listView')} aria-pressed={modeOf('flashcards') === 'list'}><Icon name="list" size={15} /></button>
             </div>
+            <button class="secondary small hstack" onclick={() => flashcardsFileInput?.click()} title={t('flashcards.importAnki')}>
+              <Icon name="upload" size={13} /><span>{t('flashcards.importAnki')}</span>
+            </button>
+            <button class="secondary small hstack" onclick={() => flashcardsExcelInput?.click()} title={t('flashcards.importExcel')}>
+              <Icon name="database" size={13} /><span>{t('flashcards.importExcel')}</span>
+            </button>
             <button class="primary" onclick={() => startReview(cardsOfDeck(cards, activeDeckName).filter((c) => isDue(c)))} disabled={activeDeckDue === 0}>
               {t('flashcards.reviewDue', { n: activeDeckDue })}
             </button>
@@ -1944,6 +1957,21 @@
               else if (pdfDocs[0]) openDoc(pdfDocs[0]);
               else pickPdf();
             }} />
+          <div class="hstack" style="justify-content:center; gap:12px; margin-top:16px; flex-wrap:wrap;">
+            <button class="primary hstack" onclick={() => flashcardsFileInput?.click()}>
+              <Icon name="upload" size={14} /><span>{t('flashcards.importAnki')}</span>
+            </button>
+            <button class="secondary hstack" onclick={() => flashcardsExcelInput?.click()}>
+              <Icon name="database" size={14} /><span>{t('flashcards.importExcel')}</span>
+            </button>
+          </div>
+          <input
+            bind:this={flashcardsExcelInput}
+            type="file"
+            accept=".csv,.tsv,.xlsx"
+            onchange={handleImportFlashcards}
+            style="display:none"
+          />
         {:else}
           <div class="flashcards-layout mt">
             <div>
@@ -2157,6 +2185,7 @@
         <Community
           {notify}
           onOpenView={(target) => nav(target)}
+          onRequestAuth={() => (authOpen = true)}
         />
 
       {:else if view === 'Trash'}
@@ -2249,6 +2278,10 @@
       <div class="muted">{t('drag.hint')}</div>
     </div>
   </div>
+{/if}
+
+{#if recorderOpen}
+  <ScreenRecorder {notify} onclose={() => (recorderOpen = false)} />
 {/if}
 
 {#if authOpen}

@@ -322,8 +322,9 @@
     if (!annCanvas) return;
     ensureOverlayCssSizes();
 
-    const markerItems = (annotations || []).filter((a) => a.type === 'marker');
-    const hasMarkerDraft = pageDraft && pageDraft.type === 'marker' && draftVisible('marker');
+    const isHighlighterItem = (a) => a.type === 'marker' || (a.type === 'shape' && (a.style?.fill_color || a.style?.filled));
+    const markerItems = (annotations || []).filter(isHighlighterItem);
+    const hasMarkerDraft = pageDraft && isHighlighterItem(pageDraft) && draftVisible(pageDraft.type);
     if (markerCanvas) {
       if (!markerItems.length && !hasMarkerDraft) {
         shrinkOverlay(markerCanvas);
@@ -341,8 +342,8 @@
       }
     }
 
-    const otherItems = (annotations || []).filter((a) => a.type !== 'marker');
-    const hasOtherDraft = pageDraft && pageDraft.type !== 'marker' && draftVisible(pageDraft.type);
+    const otherItems = (annotations || []).filter((a) => !isHighlighterItem(a));
+    const hasOtherDraft = pageDraft && !isHighlighterItem(pageDraft) && draftVisible(pageDraft.type);
     sizeOverlay(annCanvas);
     const ctx = annCanvas.getContext('2d');
     if (ctx) {

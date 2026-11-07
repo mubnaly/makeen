@@ -667,17 +667,25 @@
     .settings-sidebar {
       padding: 6px 8px;
       border-radius: var(--radius);
+      width: 100%;
+      max-width: 100%;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
     }
     .settings-sidebar-title {
       display: none;
     }
     .categories-list {
+      display: flex;
       flex-direction: row;
+      flex-wrap: nowrap;
       overflow-x: auto;
       scrollbar-width: none;
       -webkit-overflow-scrolling: touch;
       gap: 6px;
       padding: 2px;
+      width: max-content;
+      min-width: 100%;
     }
     .categories-list::-webkit-scrollbar {
       display: none;
