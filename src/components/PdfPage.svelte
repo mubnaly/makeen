@@ -55,7 +55,7 @@
 
   let ready = $state(false);
   let hasText = $state(false);
-  let inView = $state(false);
+  let inView = $state(true);
   let dpr = 1;
   let rendering = false;
   let queued = false;
@@ -132,53 +132,6 @@
     };
   });
 
-  // Keep rendered pages intact during continuous scrolling:
-  // Pages outside the extended viewport release heavy canvas backing stores
-  // but keep their placeholder element so scroll position is rock solid.
-  $effect(() => {
-    if (!wrap) return;
-    if (!lazy || active) { inView = true; return; }
-    if (typeof IntersectionObserver === 'undefined') { inView = true; return; }
-    const rootEl = scrollRoot || wrap.closest('.stage') || null;
-    const io = new IntersectionObserver((entries) => {
-      for (const entry of entries) {
-        if (active) {
-          inView = true;
-        } else {
-          inView = entry.isIntersecting;
-        }
-      }
-    }, { root: rootEl, rootMargin: '600px 0px' });
-    io.observe(wrap);
-    return () => io.disconnect();
-  });
-
-  // Reclaim uncompressed bitmap memory when page moves out of view
-  $effect(() => {
-    if (!inView && !active && ready) {
-      if (currentRenderTask) {
-        try { currentRenderTask.cancel(); } catch {}
-        currentRenderTask = null;
-      }
-      rendering = false;
-      ready = false;
-      renderedScale = 0;
-      renderedRotation = 0;
-      renderedDoc = null;
-      if (pdfCanvas) {
-        pdfCanvas.width = 1;
-        pdfCanvas.height = 1;
-      }
-      shrinkOverlay(annCanvas);
-      shrinkOverlay(markerCanvas);
-      shrinkOverlay(redpenCanvas);
-      shrinkOverlay(cursorCanvas);
-      if (textLayerEl) {
-        textLayerEl.textContent = '';
-      }
-    }
-  });
-
   // Track the scale and rotation that the canvas currently displays
   let renderedScale = 0;
   let renderedRotation = 0;
@@ -190,15 +143,13 @@
     void pageNumber;
     void scale;
     void rotation;
-    void inView;
-    void lazy;
-    if (!pdfDoc || !inView || !pdfCanvas) return;
+    if (!pdfDoc || !pdfCanvas) return;
     if (renderedScale === scale && renderedRotation === rotation && renderedDoc === pdfDoc && ready) return;
     queueMicrotask(() => renderPage());
   });
 
   async function renderPage() {
-    if (!pdfDoc || !pdfCanvas || !inView) return;
+    if (!pdfDoc || !pdfCanvas) return;
     if (rendering) {
       queued = true;
       if (currentRenderTask) {

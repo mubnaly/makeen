@@ -13,6 +13,30 @@
   let includeMic = $state(true);
   let includeSysAudio = $state(true);
 
+  // Pointer / Laser Spotlight Options
+  let pointerEnabled = $state(false);
+  let pointerColor = $state('#ef4444');
+  let pointerPos = $state({ x: -100, y: -100 });
+  const POINTER_COLORS = [
+    { id: '#ef4444', label: 'أحمر' },
+    { id: '#f59e0b', label: 'أصفر' },
+    { id: '#10b981', label: 'أخضر' },
+    { id: '#3b82f6', label: 'أزرق' },
+    { id: '#8b5cf6', label: 'بنفسجي' }
+  ];
+
+  onMount(() => {
+    const handleGlobalPointerMove = (e) => {
+      if (pointerEnabled) {
+        pointerPos = { x: e.clientX, y: e.clientY };
+      }
+    };
+    window.addEventListener('pointermove', handleGlobalPointerMove, { passive: true });
+    return () => {
+      window.removeEventListener('pointermove', handleGlobalPointerMove);
+    };
+  });
+
   let elapsedSeconds = $state(0);
   let timerInterval = null;
 
@@ -248,24 +272,35 @@
     const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
     const filename = `Makeen_Recording_${timestamp}.${ext}`;
 
-    // 1. Try Desktop (Electron) direct save to Documents/Makeen & reveal in File Explorer
-    const bridge = window.makeen || window.studyos;
+    // 1. Try Desktop (Electron) direct save to Documents/Makeen/Recordings & reveal in File Explorer
+    const bridge = (typeof window !== 'undefined' && (window.makeen || window.studyos)) || null;
     if (bridge?.saveExportFile) {
       try {
         const reader = new FileReader();
-        reader.onload = async () => {
-          const base64 = String(reader.result).split(',')[1];
-          const res = await bridge.saveExportFile(filename, base64, true);
-          if (res?.ok) {
-            if (res.path) {
-              bridge.showItemInFolder?.(res.path);
+        await new Promise((resolve) => {
+          reader.onload = async () => {
+            try {
+              const base64 = String(reader.result).split(',')[1];
+              const res = await bridge.saveExportFile(filename, base64, true);
+              if (res?.ok && res.path) {
+                if (bridge.showItemInFolder) {
+                  await bridge.showItemInFolder(res.path);
+                }
+                notify?.(`تم استخراج الفيديو واختياره في مجلد التسجيلات: ${res.path}`, 'ok');
+              } else {
+                downloadBlobDirectly(blob, filename);
+              }
+            } catch (e) {
+              downloadBlobDirectly(blob, filename);
             }
-            notify?.(`تم استخراج الفيديو وحفظه في: ${res.path}`, 'ok');
-          } else {
+            resolve();
+          };
+          reader.onerror = () => {
             downloadBlobDirectly(blob, filename);
-          }
-        };
-        reader.readAsDataURL(blob);
+            resolve();
+          };
+          reader.readAsDataURL(blob);
+        });
         onclose?.();
         return;
       } catch (err) {
@@ -390,6 +425,26 @@
             <span>تسجيل صوت النظام الداخلي وفيديوهات التطبيق</span>
           </label>
         </div>
+
+        <!-- Laser Pointer Setup Option -->
+        <div class="pointer-options-card card mt" style="padding:10px 14px; background:var(--surface-2); border-radius:8px;">
+          <div class="hstack" style="justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+            <label class="checkbox-row hstack" style="margin:0;">
+              <input type="checkbox" bind:checked={pointerEnabled} />
+              <span style="font-weight:600;">تفعيل مؤشر الليزر (دائرة ملونة تتبع الماوس أثناء الشرح)</span>
+            </label>
+            <div class="hstack" style="gap:5px;">
+              {#each POINTER_COLORS as c}
+                <button
+                  type="button"
+                  style="width:20px; height:20px; border-radius:50%; background:{c.id}; border:{pointerColor === c.id ? '2px solid #fff' : '1px solid rgba(255,255,255,0.2)'}; cursor:pointer; padding:0;"
+                  title={c.label}
+                  onclick={() => { pointerColor = c.id; pointerEnabled = true; }}
+                ></button>
+              {/each}
+            </div>
+          </div>
+        </div>
       </div>
 
       <div class="recorder-footer hstack" style="justify-content:flex-end; gap:8px;">
@@ -458,6 +513,29 @@
           </button>
         {/if}
 
+        <!-- Laser Pointer Toggle Button -->
+        <button
+          type="button"
+          class="rec-control-btn {pointerEnabled ? 'active' : ''}"
+          onclick={() => (pointerEnabled = !pointerEnabled)}
+          title="تفعيل / إيقاف مؤشر الليزر الملون"
+        >
+          <span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:{pointerColor}; box-shadow:0 0 6px {pointerColor};"></span>
+        </button>
+
+        {#if pointerEnabled}
+          <div class="hstack" style="gap:3px; background:rgba(0,0,0,0.3); padding:2px 5px; border-radius:999px;">
+            {#each POINTER_COLORS as c}
+              <button
+                type="button"
+                style="width:14px; height:14px; border-radius:50%; background:{c.id}; border:{pointerColor === c.id ? '2px solid #fff' : 'none'}; cursor:pointer; padding:0;"
+                title={c.label}
+                onclick={() => (pointerColor = c.id)}
+              ></button>
+            {/each}
+          </div>
+        {/if}
+
         <button class="rec-control-btn discard" onclick={discardRecording} title={t('recorder.discard')}>
           <Icon name="trash" size={14} />
         </button>
@@ -470,6 +548,17 @@
       </div>
     </div>
   {/if}
+{/if}
+
+<!-- Laser Pointer Overlay (visible anywhere over the app / PDF while recording) -->
+{#if pointerEnabled}
+  <div
+    class="recording-laser-pointer"
+    style="left:{pointerPos.x}px; top:{pointerPos.y}px;"
+    aria-hidden="true"
+  >
+    <div class="pointer-glow-core" style="background:{pointerColor}; box-shadow: 0 0 16px {pointerColor}, 0 0 4px #ffffff;"></div>
+  </div>
 {/if}
 
 <style>
@@ -700,5 +789,26 @@
   }
   .rec-control-btn.discard:hover {
     color: #ff6b6b;
+  }
+
+  /* Glowing Laser Pointer that follows mouse anywhere */
+  .recording-laser-pointer {
+    position: fixed;
+    pointer-events: none;
+    transform: translate(-50%, -50%);
+    z-index: 9999999;
+    width: 26px;
+    height: 26px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+  }
+  .pointer-glow-core {
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    border: 2px solid #ffffff;
+    opacity: 0.9;
   }
 </style>

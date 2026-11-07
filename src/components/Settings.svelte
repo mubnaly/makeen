@@ -42,6 +42,53 @@
   let restoreInputEl = $state();
   let isRestoring = $state(false);
 
+  let appStorageFolder = $state('');
+
+  onMount(async () => {
+    const bridge = (typeof window !== 'undefined' && (window.makeen || window.studyos)) || null;
+    if (bridge?.getAppStorageFolder) {
+      try {
+        const res = await bridge.getAppStorageFolder();
+        if (res && res.folder) {
+          appStorageFolder = res.folder;
+        }
+      } catch {}
+    } else if (typeof localStorage !== 'undefined') {
+      appStorageFolder = localStorage.getItem('makeen:storage_folder') || 'Documents/Makeen';
+    }
+  });
+
+  async function handlePickStorageFolder() {
+    const bridge = (typeof window !== 'undefined' && (window.makeen || window.studyos)) || null;
+    if (bridge?.pickAppStorageFolder) {
+      try {
+        const res = await bridge.pickAppStorageFolder();
+        if (res && res.ok && res.folder) {
+          appStorageFolder = res.folder;
+          notify(t('settings.saved') || 'تم تحديث مجلد التخزين بنجاح', 'ok');
+        }
+      } catch (err) {
+        notify(String(err), 'error');
+      }
+    } else {
+      const custom = prompt('حدد مسار المجلد المفضل لحفظ فيديوهات وبيانات مكين:', appStorageFolder);
+      if (custom && custom.trim()) {
+        appStorageFolder = custom.trim();
+        localStorage.setItem('makeen:storage_folder', appStorageFolder);
+        notify(t('settings.saved') || 'تم حفظ المسار', 'ok');
+      }
+    }
+  }
+
+  async function handleOpenStorageFolder() {
+    const bridge = (typeof window !== 'undefined' && (window.makeen || window.studyos)) || null;
+    if (bridge?.openAppStorageFolder) {
+      bridge.openAppStorageFolder();
+    } else {
+      notify('متاح في نسخة الديسكتوب لفتح المجلد مباشرة في مستكشف الملفات', 'info');
+    }
+  }
+
   const CATEGORIES = [
     { id: 'general', labelKey: 'settings.catGeneral', icon: 'globe' },
     { id: 'prayer', labelKey: 'settings.catPrayer', icon: 'moon' },
@@ -163,6 +210,37 @@
             {/each}
           </div>
         {/each}
+
+        <!-- Makeen Storage Folder Section -->
+        <div class="section-title mt" style="display:flex; align-items:center; gap:8px;">
+          <Icon name="folder" size={16} />
+          <span>{ui.lang === 'ar' ? 'مجلد تطبيق مكين وحفظ الفيديوهات والبيانات' : 'Makeen App Data & Storage Folder'}</span>
+        </div>
+        <p class="muted" style="font-size:12.5px; margin:4px 0 10px;">
+          {ui.lang === 'ar'
+            ? 'المجلد الذي يحفظ فيه التطبيق الفيديوهات المسجلة، واللقطات الملتقطة، والملفات المصدرة، وملاحظاتك.'
+            : 'The folder where Makeen saves screen recordings, captures, exported files, and local data.'}
+        </p>
+        <div class="card" style="padding:12px 14px; background:var(--surface-2); border:1px solid var(--border); border-radius:8px;">
+          <div class="hstack" style="gap:10px; flex-wrap:wrap; align-items:center; justify-content:space-between;">
+            <div style="flex:1; min-width:220px;">
+              <div class="mono" style="font-size:12.5px; font-weight:600; direction:ltr; text-align:start; word-break:break-all; color:var(--accent);">
+                {appStorageFolder || 'Documents/Makeen'}
+              </div>
+              <small class="muted">{ui.lang === 'ar' ? 'المجلدات الفرعية: Recordings (التسجيلات), Screenshots (اللقطات), Exports (الملفات المصدرة)' : 'Subfolders: Recordings, Screenshots, Exports, Annotations'}</small>
+            </div>
+            <div class="hstack" style="gap:8px;">
+              <button type="button" class="primary small hstack" onclick={handlePickStorageFolder}>
+                <Icon name="pencil" size={13} />
+                <span>{ui.lang === 'ar' ? 'تغيير المجلد' : 'Change Folder'}</span>
+              </button>
+              <button type="button" class="secondary small hstack" onclick={handleOpenStorageFolder} title="فتح في مستكشف ويندوز">
+                <Icon name="folder" size={13} />
+                <span>{ui.lang === 'ar' ? 'فتح المجلد' : 'Open Folder'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
     {/if}
 

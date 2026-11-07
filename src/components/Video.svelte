@@ -1499,9 +1499,10 @@
       else if (ratio > 0.65) frameName = '3.jpg';
 
       const candidateUrls = [
-        `https://img.youtube.com/vi/${videoId}/${frameName}`,
+        `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`,
+        `https://img.youtube.com/vi/${videoId}/sddefault.jpg`,
         `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`,
-        `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`
+        `https://img.youtube.com/vi/${videoId}/${frameName}`
       ];
 
       function tryLoad(index) {
@@ -1514,10 +1515,18 @@
         img.onload = () => {
           try {
             const canvas = document.createElement('canvas');
-            canvas.width = img.naturalWidth || 1280;
-            canvas.height = img.naturalHeight || 720;
+            const natW = img.naturalWidth || 1280;
+            const natH = img.naturalHeight || 720;
+            const aspect = natW / (natH || 1);
+            // Upscale low-res thumbnails to crisp 1280x720 minimum
+            const targetW = Math.max(1280, natW);
+            const targetH = Math.round(targetW / aspect);
+            canvas.width = targetW;
+            canvas.height = targetH;
             const ctx = canvas.getContext('2d');
-            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
+            ctx.drawImage(img, 0, 0, targetW, targetH);
             resolve(canvas.toDataURL('image/png'));
           } catch {
             resolve(createPlaceholderFrame(video?.title || 'YouTube Frame'));
@@ -1827,7 +1836,7 @@
                   <button class="primary" onclick={retryYoutube}>
                     <Icon name="repeat" size={15} /><span>{t('video.retry')}</span>
                   </button>
-                  {#if video?.url || video?.ytId}
+                  {#if (video?.url || video?.ytId) && !video?.isPaid && !video?.isProtected}
                     <a class="button secondary" href={video.url || `https://www.youtube.com/watch?v=${video.ytId}`} target="_blank" rel="noopener noreferrer" style="text-decoration:none; display:inline-flex; align-items:center; gap:6px;">
                       <Icon name="play" size={14} /><span>{t('video.openInBrowser')}</span>
                     </a>
@@ -1922,13 +1931,15 @@
                     <option value="auto">{t('video.qualityAuto')}</option>
                   </select>
                 </label>
-                <button class={ytShowNativeControls ? 'active' : ''} onclick={toggleNativeControls}
-                  title={t('video.toggleNativeControls')}
-                  aria-label={t('video.toggleNativeControls')}
-                  aria-pressed={ytShowNativeControls}>
-                  <Icon name="settings" size={16} />
-                  <span>{t('video.nativeControls')}</span>
-                </button>
+                {#if !video?.isPaid && !video?.isProtected}
+                  <button class={ytShowNativeControls ? 'active' : ''} onclick={toggleNativeControls}
+                    title={t('video.toggleNativeControls')}
+                    aria-label={t('video.toggleNativeControls')}
+                    aria-pressed={ytShowNativeControls}>
+                    <Icon name="settings" size={16} />
+                    <span>{t('video.nativeControls')}</span>
+                  </button>
+                {/if}
                 <button class={isBlackScreen ? 'active' : ''} onclick={toggleBlackScreen}
                   title={isBlackScreen ? t('video.showVideo') : t('video.blackScreen')}
                   aria-pressed={isBlackScreen}>
@@ -2221,17 +2232,6 @@
                           <div class="vrow-meta muted">{formatTimecode(v.durationSeconds)}</div>
                         </div>
                       </button>
-                      <div class="hstack" style="gap:2px;">
-                        <button class="icon-btn" onclick={() => handleMoveInPlaylist(currentPl.id, v.id, -1)} disabled={idx === 0} title="Move Up">
-                          <Icon name="chevron-up" size={13} />
-                        </button>
-                        <button class="icon-btn" onclick={() => handleMoveInPlaylist(currentPl.id, v.id, 1)} disabled={idx === plVideos.length - 1} title="Move Down">
-                          <Icon name="chevron-down" size={13} />
-                        </button>
-                        <button class="icon-btn" onclick={() => handleRemoveFromPlaylist(currentPl.id, v.id)} title={t('common.remove')}>
-                          <Icon name="x" size={13} />
-                        </button>
-                      </div>
                     </div>
                   {/each}
                 </div>

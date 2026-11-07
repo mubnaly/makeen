@@ -73,8 +73,13 @@
     img.crossOrigin = 'anonymous';
     img.onload = () => {
       baseImg = img;
-      canvasEl.width = img.naturalWidth || 1280;
-      canvasEl.height = img.naturalHeight || 720;
+      const natW = img.naturalWidth || 1280;
+      const natH = img.naturalHeight || 720;
+      const aspect = natW / (natH || 1);
+      const targetW = Math.max(1280, natW);
+      const targetH = Math.round(targetW / aspect);
+      canvasEl.width = targetW;
+      canvasEl.height = targetH;
       redrawAll();
     };
     img.src = imageSrc;
@@ -1386,6 +1391,7 @@
     display: block;
     max-width: 85vw;
     max-height: 80vh;
+    min-width: min(720px, 90vw);
     width: auto;
     height: auto;
     cursor: crosshair;

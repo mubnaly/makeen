@@ -35,7 +35,13 @@ const api = {
   },
   pickLocalPdf: () => ipcRenderer.invoke('pick-local-pdf'),
   readPdfFile: (filePath) => ipcRenderer.invoke('read-pdf-file', filePath),
-  writePdfFile: (filePath, bytes) => ipcRenderer.invoke('write-pdf-file', { filePath, bytes })
+  writePdfFile: (filePath, bytes) => ipcRenderer.invoke('write-pdf-file', { filePath, bytes }),
+
+  // Makeen App Data & Storage Folder Management
+  getAppStorageFolder: () => ipcRenderer.invoke('get-app-storage-folder'),
+  setAppStorageFolder: (folder) => ipcRenderer.invoke('set-app-storage-folder', { folder }),
+  pickAppStorageFolder: () => ipcRenderer.invoke('pick-app-storage-folder'),
+  openAppStorageFolder: () => ipcRenderer.invoke('open-app-storage-folder')
 };
 
 contextBridge.exposeInMainWorld('makeen', api);

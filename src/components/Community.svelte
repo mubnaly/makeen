@@ -92,6 +92,9 @@
 
   const filteredShares = $derived.by(() => {
     let list = shares.filter((item) => {
+      if (activeFilter === 'my_shares') {
+        return isShareOwner(item, currentUser);
+      }
       if (activeFilter !== 'all' && item.type !== activeFilter) return false;
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
@@ -112,6 +115,12 @@
     }
 
     return list;
+  });
+
+  // Count user's own shares
+  const mySharesCount = $derived.by(() => {
+    if (isGuest) return 0;
+    return shares.filter((s) => isShareOwner(s, currentUser)).length;
   });
 
   // Count pending payments for creator's items
@@ -507,6 +516,19 @@
         <span class="count-bubble">{shares.length}</span>
       </button>
 
+      {#if !isGuest}
+        <button
+          class="filter-pill {activeFilter === 'my_shares' ? 'active my-shares-active' : ''}"
+          onclick={() => (activeFilter = 'my_shares')}
+        >
+          <Icon name="user" size={14} />
+          <span>{ui.lang === 'ar' ? 'محتواي ومشاركاتي' : 'My Content'}</span>
+          {#if mySharesCount > 0}
+            <span class="count-bubble">{mySharesCount}</span>
+          {/if}
+        </button>
+      {/if}
+
       <button
         class="filter-pill {activeFilter === 'playlist' ? 'active' : ''}"
         onclick={() => (activeFilter = 'playlist')}
@@ -680,9 +702,11 @@
                     </span>
                   {/if}
                 </div>
-                <div class="lesson-url muted" style="font-size:11.5px; direction:ltr; text-align:left; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
-                  {subItem.url}
-                </div>
+                {#if !share.isPaid}
+                  <div class="lesson-url muted" style="font-size:11.5px; direction:ltr; text-align:left; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                    {subItem.url}
+                  </div>
+                {/if}
               </div>
 
               <div class="lesson-action">
@@ -711,9 +735,13 @@
     </div>
   {:else if filteredShares.length === 0}
     <div class="empty-state card">
-      <Icon name="globe" size={42} />
-      <h3>{t('community.empty')}</h3>
-      <p class="muted">كن أول من يشارك محتوى تعليمي مفيد مع زملائك بالضغط على زر "مشاركة محتوى في المجتمع".</p>
+      <Icon name={activeFilter === 'my_shares' ? 'user' : 'globe'} size={42} />
+      <h3>{activeFilter === 'my_shares' ? (ui.lang === 'ar' ? 'لم تنشر أي محتوى بعد' : 'No content published yet') : t('community.empty')}</h3>
+      <p class="muted">
+        {activeFilter === 'my_shares'
+          ? (ui.lang === 'ar' ? 'يمكنك مشاركة كورسات، قوائم يوتيوب، ملفات PDF، أو بطاقات استذكار باسمك وإدارتها وتعديلها من هنا بكل سهولة.' : 'You can publish and manage your courses, playlists, PDFs, and flashcards here.')
+          : 'كن أول من يشارك محتوى تعليمي مفيد مع زملائك بالضغط على زر "مشاركة محتوى في المجتمع".'}
+      </p>
       <button class="primary mt" onclick={openCreateShare}>
         <Icon name="plus" size={15} />
         <span>{t('community.shareContent')}</span>

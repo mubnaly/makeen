@@ -101,29 +101,65 @@ app.commandLine.appendSwitch('renderer-process-limit', '1');
 app.commandLine.appendSwitch('disable-site-isolation-trials');
 app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion,SpareRendererForSitePerProcess');
 
-// MakeenData/ layout (with backward compatibility to StudyOSData/ if existing).
-function dataRoot() {
-  const primary = path.join(app.getPath('documents'), 'MakeenData');
-  const legacy = path.join(app.getPath('documents'), 'StudyOSData');
+// Makeen Data Folder management & user custom folder selection
+let customDataDir = null;
+function getStorageConfigFile() {
+  return path.join(app.getPath('userData'), 'makeen-storage.json');
+}
+function loadCustomDataDir() {
   try {
-    const fsSync = require('fs');
-    if (fsSync.existsSync(legacy) && !fsSync.existsSync(primary)) {
-      return legacy;
+    const file = getStorageConfigFile();
+    if (fsSync.existsSync(file)) {
+      const data = JSON.parse(fsSync.readFileSync(file, 'utf8'));
+      if (data && data.folder && typeof data.folder === 'string') {
+        return path.normalize(data.folder);
+      }
     }
+  } catch {}
+  return null;
+}
+customDataDir = loadCustomDataDir();
+
+function dataRoot() {
+  if (customDataDir && fsSync.existsSync(customDataDir)) {
+    return customDataDir;
+  }
+  const primary = path.join(app.getPath('documents'), 'Makeen');
+  const legacyData = path.join(app.getPath('documents'), 'MakeenData');
+  const legacyStudy = path.join(app.getPath('documents'), 'StudyOSData');
+  try {
+    if (fsSync.existsSync(primary)) return primary;
+    if (fsSync.existsSync(legacyData)) return legacyData;
+    if (fsSync.existsSync(legacyStudy)) return legacyStudy;
   } catch {}
   return primary;
 }
+
+function ensureDataSubdirs() {
+  const root = dataRoot();
+  try {
+    fsSync.mkdirSync(root, { recursive: true });
+    fsSync.mkdirSync(path.join(root, 'Recordings'), { recursive: true });
+    fsSync.mkdirSync(path.join(root, 'Screenshots'), { recursive: true });
+    fsSync.mkdirSync(path.join(root, 'Exports'), { recursive: true });
+    fsSync.mkdirSync(path.join(root, 'Annotations'), { recursive: true });
+  } catch (err) {
+    console.warn('Failed to ensure data subdirs:', err);
+  }
+}
+ensureDataSubdirs();
+
 function annotationsDir() {
-  return path.join(dataRoot(), 'annotations');
+  return path.join(dataRoot(), 'Annotations');
 }
 function capturesDir() {
-  return path.join(dataRoot(), 'screenshots');
+  return path.join(dataRoot(), 'Screenshots');
 }
 function exportsDir() {
-  return path.join(dataRoot(), 'exports');
+  return path.join(dataRoot(), 'Recordings');
 }
 function videosDir() {
-  return path.join(dataRoot(), 'videos');
+  return path.join(dataRoot(), 'Recordings');
 }
 
 // Document ids and sidecar names stay ASCII, so they use the strict form.
@@ -412,7 +448,7 @@ ipcMain.handle('save-export', async (_e, { filename, dataBase64, showInFolder = 
 ipcMain.handle('show-item-in-folder', async (_e, itemPath) => {
   try {
     if (itemPath && fsSync.existsSync(itemPath)) {
-      shell.showItemInFolder(itemPath);
+      shell.showItemInFolder(path.normalize(itemPath));
       return { ok: true };
     } else if (itemPath && fsSync.existsSync(path.dirname(itemPath))) {
       shell.openPath(path.dirname(itemPath));
@@ -421,6 +457,53 @@ ipcMain.handle('show-item-in-folder', async (_e, itemPath) => {
     return { ok: false, error: 'File not found' };
   } catch (err) {
     return { ok: false, error: String(err) };
+  }
+});
+
+ipcMain.handle('get-app-storage-folder', () => {
+  return {
+    folder: dataRoot(),
+    defaultFolder: path.join(app.getPath('documents'), 'Makeen')
+  };
+});
+
+ipcMain.handle('set-app-storage-folder', async (_e, { folder }) => {
+  try {
+    if (!folder || typeof folder !== 'string') return { ok: false, error: 'Invalid folder' };
+    const norm = path.normalize(folder.trim());
+    await fs.mkdir(norm, { recursive: true });
+    customDataDir = norm;
+    ensureDataSubdirs();
+    await fs.writeFile(getStorageConfigFile(), JSON.stringify({ folder: norm }, null, 2), 'utf8');
+    return { ok: true, folder: norm };
+  } catch (err) {
+    return { ok: false, error: String(err?.message || err) };
+  }
+});
+
+ipcMain.handle('pick-app-storage-folder', async () => {
+  const res = await dialog.showOpenDialog(mainWindow, {
+    title: 'اختيار مجلد تخزين بيانات مكين',
+    defaultPath: dataRoot(),
+    properties: ['openDirectory', 'createDirectory']
+  });
+  if (res.canceled || !res.filePaths.length) return { ok: false, canceled: true };
+  const chosen = path.normalize(res.filePaths[0]);
+  customDataDir = chosen;
+  ensureDataSubdirs();
+  try {
+    await fs.writeFile(getStorageConfigFile(), JSON.stringify({ folder: chosen }, null, 2), 'utf8');
+  } catch {}
+  return { ok: true, folder: chosen };
+});
+
+ipcMain.handle('open-app-storage-folder', async () => {
+  try {
+    ensureDataSubdirs();
+    await shell.openPath(dataRoot());
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: String(err?.message || err) };
   }
 });
 
