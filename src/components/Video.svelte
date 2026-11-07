@@ -3,7 +3,7 @@
   // right-side resizable study sidebar with 5 tabs (videos, bookmarks, captures, transcript, editor),
   // in-place screenshot markup annotation, active subtitle sentence highlighting,
   // and fullscreen auto-hiding study dock.
-  import { onDestroy, tick, untrack } from 'svelte';
+  import { onMount, onDestroy, tick, untrack } from 'svelte';
   import Icon from './Icon.svelte';
   import EmptyState from './EmptyState.svelte';
   import VideoAnnotationModal from './VideoAnnotationModal.svelte';
@@ -11,7 +11,7 @@
   import { readPdfBytes } from '../lib/storage.js';
   import { SPEEDS, clampSeek, formatTimecode, frameCaptureRecord } from '../lib/media.js';
   import { canvasCapture, loadImageQuality } from '../lib/imageQuality.js';
-  import { setBookmarks, setPlaybackPosition, upsertDocument, listPlaylists, upsertPlaylist, removePlaylist, addVideoToPlaylist, removeVideoFromPlaylist, moveVideoInPlaylist } from '../lib/library.js';
+  import { setBookmarks, setPlaybackPosition, upsertDocument, getDocument, listPlaylists, upsertPlaylist, removePlaylist, addVideoToPlaylist, removeVideoFromPlaylist, moveVideoInPlaylist } from '../lib/library.js';
   import { flattenBookmarkTree, indentBookmark, outdentBookmark, toggleBookmarkCollapse } from '../lib/bookmarks.js';
   import {
     parseYouTube, youtubeDocId,
@@ -148,6 +148,27 @@
   let creatingPlaylist = $state(false);
   let pickerTab = $state('individual'); // 'individual' | 'playlists'
   const individualVideos = $derived((videos || []).filter((v) => !v.playlistId && !v.isPlaylistChild));
+
+  function resolveVideoDoc(id) {
+    if (!id) return null;
+    return (videos || []).find((v) => v.id === id) || getDocument(id) || null;
+  }
+
+  $effect(() => {
+    void videos;
+    playlists = listPlaylists();
+  });
+
+  onMount(() => {
+    const handleLibChange = () => {
+      playlists = listPlaylists();
+      refreshDocs?.();
+    };
+    window.addEventListener('studyos:library-changed', handleLibChange);
+    return () => {
+      window.removeEventListener('studyos:library-changed', handleLibChange);
+    };
+  });
 
   // Transcript panel
   let transcriptOpen = $state(false);
@@ -417,8 +438,12 @@
     activePlaylistId = pl.id;
     playlistPlayingIndex = 0;
     const firstVidId = pl.videoIds[0];
-    const target = videos.find((v) => v.id === firstVidId);
-    if (target) openVideo(target);
+    const target = resolveVideoDoc(firstVidId);
+    if (target) {
+      openVideo(target);
+      sidebarTab = 'playlists';
+      sidebarOpen = true;
+    }
   }
 
   function playPlaylistIndex(pl, idx) {
@@ -426,7 +451,7 @@
     activePlaylistId = pl.id;
     playlistPlayingIndex = idx;
     const vidId = pl.videoIds[idx];
-    const target = videos.find((v) => v.id === vidId);
+    const target = resolveVideoDoc(vidId);
     if (target) openVideo(target);
   }
 
@@ -2127,7 +2152,7 @@
             {#if activePlaylistId}
               {@const currentPl = playlists.find((p) => p.id === activePlaylistId)}
               {@const plVideoIds = currentPl?.videoIds || []}
-              {@const plVideos = plVideoIds.map((id) => videos.find((v) => v.id === id)).filter(Boolean)}
+              {@const plVideos = plVideoIds.map((id) => resolveVideoDoc(id)).filter(Boolean)}
               <div class="panel-header hstack" style="justify-content:space-between">
                 <button class="small hstack" onclick={() => (activePlaylistId = '')}>
                   <Icon name="chevron-left" size={14} /><span>{t('projects.back')}</span>

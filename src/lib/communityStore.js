@@ -25,17 +25,48 @@ export async function ensureFreshCommunityData() {
   } catch {}
 }
 
-export async function clearAllCommunityData() {
-  try {
-    const existing = await listCommunitySharesDb();
-    for (const item of existing) {
-      await deleteCommunityShareDb(item.id);
-    }
-    localStorage.removeItem(VIEWS_STORAGE_KEY);
-    return true;
-  } catch {
-    return false;
-  }
+export async function updateCommunityShare(shareId, updatedData) {
+  const existingList = await listCommunitySharesDb();
+  const existing = existingList.find((s) => s.id === shareId);
+  if (!existing) return null;
+
+  const user = getCurrentUser();
+  const isAnonymous = updatedData.isAnonymous !== undefined ? Boolean(updatedData.isAnonymous) : existing.isAnonymous;
+  const authorName = isAnonymous
+    ? 'مشارك مجهول (Anonymous)'
+    : (updatedData.author || user?.name || user?.username || existing.author || 'طالب مَكِين');
+
+  const authorAvatar = isAnonymous ? '' : (user?.avatar || existing.authorAvatar || '');
+  const isPaid = updatedData.isPaid !== undefined ? Boolean(updatedData.isPaid) : existing.isPaid;
+  const price = isPaid ? Math.max(0, Math.round(Number(updatedData.price ?? existing.price) * 100) / 100) : 0;
+
+  const merged = {
+    ...existing,
+    ...updatedData,
+    id: shareId,
+    author: authorName,
+    authorAvatar,
+    isAnonymous,
+    isPaid,
+    price,
+    items: Array.isArray(updatedData.items) ? updatedData.items : existing.items,
+    updatedAt: Date.now()
+  };
+
+  await putCommunityShare(merged);
+  return merged;
+}
+
+export async function deleteCommunityShare(shareId) {
+  await deleteCommunityShareDb(shareId);
+  return true;
+}
+
+export function isShareOwner(share, user) {
+  if (!share || !user) return false;
+  if (share.creatorId && user.id && String(share.creatorId) === String(user.id)) return true;
+  if (share.author && (share.author === user.name || share.author === user.username)) return true;
+  return false;
 }
 
 /**
@@ -141,7 +172,7 @@ export async function importShareToMyLibrary(share) {
       const ytId = vidMatch ? vidMatch[1] : '';
       const docId = `yt-video-${ytId || Math.random().toString(36).slice(2)}`;
 
-      upsertDocument({
+      const saved = upsertDocument({
         id: docId,
         kind: 'video',
         provider: ytId ? 'youtube' : 'local',
@@ -157,7 +188,9 @@ export async function importShareToMyLibrary(share) {
         playlistId,
         isPlaylistChild: true // Stays in Playlists tab, avoids polluting flat individual videos
       });
-      childVideoIds.push(docId);
+      if (saved?.id) {
+        childVideoIds.push(saved.id);
+      }
     }
 
     upsertPlaylist({

@@ -9,9 +9,11 @@
   import {
     listCommunityShares,
     publishCommunityShare,
+    updateCommunityShare,
+    deleteCommunityShare,
+    isShareOwner,
     importShareToMyLibrary,
-    recordShareVisit,
-    clearAllCommunityData
+    recordShareVisit
   } from '../lib/communityStore.js';
   import {
     isContentUnlocked,
@@ -23,15 +25,25 @@
   } from '../lib/sessionStore.js';
   import { getCurrentUser } from '../lib/auth.js';
 
-  let { notify = () => {}, onOpenView = () => {}, onRequestAuth = () => {} } = $props();
+  let {
+    notify = () => {},
+    onOpenView = () => {},
+    onRequestAuth = () => {},
+    onImported = () => {},
+    onOpenVideoDirectly = () => {}
+  } = $props();
 
   let shares = $state([]);
   let searchQuery = $state('');
   let activeFilter = $state('all'); // 'all' | 'playlist' | 'pdf' | 'cards' | 'notes' | 'video'
   let activeSort = $state('popular'); // 'popular' | 'rating' | 'newest'
 
-  // Sharing Modal State
+  // Dedicated Course / Playlist Details View State
+  let selectedShareDetails = $state(null);
+
+  // Sharing & Edit Modal State
   let isShareModalOpen = $state(false);
+  let editingShareId = $state(null); // When editing existing share
   let newShareType = $state('playlist'); // 'playlist' | 'pdf' | 'cards' | 'video' | 'notes'
   let newShareTitle = $state('');
   let newShareAuthor = $state('');
@@ -42,6 +54,8 @@
   let newShareIsAnonymous = $state(false);
   let newShareFile = $state(null);
   let newShareItems = $state([]); // [{ title, url, isFreePreview: true }]
+  let newVideoUrlInput = $state('');
+  let newVideoTitleInput = $state('');
   let isPublishing = $state(false);
 
   // Payment / Receipt Upload Modal State
@@ -117,6 +131,8 @@
     try {
       const res = await importShareToMyLibrary(share);
       if (res.ok) {
+        window.dispatchEvent(new CustomEvent('studyos:library-changed'));
+        onImported?.(res);
         notify(t('community.addedToLibrary') || 'تمت الإضافة إلى مكتبتك بنجاح!', 'ok');
         await reload();
       }
@@ -216,30 +232,138 @@
     reviewComment = '';
   }
 
+  function openCreateShare() {
+    editingShareId = null;
+    newShareType = 'playlist';
+    newShareTitle = '';
+    newShareAuthor = currentUser?.name || '';
+    newShareDescription = '';
+    newShareUrls = '';
+    newShareFile = null;
+    newShareIsPaid = false;
+    newSharePrice = 50;
+    newShareIsAnonymous = false;
+    newShareItems = [];
+    newVideoUrlInput = '';
+    newVideoTitleInput = '';
+    isShareModalOpen = true;
+  }
+
+  function openEditShare(share) {
+    editingShareId = share.id;
+    newShareType = share.type || 'playlist';
+    newShareTitle = share.title || '';
+    newShareAuthor = share.author || '';
+    newShareDescription = share.description || '';
+    newShareIsPaid = !!share.isPaid;
+    newSharePrice = share.price || 50;
+    newShareIsAnonymous = !!share.isAnonymous;
+    newShareFile = null;
+    newShareItems = Array.isArray(share.items) && share.items.length > 0
+      ? JSON.parse(JSON.stringify(share.items))
+      : (share.playlistData?.videoUrls || []).map((u, i) => ({
+          title: `${share.title || 'فيديو'} - درس ${i + 1}`,
+          url: u,
+          isFreePreview: i === 0 || !share.isPaid
+        }));
+    newShareUrls = newShareItems.map((it) => it.url).join('\n');
+    newVideoUrlInput = '';
+    newVideoTitleInput = '';
+    isShareModalOpen = true;
+  }
+
+  async function handleDeleteShare(share) {
+    if (!confirm(`هل أنت متأكد من حذف "${share.title}" من المجتمع نهائياً؟`)) return;
+    try {
+      await deleteCommunityShare(share.id);
+      notify('تم حذف المشاركة من المجتمع بنجاح', 'ok');
+      if (selectedShareDetails?.id === share.id) {
+        selectedShareDetails = null;
+      }
+      await reload();
+    } catch (err) {
+      notify(String(err.message || err), 'error');
+    }
+  }
+
+  function addPlaylistItem() {
+    const url = newVideoUrlInput.trim();
+    if (!url) return;
+    const title = newVideoTitleInput.trim() || `درس ${newShareItems.length + 1}`;
+    newShareItems = [
+      ...newShareItems,
+      {
+        title,
+        url,
+        isFreePreview: newShareItems.length === 0 || !newShareIsPaid
+      }
+    ];
+    newVideoUrlInput = '';
+    newVideoTitleInput = '';
+  }
+
+  function removePlaylistItem(idx) {
+    newShareItems = newShareItems.filter((_, i) => i !== idx);
+  }
+
+  function movePlaylistItem(idx, delta) {
+    const target = idx + delta;
+    if (target < 0 || target >= newShareItems.length) return;
+    const copy = [...newShareItems];
+    const temp = copy[idx];
+    copy[idx] = copy[target];
+    copy[target] = temp;
+    newShareItems = copy;
+  }
+
+  function togglePlaylistItemPreview(idx) {
+    newShareItems = newShareItems.map((it, i) =>
+      i === idx ? { ...it, isFreePreview: !it.isFreePreview } : it
+    );
+  }
+
+  function convertUrlsToItems() {
+    const rawUrls = newShareUrls.split('\n').map((u) => u.trim()).filter(Boolean);
+    if (!rawUrls.length) return;
+    const existingUrls = new Set(newShareItems.map((it) => it.url));
+    const added = [];
+    rawUrls.forEach((u) => {
+      if (!existingUrls.has(u)) {
+        added.push({
+          title: `${newShareTitle.trim() || 'فيديو'} - درس ${newShareItems.length + added.length + 1}`,
+          url: u,
+          isFreePreview: (newShareItems.length + added.length) === 0 || !newShareIsPaid
+        });
+      }
+    });
+    newShareItems = [...newShareItems, ...added];
+  }
+
   async function handlePublish() {
     if (!newShareTitle.trim()) return;
 
     isPublishing = true;
     try {
       let playlistData = null;
-      let items = [];
+      let items = [...newShareItems];
 
       if (newShareType === 'playlist' || newShareType === 'video') {
-        const rawUrls = newShareUrls.split('\n').map((u) => u.trim()).filter(Boolean);
-        const finalUrls = rawUrls.length ? rawUrls : ['https://www.youtube.com/watch?v=zOjov-2OZ0E'];
+        if (items.length === 0) {
+          const rawUrls = newShareUrls.split('\n').map((u) => u.trim()).filter(Boolean);
+          const finalUrls = rawUrls.length ? rawUrls : ['https://www.youtube.com/watch?v=zOjov-2OZ0E'];
+          items = finalUrls.map((u, i) => ({
+            title: `${newShareTitle.trim()} - درس ${i + 1}`,
+            url: u,
+            isFreePreview: i === 0 || !newShareIsPaid
+          }));
+        }
         playlistData = {
           title: newShareTitle.trim(),
-          videoUrls: finalUrls
+          videoUrls: items.map((it) => it.url)
         };
-        // By default, the first item is marked as Free Preview so learners can try it
-        items = finalUrls.map((u, i) => ({
-          title: `${newShareTitle.trim()} - درس ${i + 1}`,
-          url: u,
-          isFreePreview: i === 0 || !newShareIsPaid
-        }));
       }
 
-      await publishCommunityShare({
+      const payload = {
         type: newShareType,
         title: newShareTitle.trim(),
         author: newShareAuthor.trim(),
@@ -251,8 +375,17 @@
         items,
         playlistData,
         pdfData: newShareFile ? { name: newShareFile.name, size: newShareFile.size } : null
-      });
+      };
 
+      if (editingShareId) {
+        await updateCommunityShare(editingShareId, payload);
+        notify('تم تحديث المحتوى في المجتمع بنجاح!', 'ok');
+      } else {
+        await publishCommunityShare(payload);
+        notify(t('community.publishedSuccess') || 'تم نشر المحتوى بنجاح في المجتمع المفتوح!', 'ok');
+      }
+
+      editingShareId = null;
       newShareTitle = '';
       newShareAuthor = '';
       newShareDescription = '';
@@ -260,21 +393,19 @@
       newShareFile = null;
       newShareIsPaid = false;
       newShareIsAnonymous = false;
+      newShareItems = [];
+      newVideoUrlInput = '';
+      newVideoTitleInput = '';
       isShareModalOpen = false;
       await reload();
-      notify(t('community.publishedSuccess') || 'تم نشر المحتوى بنجاح في المجتمع المفتوح!', 'ok');
+      if (selectedShareDetails && selectedShareDetails.id === editingShareId) {
+        selectedShareDetails = shares.find((s) => s.id === editingShareId) || null;
+      }
     } catch (e) {
       notify(String(e.message || e), 'error');
     } finally {
       isPublishing = false;
     }
-  }
-
-  async function handleClearData() {
-    if (!confirm(t('community.clearDataConfirm') || 'هل أنت متأكد من حذف كافة بيانات المجتمع؟')) return;
-    await clearAllCommunityData();
-    await reload();
-    notify('تم مسح بيانات المجتمع بنجاح', 'ok');
   }
 
   function typeIcon(type) {
@@ -316,13 +447,9 @@
         </button>
       {/if}
 
-      <button class="primary share-trigger-btn hstack" onclick={() => (isShareModalOpen = true)}>
+      <button class="primary share-trigger-btn hstack" onclick={openCreateShare}>
         <Icon name="plus" size={16} />
         <span>{t('community.shareContent')}</span>
-      </button>
-
-      <button class="icon-btn danger" onclick={handleClearData} title="مسح محتوى المجتمع والبدء من جديد">
-        <Icon name="trash" size={16} />
       </button>
     </div>
   </header>
@@ -415,12 +542,179 @@
   </div>
 
   <!-- Shares Grid -->
-  {#if filteredShares.length === 0}
+  <!-- Course / Playlist Dedicated Details View -->
+  {#if selectedShareDetails}
+    {@const share = selectedShareDetails}
+    {@const unlocked = isContentUnlocked(share, currentUser)}
+    {@const isOwner = isShareOwner(share, currentUser)}
+    <div class="share-details-page">
+      <div class="details-nav-bar hstack" style="justify-content:space-between; margin-bottom:16px;">
+        <button class="secondary hstack" onclick={() => (selectedShareDetails = null)}>
+          <Icon name={ui.dir === 'rtl' ? 'arrow-right' : 'arrow-left'} size={15} />
+          <span>{ui.lang === 'ar' ? 'العودة إلى قائمة المجتمع' : 'Back to Community'}</span>
+        </button>
+
+        {#if isOwner}
+          <div class="hstack" style="gap:8px;">
+            <button class="secondary small hstack" onclick={() => openEditShare(share)}>
+              <Icon name="pencil" size={14} />
+              <span>{ui.lang === 'ar' ? 'تعديل المحتوى' : 'Edit Share'}</span>
+            </button>
+            <button class="danger small hstack" onclick={() => handleDeleteShare(share)}>
+              <Icon name="trash" size={14} />
+              <span>{ui.lang === 'ar' ? 'حذف من المجتمع' : 'Delete'}</span>
+            </button>
+          </div>
+        {/if}
+      </div>
+
+      <!-- Hero Header Card -->
+      <div class="details-hero card">
+        <div class="details-hero-layout" style="display:flex; gap:20px; flex-wrap:wrap; align-items:flex-start;">
+          <div class="details-hero-thumb-wrapper" style="width:240px; max-width:100%; border-radius:10px; overflow:hidden; border:1px solid var(--border); flex-shrink:0;">
+            {#if share.thumbnail}
+              <img src={share.thumbnail} alt={share.title} style="width:100%; height:160px; object-fit:cover; display:block;" />
+            {:else}
+              <div style="width:100%; height:160px; display:flex; align-items:center; justify-content:center; background:var(--surface-2);">
+                <Icon name={typeIcon(share.type)} size={48} />
+              </div>
+            {/if}
+          </div>
+
+          <div class="details-hero-info" style="flex:1; min-width:280px;">
+            <div class="hstack" style="gap:8px; margin-bottom:8px; flex-wrap:wrap;">
+              <span class="type-badge-pill hstack" style="padding:3px 10px; background:var(--surface-2); border-radius:999px; font-size:12px; gap:5px;">
+                <Icon name={typeIcon(share.type)} size={12} />
+                <span>{typeLabel(share.type)}</span>
+              </span>
+
+              {#if share.isPaid}
+                <span class="price-badge-pill {unlocked ? 'unlocked' : 'locked'}" style="padding:3px 10px; border-radius:999px; font-size:12px; font-weight:700; background:{unlocked ? '#27ae60' : 'var(--accent)'}; color:#fff;">
+                  {unlocked ? (ui.lang === 'ar' ? 'مُفعل بحسابك' : 'Enrolled') : `${share.price} ${share.currency || 'EGP'}`}
+                </span>
+              {:else}
+                <span class="price-badge-pill free" style="padding:3px 10px; border-radius:999px; font-size:12px; font-weight:700; background:var(--surface-2); color:var(--text);">
+                  {t('community.free')}
+                </span>
+              {/if}
+            </div>
+
+            <h2 class="details-title" style="margin:0 0 10px; font-size:20px;">{share.title}</h2>
+
+            <div class="details-author-row hstack" style="gap:12px; margin-bottom:12px; font-size:13px;">
+              <span class="muted">{ui.lang === 'ar' ? 'المشارك:' : 'Creator:'}</span>
+              <strong style="color:var(--text);">{share.author}</strong>
+              <span class="meta-dot">·</span>
+              <button class="review-stat-btn hstack" onclick={() => openReviewsModal(share)} style="background:transparent; border:none; cursor:pointer; color:var(--text); gap:4px; padding:0;">
+                <Icon name="star" size={13} />
+                <span>{Number(share.rating || 5).toFixed(1)}</span>
+              </button>
+              <span class="meta-dot">·</span>
+              <span class="stat-item hstack" style="gap:4px; color:var(--muted);">
+                <Icon name="eye" size={13} />
+                <span>{share.visits || 1} {ui.lang === 'ar' ? 'زيارة' : 'views'}</span>
+              </span>
+            </div>
+
+            <p class="details-desc muted" style="font-size:13.5px; line-height:1.6; margin:0 0 16px; white-space:pre-wrap;">{share.description || 'لا يوجد وصف مضاف لهذا المحتوى.'}</p>
+
+            <div class="details-actions-bar hstack" style="gap:10px; flex-wrap:wrap;">
+              {#if share.isPaid && !unlocked}
+                <button class="primary hstack" onclick={() => openPaymentModal(share)}>
+                  <Icon name="upload" size={14} />
+                  <span>{ui.lang === 'ar' ? 'شراء ورفع إيصال الدفع' : 'Enroll / Upload Receipt'}</span>
+                </button>
+              {/if}
+
+              <button
+                class="{share.isPaid && !unlocked ? 'secondary' : 'primary'} hstack"
+                onclick={() => handleImport(share)}
+                disabled={importingId === share.id}
+              >
+                <Icon name={importingId === share.id ? 'check' : 'plus'} size={14} />
+                <span>{importingId === share.id ? (ui.lang === 'ar' ? 'تمت الإضافة' : 'Added') : (ui.lang === 'ar' ? 'استيراد إلى قوائمي' : 'Import to My Playlists')}</span>
+              </button>
+
+              <button class="secondary hstack" onclick={() => openReviewsModal(share)}>
+                <Icon name="star" size={14} />
+                <span>{ui.lang === 'ar' ? 'التقييمات والآراء' : 'Reviews'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Curriculum / Videos List Section -->
+      <div class="curriculum-card card" style="margin-top:20px; padding:18px;">
+        <div class="curriculum-header hstack" style="justify-content:space-between; margin-bottom:14px; flex-wrap:wrap; gap:8px;">
+          <div class="hstack" style="gap:8px;">
+            <Icon name="video" size={18} />
+            <h3 style="margin:0; font-size:16px;">
+              {ui.lang === 'ar' ? 'فيديوهات ودروس القائمة' : 'Course Lessons'} ({share.items?.length || share.playlistData?.videoUrls?.length || 1})
+            </h3>
+          </div>
+          <small class="muted">
+            {unlocked ? (ui.lang === 'ar' ? 'كافة الدروس مفتوحة لك للمشاهدة' : 'All lessons unlocked') : (ui.lang === 'ar' ? 'الدروس المميزة بـ "معاينة مجانية" متاحة للجميع' : 'Preview lessons are free to watch')}
+          </small>
+        </div>
+
+        <div class="curriculum-list" style="display:flex; flex-direction:column; gap:8px;">
+          {#each (share.items || (share.playlistData?.videoUrls || []).map((u, i) => ({ title: `${share.title} - درس ${i + 1}`, url: u, isFreePreview: i === 0 || !share.isPaid }))) as subItem, idx}
+            {@const canWatch = unlocked || subItem.isFreePreview || !share.isPaid}
+            <div class="curriculum-item-row card hstack" style="padding:10px 14px; gap:12px; background:var(--surface-2); border:1px solid var(--border); border-radius:8px; align-items:center;">
+              <div class="lesson-num-badge" style="width:26px; height:26px; border-radius:50%; background:var(--surface-1); border:1px solid var(--border); display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700;">
+                {idx + 1}
+              </div>
+
+              <div class="lesson-info" style="flex:1; min-width:0;">
+                <div class="lesson-title hstack" style="gap:8px; margin-bottom:3px; flex-wrap:wrap;">
+                  <span style="font-weight:600; font-size:13.5px;">{subItem.title}</span>
+                  {#if subItem.isFreePreview && share.isPaid}
+                    <span class="preview-tag-chip" style="padding:2px 8px; border-radius:999px; font-size:11px; background:#27ae6022; color:#27ae60; font-weight:700;">
+                      {ui.lang === 'ar' ? 'معاينة مجانية' : 'Free Preview'}
+                    </span>
+                  {:else if !canWatch}
+                    <span class="locked-tag-chip hstack" style="padding:2px 8px; border-radius:999px; font-size:11px; background:var(--surface-1); border:1px solid var(--border); color:var(--muted); gap:4px;">
+                      <Icon name="lock" size={11} />
+                      <span>{ui.lang === 'ar' ? 'مغلق للمشتركين' : 'Locked'}</span>
+                    </span>
+                  {/if}
+                </div>
+                <div class="lesson-url muted" style="font-size:11.5px; direction:ltr; text-align:left; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                  {subItem.url}
+                </div>
+              </div>
+
+              <div class="lesson-action">
+                {#if canWatch}
+                  <button
+                    class="primary small hstack"
+                    onclick={() => onOpenVideoDirectly({ url: subItem.url, title: subItem.title, docId: share.id })}
+                  >
+                    <Icon name="play" size={13} />
+                    <span>{ui.lang === 'ar' ? 'تشغيل' : 'Play'}</span>
+                  </button>
+                {:else}
+                  <button
+                    class="secondary small hstack"
+                    onclick={() => openPaymentModal(share)}
+                  >
+                    <Icon name="lock" size={13} />
+                    <span>{ui.lang === 'ar' ? 'فتح الدرس' : 'Unlock'}</span>
+                  </button>
+                {/if}
+              </div>
+            </div>
+          {/each}
+        </div>
+      </div>
+    </div>
+  {:else if filteredShares.length === 0}
     <div class="empty-state card">
       <Icon name="globe" size={42} />
       <h3>{t('community.empty')}</h3>
       <p class="muted">كن أول من يشارك محتوى تعليمي مفيد مع زملائك بالضغط على زر "مشاركة محتوى في المجتمع".</p>
-      <button class="primary mt" onclick={() => (isShareModalOpen = true)}>
+      <button class="primary mt" onclick={openCreateShare}>
         <Icon name="plus" size={15} />
         <span>{t('community.shareContent')}</span>
       </button>
@@ -429,14 +723,44 @@
     <div class="shares-grid">
       {#each filteredShares as item (item.id)}
         {@const unlocked = isContentUnlocked(item, currentUser)}
-        <div class="share-card card">
+        {@const isOwner = isShareOwner(item, currentUser)}
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
+        <div
+          class="share-card card clickable-card"
+          role="button"
+          tabindex="0"
+          onclick={() => { selectedShareDetails = item; recordShareVisit(item.id); }}
+        >
           <!-- Thumbnail & Badges -->
-          <div class="share-media-container">
+          <div class="share-media-container" style="position:relative;">
             {#if item.thumbnail}
               <img src={item.thumbnail} alt={item.title} class="share-thumb-img" loading="lazy" />
             {:else}
               <div class="share-thumb-placeholder">
                 <Icon name={typeIcon(item.type)} size={32} />
+              </div>
+            {/if}
+
+            {#if isOwner}
+              <div class="owner-floating-actions hstack" style="position:absolute; top:8px; right:8px; z-index:4; gap:4px; background:rgba(0,0,0,0.65); padding:3px 6px; border-radius:6px;">
+                <button
+                  type="button"
+                  class="icon-btn small"
+                  style="color:#fff;"
+                  title="تعديل المشاركة"
+                  onclick={(e) => { e.stopPropagation(); openEditShare(item); }}
+                >
+                  <Icon name="pencil" size={12} />
+                </button>
+                <button
+                  type="button"
+                  class="icon-btn danger small"
+                  style="color:#ff6b6b;"
+                  title="حذف المشاركة"
+                  onclick={(e) => { e.stopPropagation(); handleDeleteShare(item); }}
+                >
+                  <Icon name="trash" size={12} />
+                </button>
               </div>
             {/if}
 
@@ -499,7 +823,11 @@
 
           <div class="share-card-footer">
             <div class="share-stats hstack">
-              <button class="review-stat-btn hstack" onclick={() => openReviewsModal(item)} title="عرض التقييمات والآراء">
+              <button
+                class="review-stat-btn hstack"
+                onclick={(e) => { e.stopPropagation(); openReviewsModal(item); }}
+                title="عرض التقييمات والآراء"
+              >
                 <Icon name="star" size={13} />
                 <span>{Number(item.rating || 5).toFixed(1)}</span>
               </button>
@@ -514,7 +842,7 @@
               {#if item.isPaid && !unlocked}
                 <button
                   class="secondary small buy-btn hstack"
-                  onclick={() => openPaymentModal(item)}
+                  onclick={(e) => { e.stopPropagation(); openPaymentModal(item); }}
                 >
                   <Icon name="upload" size={13} />
                   <span>شراء / رفع إيصال</span>
@@ -523,7 +851,7 @@
 
               <button
                 class="primary small import-btn hstack"
-                onclick={() => handleImport(item)}
+                onclick={(e) => { e.stopPropagation(); handleImport(item); }}
                 disabled={importingId === item.id}
               >
                 <Icon name={importingId === item.id ? 'check' : (item.isPaid && !unlocked ? 'unlock' : 'plus')} size={14} />
@@ -544,14 +872,14 @@
     </div>
   {/if}
 
-  <!-- 1. SHARE CONTENT MODAL DIALOG -->
+  <!-- 1. SHARE / EDIT CONTENT MODAL DIALOG -->
   {#if isShareModalOpen}
     <div class="modal-backdrop" onclick={() => (isShareModalOpen = false)} role="presentation"></div>
-    <div class="share-modal card" role="dialog" aria-modal="true" aria-label={t('community.shareModalTitle')}>
+    <div class="share-modal card" role="dialog" aria-modal="true" aria-label={editingShareId ? 'تعديل مشاركة المجتمع' : t('community.shareModalTitle')}>
       <div class="modal-header">
         <div class="hstack" style="gap:8px;">
-          <Icon name="globe" size={18} />
-          <h3>{t('community.shareModalTitle')}</h3>
+          <Icon name={editingShareId ? 'pencil' : 'globe'} size={18} />
+          <h3>{editingShareId ? (ui.lang === 'ar' ? 'تعديل المحتوى المشترك' : 'Edit Shared Content') : t('community.shareModalTitle')}</h3>
         </div>
         <button class="icon-btn" onclick={() => (isShareModalOpen = false)}>
           <Icon name="x" size={16} />
@@ -619,15 +947,116 @@
 
         <!-- Dynamic Content Inputs -->
         {#if newShareType === 'playlist' || newShareType === 'video'}
-          <label class="field-label" for="share-urls">
-            روابط الفيديوهات (رابط لكل سطر — يدعم يوتيوب، وفيديوهات غير مدرجة Unlisted)
-          </label>
-          <textarea
-            id="share-urls"
-            rows="4"
-            placeholder="https://www.youtube.com/watch?v=...&#10;https://www.youtube.com/watch?v=..."
-            bind:value={newShareUrls}
-          ></textarea>
+          <div class="playlist-interactive-editor card" style="margin: 12px 0; padding: 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px;">
+            <div class="hstack" style="justify-content:space-between; margin-bottom:10px;">
+              <label class="field-label" style="margin:0; font-weight:700;">
+                {newShareType === 'playlist' ? 'قائمة فيديوهات الكورس (إضافة وترتيب وتحديد المجاني)' : 'فيديو الدرس'}
+              </label>
+              <span class="badge-pill">{newShareItems.length} فيديو</span>
+            </div>
+
+            <!-- Single Video Quick Add -->
+            <div class="add-video-grid" style="display:grid; grid-template-columns: 1fr 1.5fr auto; gap: 8px; margin-bottom: 12px;">
+              <input
+                type="text"
+                placeholder="عنوان الدرس (مثال: الدرس 1: مقدمة)"
+                bind:value={newVideoTitleInput}
+              />
+              <input
+                type="text"
+                placeholder="رابط يوتيوب (يدعم unlisted)"
+                bind:value={newVideoUrlInput}
+                onkeydown={(e) => { if (e.key === 'Enter') addPlaylistItem(); }}
+              />
+              <button type="button" class="primary small hstack" onclick={addPlaylistItem}>
+                <Icon name="plus" size={13} />
+                <span>إضافة</span>
+              </button>
+            </div>
+
+            <!-- Bulk Paste Accordion / Field -->
+            <details class="bulk-urls-accordion" style="margin-bottom: 12px;">
+              <summary class="muted" style="cursor:pointer; font-size:12px; user-select:none;">
+                + أو استيراد روابط متعددة معاً (رابط لكل سطر)
+              </summary>
+              <div style="margin-top:8px;">
+                <textarea
+                  rows="3"
+                  placeholder="https://www.youtube.com/watch?v=...&#10;https://www.youtube.com/watch?v=..."
+                  bind:value={newShareUrls}
+                ></textarea>
+                <button type="button" class="secondary small mt" onclick={convertUrlsToItems}>
+                  تحويل الروابط إلى قائمة قابلة للترتيب
+                </button>
+              </div>
+            </details>
+
+            <!-- Reorderable List of Playlist Items -->
+            {#if newShareItems.length === 0}
+              <div class="empty-items-hint muted" style="text-align:center; padding:16px; border:1px dashed var(--border); border-radius:6px; font-size:12.5px;">
+                لم يتم إضافة فيديوهات بعد. أدخل رابط يوتيوب واضغط "إضافة" أعلاه.
+              </div>
+            {:else}
+              <div class="playlist-items-table" style="display:flex; flex-direction:column; gap:6px; max-height:260px; overflow-y:auto;">
+                {#each newShareItems as it, idx}
+                  <div class="playlist-item-row card hstack" style="padding:6px 10px; gap:8px; background:var(--surface-1); border:1px solid var(--border); border-radius:6px; align-items:center;">
+                    <!-- Order Reorder Controls -->
+                    <div class="reorder-btns hstack" style="gap:2px;">
+                      <button
+                        type="button"
+                        class="icon-btn small"
+                        disabled={idx === 0}
+                        title="تحريك لأعلى"
+                        onclick={() => movePlaylistItem(idx, -1)}
+                      >
+                        <Icon name="chevron-up" size={13} />
+                      </button>
+                      <button
+                        type="button"
+                        class="icon-btn small"
+                        disabled={idx === newShareItems.length - 1}
+                        title="تحريك لأسفل"
+                        onclick={() => movePlaylistItem(idx, 1)}
+                      >
+                        <Icon name="chevron-down" size={13} />
+                      </button>
+                    </div>
+
+                    <span class="item-order-idx" style="font-size:12px; font-weight:700; min-width:20px; text-align:center;">{idx + 1}</span>
+
+                    <!-- Editable Title -->
+                    <input
+                      type="text"
+                      style="flex:1; min-width:140px; padding:4px 8px; font-size:12.5px;"
+                      bind:value={it.title}
+                      placeholder="عنوان الفيديو"
+                    />
+
+                    <!-- Visibility Toggle (Free Preview vs Restricted) -->
+                    <button
+                      type="button"
+                      class="visibility-toggle-btn hstack {it.isFreePreview ? 'preview-mode' : 'locked-mode'}"
+                      onclick={() => togglePlaylistItemPreview(idx)}
+                      title={it.isFreePreview ? 'متاح للمعاينة المجانية لكافة الطلاب' : 'مغلق ومخصص فقط للمشتركين بعد الدفع'}
+                    >
+                      <Icon name={it.isFreePreview ? 'unlock' : 'lock'} size={12} />
+                      <span>{it.isFreePreview ? 'معاينة مجانية' : 'مغلق للمشتركين'}</span>
+                    </button>
+
+                    <!-- Remove Item -->
+                    <button
+                      type="button"
+                      class="icon-btn danger small"
+                      title="حذف هذا الفيديو من القائمة"
+                      onclick={() => removePlaylistItem(idx)}
+                    >
+                      <Icon name="trash" size={13} />
+                    </button>
+                  </div>
+                {/each}
+              </div>
+            {/if}
+          </div>
         {:else if newShareType === 'pdf'}
           <label class="field-label">رفع ملف المستند (PDF)</label>
           <input type="file" accept="application/pdf" onchange={handleFileSelected} />
@@ -696,8 +1125,16 @@
           onclick={handlePublish}
           disabled={!newShareTitle.trim() || isPublishing}
         >
-          <Icon name="upload" size={14} />
-          <span>{isPublishing ? 'جاري النشر…' : t('community.publishShare')}</span>
+          <Icon name={editingShareId ? 'check' : 'upload'} size={14} />
+          <span>
+            {#if isPublishing}
+              {ui.lang === 'ar' ? 'جاري الحفظ…' : 'Saving...'}
+            {:else if editingShareId}
+              {ui.lang === 'ar' ? 'حفظ التعديلات' : 'Save Changes'}
+            {:else}
+              {t('community.publishShare')}
+            {/if}
+          </span>
         </button>
       </div>
     </div>
@@ -1493,6 +1930,49 @@
     align-items: center;
     gap: 12px;
     color: var(--muted);
+  }
+
+  .clickable-card {
+    cursor: pointer;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+  }
+  .clickable-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
+  }
+
+  .visibility-toggle-btn {
+    border: none;
+    border-radius: 999px;
+    padding: 3px 10px;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    gap: 4px;
+    transition: all 0.15s ease;
+  }
+  .visibility-toggle-btn.preview-mode {
+    background: #27ae6022;
+    color: #27ae60;
+    border: 1px solid #27ae6088;
+  }
+  .visibility-toggle-btn.locked-mode {
+    background: var(--surface-2);
+    color: var(--muted);
+    border: 1px solid var(--border);
+  }
+  .visibility-toggle-btn:hover {
+    filter: brightness(1.1);
+  }
+
+  .share-details-page {
+    display: flex;
+    flex-direction: column;
+    animation: fadeIn 0.2s ease;
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
   }
 
   @media (max-width: 640px) {

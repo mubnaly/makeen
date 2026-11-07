@@ -309,9 +309,15 @@
       });
     }
 
+    const handleLibChange = () => {
+      docs = library.listDocuments();
+    };
+    window.addEventListener('studyos:library-changed', handleLibChange);
+
     return () => {
       stopDueReminderLoop();
       unsubscribeOpenPdf?.();
+      window.removeEventListener('studyos:library-changed', handleLibChange);
     };
   });
 
@@ -2209,6 +2215,13 @@
           {notify}
           onOpenView={(target) => nav(target)}
           onRequestAuth={() => (authOpen = true)}
+          onImported={() => { docs = library.listDocuments(); }}
+          onOpenVideoDirectly={(videoDoc) => {
+            if (videoDoc) {
+              activeVideo = { ...videoDoc };
+              view = 'Video';
+            }
+          }}
         />
 
       {:else if view === 'Trash'}
