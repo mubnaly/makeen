@@ -9,10 +9,35 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc;
 export { pdfjsLib };
 
 export async function loadDocument(bytes) {
-  // Copy to a fresh ArrayBuffer so PDF.js can take ownership without detaching
-  // a buffer the caller may reuse.
-  const copy = bytes.slice ? bytes.slice(0) : bytes;
-  return pdfjsLib.getDocument({ data: copy }).promise;
+  // Normalize any view/typed array into a clean standalone ArrayBuffer
+  let data;
+  if (bytes instanceof ArrayBuffer) {
+    data = bytes.slice(0);
+  } else if (ArrayBuffer.isView(bytes)) {
+    data = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+  } else if (bytes?.data && Array.isArray(bytes.data)) {
+    data = new Uint8Array(bytes.data).buffer;
+  } else if (Array.isArray(bytes)) {
+    data = new Uint8Array(bytes).buffer;
+  } else {
+    data = bytes;
+  }
+
+  try {
+    return await pdfjsLib.getDocument({ data }).promise;
+  } catch (err) {
+    console.warn('PDF.js worker initialization failed, falling back to main-thread parser:', err);
+    // If worker spawn is blocked by file:// origin or WebView2 custom protocol:
+    const prevSrc = pdfjsLib.GlobalWorkerOptions.workerSrc;
+    pdfjsLib.GlobalWorkerOptions.workerSrc = '';
+    try {
+      const doc = await pdfjsLib.getDocument({ data }).promise;
+      return doc;
+    } catch (fallbackErr) {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = prevSrc;
+      throw fallbackErr;
+    }
+  }
 }
 
 // Render one page into a canvas at scale * devicePixelRatio, CSS-sized to the

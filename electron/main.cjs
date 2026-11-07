@@ -12,14 +12,26 @@ const ytHelper = require('./yt-helper.cjs');
 const { startPlayerServer, stopPlayerServer, getPlayerOrigin } = require('./player-server.cjs');
 const { spawn } = require('child_process');
 
-function findPdfArg(argv) {
+app.setAppUserModelId('com.makeen.desktop');
+
+function findPdfArg(argv, workingDirectory = null) {
   if (!Array.isArray(argv)) return null;
-  for (const arg of argv) {
-    if (typeof arg === 'string') {
-      const clean = arg.trim().replace(/^"|"$/g, '');
-      if (/\.pdf$/i.test(clean)) {
-        return clean;
+  for (const raw of argv) {
+    if (typeof raw !== 'string') continue;
+    let clean = raw.trim().replace(/^["']|["']$/g, '');
+    if (!clean || clean.startsWith('--')) continue;
+    if (clean.startsWith('file://')) {
+      try {
+        const url = new URL(clean);
+        clean = decodeURIComponent(url.pathname);
+        if (process.platform === 'win32' && clean.startsWith('/')) clean = clean.slice(1);
+      } catch {}
+    }
+    if (/\.pdf$/i.test(clean)) {
+      if (workingDirectory && !path.isAbsolute(clean)) {
+        clean = path.resolve(workingDirectory, clean);
       }
+      return path.normalize(clean);
     }
   }
   return null;
@@ -34,7 +46,7 @@ async function loadPdfPayload(filePath) {
       ok: true,
       name: path.basename(filePath),
       path: filePath,
-      bytes: new Uint8Array(buffer)
+      bytes: new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength)
     };
   } catch (err) {
     return { ok: false, error: String(err?.message || err) };
@@ -46,13 +58,15 @@ let pendingInitialPdfPath = findPdfArg(process.argv);
 
 const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
-  app.quit();
+  app.exit(0);
+  process.exit(0);
 } else {
-  app.on('second-instance', async (_event, commandLine) => {
+  app.on('second-instance', async (_event, commandLine, workingDirectory) => {
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
       mainWindow.focus();
-      const pdfPath = findPdfArg(commandLine);
+      const pdfPath = findPdfArg(commandLine, workingDirectory);
       if (pdfPath) {
         const payload = await loadPdfPayload(pdfPath);
         if (payload.ok) mainWindow.webContents.send('open-pdf-file', payload);
@@ -79,6 +93,7 @@ app.on('open-file', async (event, filePath) => {
 // screenshot.
 app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
 app.commandLine.appendSwitch('disable-renderer-backgrounding');
+app.commandLine.appendSwitch('allow-file-access-from-files');
 
 // Memory optimizations: cap V8 heap to prevent runaway memory usage, enforce 1 renderer process, disable spare renderers
 app.commandLine.appendSwitch('js-flags', '--max-old-space-size=256');
@@ -172,6 +187,7 @@ function createWindow() {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
+      webSecurity: false,
       preload: path.join(__dirname, 'preload.cjs')
     }
   });
@@ -380,12 +396,32 @@ ipcMain.handle('load-sidecar', async (_e, { documentId }) => {
   }
 });
 
-ipcMain.handle('save-export', async (_e, { filename, dataBase64 }) => {
+ipcMain.handle('save-export', async (_e, { filename, dataBase64, showInFolder = true }) => {
   const folder = exportsDir();
   await fs.mkdir(folder, { recursive: true });
-  const output = path.join(folder, safeOutputName(filename, 'export.pdf'));
+  const output = path.join(folder, safeOutputName(filename, 'export.mp4'));
   await fs.writeFile(output, Buffer.from(String(dataBase64), 'base64'));
+  if (showInFolder) {
+    try {
+      shell.showItemInFolder(output);
+    } catch {}
+  }
   return { ok: true, path: output };
+});
+
+ipcMain.handle('show-item-in-folder', async (_e, itemPath) => {
+  try {
+    if (itemPath && fsSync.existsSync(itemPath)) {
+      shell.showItemInFolder(itemPath);
+      return { ok: true };
+    } else if (itemPath && fsSync.existsSync(path.dirname(itemPath))) {
+      shell.openPath(path.dirname(itemPath));
+      return { ok: true };
+    }
+    return { ok: false, error: 'File not found' };
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
 });
 
 // A YouTube frame cannot be read through the cross-origin iframe, but Electron

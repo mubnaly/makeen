@@ -7,6 +7,7 @@
   let { notify = () => {}, onclose = () => {} } = $props();
 
   let recordingState = $state('setup'); // 'setup' | 'recording' | 'paused' | 'saving'
+  let controlsExpanded = $state(false); // compact floating button by default, expandable on click
   let recordMode = $state('both'); // 'screen' | 'camera' | 'both'
   let cameraPosition = $state('bottom-left'); // 'bottom-left' | 'bottom-right'
   let includeMic = $state(true);
@@ -159,10 +160,14 @@
 
       dest.stream.getAudioTracks().forEach((track) => outputStream.addTrack(track));
 
-      // 7. MediaRecorder setup
-      const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')
-        ? 'video/webm;codecs=vp9,opus'
-        : 'video/webm';
+      // 7. MediaRecorder setup: prefer MP4 for universal video playback
+      const mimeType = MediaRecorder.isTypeSupported('video/mp4;codecs=avc1,mp4a.40.2')
+        ? 'video/mp4;codecs=avc1,mp4a.40.2'
+        : MediaRecorder.isTypeSupported('video/mp4')
+          ? 'video/mp4'
+          : MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')
+            ? 'video/webm;codecs=vp9,opus'
+            : 'video/webm';
 
       mediaRecorder = new MediaRecorder(outputStream, { mimeType });
       mediaRecorder.ondataavailable = (e) => {
@@ -175,6 +180,7 @@
 
       mediaRecorder.start(1000); // chunk every 1s
       recordingState = 'recording';
+      controlsExpanded = false; // start with small floating button
 
       timerInterval = setInterval(() => {
         elapsedSeconds += 1;
@@ -235,22 +241,26 @@
       return;
     }
 
-    const blob = new Blob(recordedChunks, { type: 'video/webm' });
+    const ext = (mediaRecorder?.mimeType && mediaRecorder.mimeType.includes('mp4')) ? 'mp4' : 'mp4';
+    const blob = new Blob(recordedChunks, { type: mediaRecorder?.mimeType || 'video/mp4' });
     const now = new Date();
     const pad = (n) => String(n).padStart(2, '0');
     const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
-    const filename = `Makeen_Recording_${timestamp}.webm`;
+    const filename = `Makeen_Recording_${timestamp}.${ext}`;
 
-    // 1. Try Desktop (Electron) direct save to Documents/Makeen
+    // 1. Try Desktop (Electron) direct save to Documents/Makeen & reveal in File Explorer
     const bridge = window.makeen || window.studyos;
     if (bridge?.saveExportFile) {
       try {
         const reader = new FileReader();
         reader.onload = async () => {
           const base64 = String(reader.result).split(',')[1];
-          const res = await bridge.saveExportFile(filename, base64);
+          const res = await bridge.saveExportFile(filename, base64, true);
           if (res?.ok) {
-            notify?.(t('recorder.savedTo', { path: res.path || 'Documents/Makeen' }) || `تم حفظ التسجيل في: ${res.path}`, 'ok');
+            if (res.path) {
+              bridge.showItemInFolder?.(res.path);
+            }
+            notify?.(`تم استخراج الفيديو وحفظه في: ${res.path}`, 'ok');
           } else {
             downloadBlobDirectly(blob, filename);
           }
@@ -258,7 +268,9 @@
         reader.readAsDataURL(blob);
         onclose?.();
         return;
-      } catch {}
+      } catch (err) {
+        console.error('Failed to save via desktop bridge', err);
+      }
     }
 
     // 2. Browser / Mobile Direct Download
@@ -390,46 +402,74 @@
     </div>
   </div>
 {:else}
-  <!-- Floating Live Recording Bar (Compact, professional floating overlay) -->
-  <div class="floating-recorder-bar" role="toolbar" aria-label="أدوات التسجيل">
-    <div class="rec-status-indicator hstack">
+  <!-- Floating Live Recording Widget (Small Button by default, clicks to expand controls) -->
+  {#if !controlsExpanded}
+    <button
+      type="button"
+      class="floating-recorder-pill"
+      onclick={() => (controlsExpanded = true)}
+      title="انقر لإظهار أدوات التحكم بالتسجيل (إيقاف، إيقاف مؤقت، متابعة)"
+      aria-label="أدوات التسجيل"
+    >
       <span class="rec-pulsing-dot {recordingState === 'paused' ? 'paused' : ''}"></span>
       <span class="rec-timer">{formatDuration(elapsedSeconds)}</span>
+      <span class="pill-expand-icon"><Icon name="chevron-up" size={13} /></span>
+    </button>
+  {:else}
+    <div class="floating-recorder-bar" role="toolbar" aria-label="أدوات التسجيل">
+      <div
+        class="rec-status-indicator hstack"
+        role="button"
+        tabindex="0"
+        onclick={() => (controlsExpanded = false)}
+        onkeydown={(e) => { if (e.key === 'Enter') controlsExpanded = false; }}
+        title="تصغير إلى زر صغير"
+        style="cursor:pointer;"
+      >
+        <span class="rec-pulsing-dot {recordingState === 'paused' ? 'paused' : ''}"></span>
+        <span class="rec-timer">{formatDuration(elapsedSeconds)}</span>
+      </div>
+
+      <div class="v-divider"></div>
+
+      <div class="hstack" style="gap:6px;">
+        {#if recordingState === 'recording'}
+          <button class="rec-control-btn" onclick={pauseRecording} title={t('recorder.pause')}>
+            <Icon name="pause" size={15} />
+          </button>
+        {:else if recordingState === 'paused'}
+          <button class="rec-control-btn active" onclick={resumeRecording} title={t('recorder.resume')}>
+            <Icon name="play" size={15} />
+          </button>
+        {/if}
+
+        <button class="rec-control-btn stop" onclick={stopRecording} title={t('recorder.stop')}>
+          <Icon name="square" size={14} />
+          <span style="font-weight:700; font-size:12px;">{t('recorder.stop')}</span>
+        </button>
+
+        {#if recordMode === 'both'}
+          <button
+            class="rec-control-btn"
+            onclick={() => (cameraPosition = cameraPosition === 'bottom-left' ? 'bottom-right' : 'bottom-left')}
+            title="تبديل موضع الكاميرا الدائرية"
+          >
+            <Icon name="camera" size={14} />
+          </button>
+        {/if}
+
+        <button class="rec-control-btn discard" onclick={discardRecording} title={t('recorder.discard')}>
+          <Icon name="trash" size={14} />
+        </button>
+
+        <div class="v-divider"></div>
+
+        <button class="rec-control-btn minimize" onclick={() => (controlsExpanded = false)} title="تصغير إلى زر صغير">
+          <Icon name="chevron-down" size={14} />
+        </button>
+      </div>
     </div>
-
-    <div class="v-divider"></div>
-
-    <div class="hstack" style="gap:6px;">
-      {#if recordingState === 'recording'}
-        <button class="rec-control-btn" onclick={pauseRecording} title={t('recorder.pause')}>
-          <Icon name="pause" size={15} />
-        </button>
-      {:else if recordingState === 'paused'}
-        <button class="rec-control-btn active" onclick={resumeRecording} title={t('recorder.resume')}>
-          <Icon name="play" size={15} />
-        </button>
-      {/if}
-
-      <button class="rec-control-btn stop" onclick={stopRecording} title={t('recorder.stop')}>
-        <Icon name="square" size={15} />
-        <span style="font-weight:700; font-size:12px;">{t('recorder.stop')}</span>
-      </button>
-
-      {#if recordMode === 'both'}
-        <button
-          class="rec-control-btn"
-          onclick={() => (cameraPosition = cameraPosition === 'bottom-left' ? 'bottom-right' : 'bottom-left')}
-          title="تبديل موضع الكاميرا الدائرية"
-        >
-          <Icon name="camera" size={14} />
-        </button>
-      {/if}
-
-      <button class="rec-control-btn discard" onclick={discardRecording} title={t('recorder.discard')}>
-        <Icon name="trash" size={14} />
-      </button>
-    </div>
-  </div>
+  {/if}
 {/if}
 
 <style>
@@ -543,6 +583,39 @@
     border-radius: 50%;
     background: #e74c3c;
     display: inline-block;
+  }
+
+  /* Floating Compact Pill Button */
+  .floating-recorder-pill {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(18, 20, 28, 0.94);
+    color: #fff;
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    border-radius: 999px;
+    padding: 7px 16px;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    z-index: 10001;
+    cursor: pointer;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+    transition: transform 0.15s, background 0.15s, box-shadow 0.15s;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .floating-recorder-pill:hover {
+    transform: translate(-50%, -2px);
+    background: rgba(28, 32, 44, 0.98);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  }
+  .pill-expand-icon {
+    display: inline-flex;
+    align-items: center;
+    opacity: 0.7;
   }
 
   /* Floating Controller Toolbar */

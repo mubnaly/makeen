@@ -8,7 +8,8 @@ const api = {
   saveCapture: (filename, dataUrl) => ipcRenderer.invoke('save-capture', { filename, dataUrl }),
   saveSidecarFile: (documentId, text) => ipcRenderer.invoke('save-sidecar', { documentId, text }),
   loadSidecarFile: (documentId) => ipcRenderer.invoke('load-sidecar', { documentId }),
-  saveExportFile: (filename, dataBase64) => ipcRenderer.invoke('save-export', { filename, dataBase64 }),
+  saveExportFile: (filename, dataBase64, showInFolder = true) => ipcRenderer.invoke('save-export', { filename, dataBase64, showInFolder }),
+  showItemInFolder: (itemPath) => ipcRenderer.invoke('show-item-in-folder', itemPath),
   notify: (title, body) => ipcRenderer.invoke('notify', { title, body }),
 
   // YouTube: the loopback player origin (see player-server.cjs), caption

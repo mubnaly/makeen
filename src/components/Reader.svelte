@@ -380,8 +380,18 @@
     barMenu = '';
     bookmarks = loadBookmarks(d.id);
     try {
-      const bytes = await readPdfBytes(d.id);
+      let bytes = await readPdfBytes(d.id);
       if (token !== loadToken) return;
+      if (!bytes && d.filePath && typeof window !== 'undefined') {
+        const bridge = window.makeen || window.studyos;
+        if (bridge?.readPdfFile) {
+          const diskRes = await bridge.readPdfFile(d.filePath);
+          if (diskRes?.ok && diskRes?.bytes) {
+            bytes = diskRes.bytes;
+            await savePdfBytes(d.id, bytes);
+          }
+        }
+      }
       if (!bytes) {
         loadError = tr('reader.fileUnavailable');
         loading = false;

@@ -105,6 +105,7 @@
 
   onMount(() => {
     dpr = window.devicePixelRatio || 1;
+    if (!lazy || active) inView = true;
     const onRestore = () => {
       if (inView) queueMicrotask(() => renderPage());
     };
@@ -257,8 +258,8 @@
       // whose text layer never settles cannot block the next zoom render.
       if (hasText) await renderTextLayer(page, { scale: currentScale, rotation: currentRotation, container: textLayerEl });
     } catch (err) {
-      // If render failed unexpectedly (e.g. temporary context lost), retry if still in view
       if (seq === renderSeq && err?.name !== 'RenderingCancelledException') {
+        console.error('PdfPage render error', pageNumber, err);
         setTimeout(() => { if (!rendering && inView) renderPage(); }, 250);
       }
     } finally {
@@ -328,7 +329,9 @@
     if (markerCanvas) {
       if (!markerItems.length && !hasMarkerDraft) {
         shrinkOverlay(markerCanvas);
+        markerCanvas.style.display = 'none';
       } else {
+        markerCanvas.style.display = 'block';
         sizeOverlay(markerCanvas);
         const markerCtx = markerCanvas.getContext('2d');
         if (markerCtx) {

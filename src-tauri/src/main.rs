@@ -50,10 +50,40 @@ fn read_pdf_file(file_path: String) -> PdfPayload {
     }
 }
 
+#[tauri::command]
+fn get_initial_pdf() -> Option<PdfPayload> {
+    for arg in std::env::args().skip(1) {
+        let clean = arg.trim_matches('"');
+        if clean.to_lowercase().ends_with(".pdf") {
+            let res = read_pdf_file(clean.to_string());
+            if res.ok {
+                return Some(res);
+            }
+        }
+    }
+    None
+}
+
+#[tauri::command]
+fn show_item_in_folder(item_path: String) -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        use std::process::Command;
+        let _ = Command::new("explorer")
+            .arg(format!("/select,{}", item_path))
+            .spawn();
+        true
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        false
+    }
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
-        .invoke_handler(tauri::generate_handler![read_pdf_file])
+        .invoke_handler(tauri::generate_handler![read_pdf_file, get_initial_pdf, show_item_in_folder])
         .run(tauri::generate_context!())
         .expect("error while running Makeen tauri application");
 }

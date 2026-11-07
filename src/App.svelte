@@ -292,6 +292,14 @@
         }
       }).catch(() => {});
     }
+    // Tauri desktop fallback
+    if (typeof window !== 'undefined' && window.__TAURI_INTERNALS__?.invoke) {
+      window.__TAURI_INTERNALS__.invoke('get_initial_pdf').then((initial) => {
+        if (initial && initial.ok && initial.bytes) {
+          importPdfBytes(initial.name, initial.bytes, { open: true, filePath: initial.path || '' });
+        }
+      }).catch(() => {});
+    }
     let unsubscribeOpenPdf = null;
     if (desktopBridge?.onOpenPdf) {
       unsubscribeOpenPdf = desktopBridge.onOpenPdf((payload) => {
@@ -534,18 +542,33 @@
 
   async function importPdfBytes(filename, bytes, { open = true, quiet = false, filePath = '' } = {}) {
     try {
-      const u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+      let u8;
+      if (bytes instanceof Uint8Array) {
+        u8 = bytes;
+      } else if (ArrayBuffer.isView(bytes)) {
+        u8 = new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+      } else if (bytes instanceof ArrayBuffer) {
+        u8 = new Uint8Array(bytes);
+      } else if (bytes?.data && Array.isArray(bytes.data)) {
+        u8 = new Uint8Array(bytes.data);
+      } else if (Array.isArray(bytes)) {
+        u8 = new Uint8Array(bytes);
+      } else {
+        u8 = new Uint8Array(bytes);
+      }
+      const cleanBuffer = u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength);
+
       const existing = docs.find((d) =>
         (filePath && d.filePath && d.filePath.toLowerCase() === filePath.toLowerCase()) ||
         (d.kind === 'pdf' && d.filename && d.filename.toLowerCase() === filename.toLowerCase())
       );
       let id = existing?.id;
       if (!id) {
-        const data = new TextEncoder().encode(`${filename}|${u8.byteLength}`);
+        const data = new TextEncoder().encode(`${filename}|${cleanBuffer.byteLength}`);
         const buf = await crypto.subtle.digest('SHA-1', data);
         id = [...new Uint8Array(buf)].slice(0, 16).map((b) => b.toString(16).padStart(2, '0')).join('');
       }
-      await savePdfBytes(id, u8.buffer);
+      await savePdfBytes(id, cleanBuffer);
       const doc = library.upsertDocument({
         ...(existing || {}),
         id,
@@ -553,7 +576,7 @@
         title: existing?.title || filename,
         filename,
         filePath: filePath || existing?.filePath || undefined,
-        size: u8.byteLength,
+        size: cleanBuffer.byteLength,
         missing: false
       });
       docs = library.listDocuments();
