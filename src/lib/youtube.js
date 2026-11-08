@@ -174,3 +174,124 @@ export function activeCueAt(cues, seconds) {
   if (Number.isFinite(duration) && duration > 0 && at >= start + duration) return -1;
   return found;
 }
+
+/**
+ * Scrape playlist video links, titles, and thumbnails
+ * Uses Desktop bridge, Vite dev API, or direct fetch.
+ */
+export async function fetchPlaylistScrape(playlistUrl) {
+  const url = String(playlistUrl || '').trim();
+  if (!url) return { ok: false, error: 'emptyUrl' };
+
+  // 1. Desktop Electron Bridge
+  const bridge = typeof window !== 'undefined' ? (window.makeen || window.studyos) : null;
+  if (bridge?.youtubePlaylist) {
+    try {
+      const res = await bridge.youtubePlaylist({ url });
+      if (res && res.ok && Array.isArray(res.videos) && res.videos.length > 0) {
+        return res;
+      }
+    } catch (e) {
+      console.warn('Bridge playlist scrape failed, falling back:', e);
+    }
+  }
+
+  // 2. Vite media server endpoint
+  try {
+    const res = await fetch(`/api/playlist?url=${encodeURIComponent(url)}`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.ok && Array.isArray(data.videos) && data.videos.length > 0) {
+        return data;
+      }
+    }
+  } catch {}
+
+  // 3. Direct HTML extraction fallback
+  try {
+    let cleanUrl = url;
+    let listId = '';
+    try {
+      const parsed = new URL(url.startsWith('http') ? url : `https://www.youtube.com/${url}`);
+      listId = parsed.searchParams.get('list') || '';
+    } catch {}
+
+    if (listId) {
+      cleanUrl = `https://www.youtube.com/playlist?list=${listId}`;
+    } else if (!cleanUrl.startsWith('http')) {
+      cleanUrl = `https://www.youtube.com/playlist?list=${cleanUrl}`;
+    }
+
+    const res = await fetch(cleanUrl);
+    if (!res.ok) return { ok: false, error: 'fetchFailed', status: res.status };
+    const html = await res.text();
+    const marker = 'var ytInitialData = ';
+    const idx = html.indexOf(marker);
+    if (idx === -1) return { ok: false, error: 'noData' };
+    const start = idx + marker.length;
+    let depth = 0, end = start;
+    for (let i = start; i < html.length; i++) {
+      if (html[i] === '{') depth++;
+      else if (html[i] === '}') {
+        depth--;
+        if (depth === 0) { end = i + 1; break; }
+      }
+    }
+    const data = JSON.parse(html.slice(start, end));
+    const title = data.metadata?.playlistMetadataRenderer?.title ||
+                  data.header?.pageHeaderRenderer?.content?.pageHeaderViewModel?.title?.dynamicTextViewModel?.text?.content ||
+                  'قائمة تشغيل';
+
+    const videos = [];
+    const seen = new Set();
+    function walk(node) {
+      if (!node || typeof node !== 'object') return;
+      if (node.playlistVideoRenderer) {
+        const p = node.playlistVideoRenderer;
+        if (p.videoId && !seen.has(p.videoId)) {
+          seen.add(p.videoId);
+          const vTitle = p.title?.runs?.[0]?.text || p.title?.simpleText || 'فيديو';
+          const thumb = p.thumbnail?.thumbnails?.slice(-1)[0]?.url || `https://i.ytimg.com/vi/${p.videoId}/hqdefault.jpg`;
+          videos.push({
+            id: p.videoId,
+            title: vTitle,
+            url: `https://www.youtube.com/watch?v=${p.videoId}`,
+            thumbnail: thumb
+          });
+        }
+        return;
+      }
+      if (node.lockupViewModel) {
+        const l = node.lockupViewModel;
+        const vId = l.rendererContext?.commandContext?.onTap?.innertubeCommand?.watchEndpoint?.videoId;
+        const vTitle = l.metadata?.lockupMetadataViewModel?.title?.content;
+        if (vId && vTitle && !seen.has(vId)) {
+          seen.add(vId);
+          const thumb = l.contentImage?.thumbnailViewModel?.image?.sources?.slice(-1)[0]?.url || `https://i.ytimg.com/vi/${vId}/hqdefault.jpg`;
+          videos.push({
+            id: vId,
+            title: vTitle,
+            url: `https://www.youtube.com/watch?v=${vId}`,
+            thumbnail: thumb
+          });
+        }
+        return;
+      }
+      for (const k of Object.keys(node)) {
+        walk(node[k]);
+      }
+    }
+    walk(data);
+
+    if (!videos.length) return { ok: false, error: 'noVideosFound' };
+    return {
+      ok: true,
+      title,
+      thumbnail: videos[0]?.thumbnail || '',
+      count: videos.length,
+      videos
+    };
+  } catch (err) {
+    return { ok: false, error: 'scrapeFailed', message: String(err?.message || err) };
+  }
+}

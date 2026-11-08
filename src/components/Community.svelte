@@ -24,6 +24,7 @@
     getShareReviews
   } from '../lib/sessionStore.js';
   import { getCurrentUser } from '../lib/auth.js';
+  import { fetchPlaylistScrape } from '../lib/youtube.js';
 
   let {
     notify = () => {},
@@ -56,6 +57,9 @@
   let newShareItems = $state([]); // [{ title, url, isFreePreview: true }]
   let newVideoUrlInput = $state('');
   let newVideoTitleInput = $state('');
+  let playlistScrapeUrl = $state('');
+  let isScrapingPlaylist = $state(false);
+  let newShareThumbnail = $state('');
   let isPublishing = $state(false);
 
   // Payment / Receipt Upload Modal State
@@ -255,6 +259,9 @@
     newShareItems = [];
     newVideoUrlInput = '';
     newVideoTitleInput = '';
+    playlistScrapeUrl = '';
+    isScrapingPlaylist = false;
+    newShareThumbnail = '';
     isShareModalOpen = true;
   }
 
@@ -278,6 +285,9 @@
     newShareUrls = newShareItems.map((it) => it.url).join('\n');
     newVideoUrlInput = '';
     newVideoTitleInput = '';
+    playlistScrapeUrl = '';
+    isScrapingPlaylist = false;
+    newShareThumbnail = share.thumbnail || '';
     isShareModalOpen = true;
   }
 
@@ -348,6 +358,54 @@
     newShareItems = [...newShareItems, ...added];
   }
 
+  async function handleScrapePlaylist() {
+    const rawUrl = playlistScrapeUrl.trim();
+    if (!rawUrl) {
+      notify('يرجى إدخال رابط قائمة تشغيل يوتيوب صالحة', 'error');
+      return;
+    }
+    isScrapingPlaylist = true;
+    try {
+      const res = await fetchPlaylistScrape(rawUrl);
+      if (!res || !res.ok || !Array.isArray(res.videos) || res.videos.length === 0) {
+        notify('تعذر استخراج الفيديوهات من الرابط. تأكد أن القائمة عامة أو غير مدرجة (Unlisted).', 'error');
+        return;
+      }
+
+      if (!newShareTitle.trim() && res.title) {
+        newShareTitle = res.title;
+      }
+
+      if (res.thumbnail) {
+        newShareThumbnail = res.thumbnail;
+      }
+
+      const existingUrls = new Set(newShareItems.map((it) => it.url));
+      const newItems = [];
+      res.videos.forEach((v) => {
+        if (!existingUrls.has(v.url)) {
+          newItems.push({
+            title: v.title || `فيديو ${newShareItems.length + newItems.length + 1}`,
+            url: v.url,
+            thumbnail: v.thumbnail || '',
+            isFreePreview: (newShareItems.length + newItems.length) === 0 || !newShareIsPaid
+          });
+        }
+      });
+
+      if (newItems.length > 0) {
+        newShareItems = [...newShareItems, ...newItems];
+        notify(`تم استخراج ${newItems.length} فيديو بنجاح مع العناوين والصور المصغرة!`, 'ok');
+      } else {
+        notify('جميع الفيديوهات المستخرجة مضافة بالفعل إلى القائمة', 'ok');
+      }
+    } catch (err) {
+      notify(String(err?.message || err), 'error');
+    } finally {
+      isScrapingPlaylist = false;
+    }
+  }
+
   async function handlePublish() {
     if (!newShareTitle.trim()) return;
 
@@ -372,11 +430,23 @@
         };
       }
 
+      let thumb = newShareThumbnail || '';
+      if (!thumb && items.length > 0) {
+        const first = items[0];
+        if (first?.thumbnail) {
+          thumb = first.thumbnail;
+        } else if (first?.url) {
+          const m = String(first.url).match(/(?:v=|\/embed\/|\/shorts\/|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+          if (m) thumb = `https://i.ytimg.com/vi/${m[1]}/hqdefault.jpg`;
+        }
+      }
+
       const payload = {
         type: newShareType,
         title: newShareTitle.trim(),
         author: newShareAuthor.trim(),
         description: newShareDescription.trim(),
+        thumbnail: thumb,
         isPaid: newShareIsPaid,
         price: newSharePrice,
         isAnonymous: newShareIsAnonymous,
@@ -405,6 +475,8 @@
       newShareItems = [];
       newVideoUrlInput = '';
       newVideoTitleInput = '';
+      playlistScrapeUrl = '';
+      newShareThumbnail = '';
       isShareModalOpen = false;
       await reload();
       if (selectedShareDetails && selectedShareDetails.id === editingShareId) {
@@ -983,6 +1055,67 @@
               <span class="badge-pill">{newShareItems.length} فيديو</span>
             </div>
 
+            <!-- Inner Playlist Scraper Tool -->
+            <div class="playlist-scraper-box" style="margin-bottom: 12px; padding: 12px; background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.28); border-radius: 8px;">
+              <div class="hstack" style="justify-content:space-between; margin-bottom: 8px; flex-wrap: wrap; gap: 6px;">
+                <span style="font-size: 13px; font-weight: 700; color: var(--accent, #3b82f6);" class="hstack">
+                  <Icon name="link" size={15} />
+                  <span>أداة الاستخراج الذكي لقوائم يوتيوب (Inner Playlist Scraper)</span>
+                </span>
+                <span class="muted" style="font-size: 11.5px;">استخراج كافة العناوين والروابط والغلاف تلقائياً</span>
+              </div>
+              <div class="hstack" style="gap: 8px;">
+                <input
+                  type="url"
+                  placeholder="ضع رابط قائمة يوتيوب: https://www.youtube.com/playlist?list=..."
+                  bind:value={playlistScrapeUrl}
+                  onkeydown={(e) => { if (e.key === 'Enter') handleScrapePlaylist(); }}
+                  style="flex: 1; font-size: 12.5px;"
+                />
+                <button
+                  type="button"
+                  class="primary small hstack"
+                  disabled={isScrapingPlaylist || !playlistScrapeUrl.trim()}
+                  onclick={handleScrapePlaylist}
+                  style="white-space: nowrap; min-width: 140px; justify-content: center;"
+                >
+                  {#if isScrapingPlaylist}
+                    <Icon name="rotate-right" size={13} class="spin" />
+                    <span>جارِ الاستخراج...</span>
+                  {:else}
+                    <Icon name="download" size={13} />
+                    <span>استخراج الفيديوهات والغلاف</span>
+                  {/if}
+                </button>
+              </div>
+            </div>
+
+            <!-- Thumbnail Preview Banner -->
+            {#if newShareThumbnail}
+              <div class="thumbnail-preview-banner hstack" style="margin-bottom: 12px; padding: 8px 12px; background: var(--surface-1); border: 1px solid var(--border); border-radius: 6px; gap: 12px; align-items: center;">
+                <img
+                  src={newShareThumbnail}
+                  alt="غلاف المحتوى"
+                  style="width: 76px; height: 44px; object-fit: cover; border-radius: 4px; border: 1px solid var(--border); flex-shrink: 0;"
+                />
+                <div style="flex: 1; min-width: 0;">
+                  <div style="font-size: 12px; font-weight: 700;" class="hstack">
+                    <Icon name="check" size={13} />
+                    <span>تم استخراج غلاف القائمة بنجاح</span>
+                  </div>
+                  <div class="muted truncate" style="font-size: 11px;" title={newShareThumbnail}>{newShareThumbnail}</div>
+                </div>
+                <button
+                  type="button"
+                  class="icon-btn small danger"
+                  title="إزالة صورة الغلاف"
+                  onclick={() => (newShareThumbnail = '')}
+                >
+                  <Icon name="trash" size={13} />
+                </button>
+              </div>
+            {/if}
+
             <!-- Single Video Quick Add -->
             <div class="add-video-grid" style="display:grid; grid-template-columns: 1fr 1.5fr auto; gap: 8px; margin-bottom: 12px;">
               <input
@@ -1051,6 +1184,15 @@
                     </div>
 
                     <span class="item-order-idx" style="font-size:12px; font-weight:700; min-width:20px; text-align:center;">{idx + 1}</span>
+
+                    {#if it.thumbnail}
+                      <img
+                        src={it.thumbnail}
+                        alt=""
+                        style="width: 44px; height: 26px; object-fit: cover; border-radius: 4px; border: 1px solid var(--border); flex-shrink: 0;"
+                        loading="lazy"
+                      />
+                    {/if}
 
                     <!-- Editable Title -->
                     <input
