@@ -1,8 +1,10 @@
 <script>
   import Icon from './Icon.svelte';
+  import PomodoroSoundModal from './PomodoroSoundModal.svelte';
   import { t } from '../lib/lang.svelte.js';
   import {
     pomodoroState,
+    pomodoroSoundOptions,
     togglePomodoro,
     resetPomodoro,
     setPomodoroMode,
@@ -12,6 +14,7 @@
   let { materialTitle = '', compact = false } = $props();
 
   let menuOpen = $state(false);
+  let soundModalOpen = $state(false);
 
   $effect(() => {
     if (materialTitle) {
@@ -69,6 +72,14 @@
     >
       <Icon name="repeat" size={compact ? 11 : 13} />
     </button>
+    <button
+      class="pomo-action-btn sound {pomodoroSoundOptions.tickEnabled || pomodoroSoundOptions.isAmbientPlaying ? 'has-active-sound' : ''}"
+      onclick={() => (soundModalOpen = true)}
+      title={t('pomodoro.soundOptions')}
+      aria-label={t('pomodoro.soundOptions')}
+    >
+      <Icon name="volume" size={compact ? 11 : 13} />
+    </button>
   </div>
 
   {#if pomodoroState.completedCount > 0}
@@ -76,6 +87,9 @@
       {pomodoroState.completedCount}
     </span>
   {/if}
+
+  <!-- Sound Options Modal -->
+  <PomodoroSoundModal bind:open={soundModalOpen} />
 
   <!-- Mode Selector Dropdown Menu -->
   {#if menuOpen}
@@ -199,6 +213,11 @@
   .pomo-action-btn.play-pause.is-running {
     background: rgba(234, 179, 8, 0.25);
     color: #fbbf24;
+  }
+  .pomo-action-btn.sound.has-active-sound {
+    background: rgba(16, 185, 129, 0.25);
+    color: #34d399;
+    box-shadow: 0 0 6px rgba(16, 185, 129, 0.4);
   }
 
   .pomo-count-badge {

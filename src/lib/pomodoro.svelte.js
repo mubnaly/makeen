@@ -1,13 +1,30 @@
 // Reactive Pomodoro timer state and controls.
 // Shared across PDF reader, video player, and study dashboard.
 import { recordCompletedPomodoro } from './stats.js';
-import { playNotificationTone } from './sound.js';
+import {
+  playNotificationTone,
+  loadPreferredSound,
+  savePreferredSound,
+  loadPomodoroSoundPrefs,
+  savePomodoroSoundPrefs,
+  playClockTick,
+  startAmbientSound,
+  stopAmbientSound,
+  setAmbientVolume,
+  isAmbientSoundActive,
+  AVAILABLE_AMBIENT_SOUNDS,
+  AVAILABLE_SOUNDS
+} from './sound.js';
+
+export { AVAILABLE_AMBIENT_SOUNDS, AVAILABLE_SOUNDS };
 
 export const POMODORO_MODES = {
   focus: { id: 'focus', defaultMinutes: 25, labelKey: 'pomodoro.focus' },
   shortBreak: { id: 'shortBreak', defaultMinutes: 5, labelKey: 'pomodoro.shortBreak' },
   longBreak: { id: 'longBreak', defaultMinutes: 15, labelKey: 'pomodoro.longBreak' }
 };
+
+const initialPrefs = loadPomodoroSoundPrefs();
 
 export const pomodoroState = $state({
   mode: 'focus', // 'focus' | 'shortBreak' | 'longBreak'
@@ -18,11 +35,103 @@ export const pomodoroState = $state({
   materialTitle: ''
 });
 
+export const pomodoroSoundOptions = $state({
+  tickEnabled: initialPrefs.tickEnabled, // false by default
+  tickVolume: initialPrefs.tickVolume,
+  ambientSound: initialPrefs.ambientSound,
+  ambientVolume: initialPrefs.ambientVolume,
+  ambientMode: initialPrefs.ambientMode, // 'timer' | 'always'
+  chimeSound: loadPreferredSound(),
+  chimeVolume: 0.7,
+  isAmbientPlaying: false
+});
+
 let timerInterval = null;
+
+export function setTickEnabled(enabled) {
+  pomodoroSoundOptions.tickEnabled = Boolean(enabled);
+  savePomodoroSoundPrefs({ tickEnabled: pomodoroSoundOptions.tickEnabled });
+}
+
+export function setTickVolume(volume) {
+  const vol = Math.max(0.05, Math.min(1.0, Number(volume) || 0.35));
+  pomodoroSoundOptions.tickVolume = vol;
+  savePomodoroSoundPrefs({ tickVolume: vol });
+}
+
+export function setAmbientSound(soundId) {
+  pomodoroSoundOptions.ambientSound = soundId || 'none';
+  savePomodoroSoundPrefs({ ambientSound: pomodoroSoundOptions.ambientSound });
+  if (pomodoroSoundOptions.isAmbientPlaying || pomodoroSoundOptions.ambientMode === 'always') {
+    if (pomodoroSoundOptions.ambientSound === 'none') {
+      stopAmbientSound();
+      pomodoroSoundOptions.isAmbientPlaying = false;
+    } else {
+      startAmbientSound(pomodoroSoundOptions.ambientSound, pomodoroSoundOptions.ambientVolume);
+      pomodoroSoundOptions.isAmbientPlaying = true;
+    }
+  }
+}
+
+export function setAmbientVolumeLevel(volume) {
+  const vol = Math.max(0.05, Math.min(1.0, Number(volume) || 0.5));
+  pomodoroSoundOptions.ambientVolume = vol;
+  savePomodoroSoundPrefs({ ambientVolume: vol });
+  setAmbientVolume(vol);
+}
+
+export function setAmbientMode(mode) {
+  pomodoroSoundOptions.ambientMode = mode === 'always' ? 'always' : 'timer';
+  savePomodoroSoundPrefs({ ambientMode: pomodoroSoundOptions.ambientMode });
+  if (pomodoroSoundOptions.ambientMode === 'always' && pomodoroSoundOptions.ambientSound !== 'none') {
+    startAmbientSound(pomodoroSoundOptions.ambientSound, pomodoroSoundOptions.ambientVolume);
+    pomodoroSoundOptions.isAmbientPlaying = true;
+  } else if (pomodoroSoundOptions.ambientMode === 'timer' && !pomodoroState.isRunning) {
+    stopAmbientSound();
+    pomodoroSoundOptions.isAmbientPlaying = false;
+  }
+}
+
+export function setChimeSound(soundId) {
+  pomodoroSoundOptions.chimeSound = soundId || 'soft-chime';
+  savePreferredSound(pomodoroSoundOptions.chimeSound);
+}
+
+export function setChimeVolume(vol) {
+  pomodoroSoundOptions.chimeVolume = Math.max(0.05, Math.min(1.0, Number(vol) || 0.7));
+}
+
+export function toggleAmbientPlayback() {
+  if (pomodoroSoundOptions.isAmbientPlaying || isAmbientSoundActive()) {
+    stopAmbientSound();
+    pomodoroSoundOptions.isAmbientPlaying = false;
+  } else {
+    const soundToPlay = pomodoroSoundOptions.ambientSound !== 'none' ? pomodoroSoundOptions.ambientSound : 'rain';
+    if (pomodoroSoundOptions.ambientSound === 'none') {
+      pomodoroSoundOptions.ambientSound = 'rain';
+      savePomodoroSoundPrefs({ ambientSound: 'rain' });
+    }
+    startAmbientSound(soundToPlay, pomodoroSoundOptions.ambientVolume);
+    pomodoroSoundOptions.isAmbientPlaying = true;
+  }
+}
+
+export function testTickSound() {
+  playClockTick(pomodoroSoundOptions.tickVolume);
+}
+
+export function testChimeSound() {
+  playNotificationTone(pomodoroSoundOptions.chimeSound, pomodoroSoundOptions.chimeVolume);
+}
+
+export function testAmbientPreview(soundId) {
+  startAmbientSound(soundId, pomodoroSoundOptions.ambientVolume);
+  pomodoroSoundOptions.isAmbientPlaying = true;
+}
 
 export function playChimeSound() {
   try {
-    playNotificationTone();
+    playNotificationTone(pomodoroSoundOptions.chimeSound, pomodoroSoundOptions.chimeVolume);
   } catch {
     // Audio context may be restricted by autoplay policy
   }
@@ -39,6 +148,18 @@ export function togglePomodoro() {
 export function startPomodoro() {
   if (pomodoroState.isRunning) return;
   pomodoroState.isRunning = true;
+
+  // Start ambient sound if configured
+  if (pomodoroSoundOptions.ambientSound && pomodoroSoundOptions.ambientSound !== 'none') {
+    startAmbientSound(pomodoroSoundOptions.ambientSound, pomodoroSoundOptions.ambientVolume);
+    pomodoroSoundOptions.isAmbientPlaying = true;
+  }
+
+  // Play tick immediately if enabled
+  if (pomodoroSoundOptions.tickEnabled) {
+    try { playClockTick(pomodoroSoundOptions.tickVolume); } catch {}
+  }
+
   if (!timerInterval) {
     timerInterval = setInterval(tick, 1000);
   }
@@ -50,11 +171,20 @@ export function pausePomodoro() {
     clearInterval(timerInterval);
     timerInterval = null;
   }
+  // Stop ambient sound if mode is timer-only
+  if (pomodoroSoundOptions.ambientMode !== 'always') {
+    stopAmbientSound();
+    pomodoroSoundOptions.isAmbientPlaying = false;
+  }
 }
 
 export function resetPomodoro() {
   pausePomodoro();
   pomodoroState.timeLeft = pomodoroState.durationMinutes * 60;
+  if (pomodoroSoundOptions.ambientMode !== 'always') {
+    stopAmbientSound();
+    pomodoroSoundOptions.isAmbientPlaying = false;
+  }
 }
 
 export function setPomodoroMode(modeId) {
@@ -118,6 +248,14 @@ function onFinish() {
 
 function tick() {
   if (!pomodoroState.isRunning) return;
+
+  // Tick-tick sound every second if enabled
+  if (pomodoroSoundOptions.tickEnabled) {
+    try {
+      playClockTick(pomodoroSoundOptions.tickVolume);
+    } catch {}
+  }
+
   if (pomodoroState.timeLeft > 1) {
     pomodoroState.timeLeft--;
   } else {

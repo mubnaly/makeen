@@ -25,6 +25,7 @@
   import Settings from './components/Settings.svelte';
   import Community from './components/Community.svelte';
   import ScreenRecorder from './components/ScreenRecorder.svelte';
+  import PomodoroWidget from './components/PomodoroWidget.svelte';
   import { getCurrentUser } from './lib/auth.js';
   import { createSidecarStore, fileBridge, listCaptures, listCards, putCapture, putCard, deleteCaptureById, deleteCardById, clearCaptures, clearCards, clearTasks, migrateLocalCollections, listTasks } from './lib/storage.js';
   import { savePdfBytes, deleteFileBytes, loadPdfAutosaveSettings, savePdfAutosaveSettings } from './lib/storage.js';
@@ -1507,6 +1508,8 @@
         {/if}
       </div>
       <span style="flex:1"></span>
+
+      <PomodoroWidget compact={true} />
 
       <button class="icon-btn" onclick={openHelp} title={t('topbar.help')} aria-label={t('topbar.help')} aria-haspopup="dialog">
         <Icon name="help" size={18} />

@@ -17,6 +17,7 @@
   import { loadTrashRetentionDays, saveTrashRetentionDays, emptyAllTrash } from '../lib/trash.js';
   import { savePdfAutosaveSettings } from '../lib/storage.js';
   import { loadDefaultVideoQuality, saveDefaultVideoQuality, VIDEO_QUALITY_OPTIONS } from '../lib/videoSettings.js';
+  import PomodoroSoundModal from './PomodoroSoundModal.svelte';
 
   let {
     theme = 'midnight',
@@ -41,6 +42,7 @@
   let videoQuality = $state(loadDefaultVideoQuality());
   let restoreInputEl = $state();
   let isRestoring = $state(false);
+  let pomoSoundOpen = $state(false);
 
   let appStorageFolder = $state('');
 
@@ -437,6 +439,17 @@
           />
           <span>{t('settings.pdfAutosaveToggle')}</span>
         </label>
+
+        <div class="section-title mt">{t('pomodoro.soundOptions')}</div>
+        <p class="muted" style="font-size:13px">{t('pomodoro.soundSettings')}</p>
+        <div class="hstack mt" style="gap:10px;">
+          <button class="primary" onclick={() => (pomoSoundOpen = true)}>
+            <Icon name="volume" size={15} />
+            <span>{t('pomodoro.soundOptions')}</span>
+          </button>
+        </div>
+
+        <PomodoroSoundModal bind:open={pomoSoundOpen} />
       </div>
     {/if}
 
