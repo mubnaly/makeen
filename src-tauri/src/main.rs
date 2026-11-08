@@ -3,8 +3,9 @@
 
 use std::fs;
 use std::path::Path;
+use tauri::{Emitter, Manager};
 
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, Clone)]
 struct PdfPayload {
     ok: bool,
     name: String,
@@ -83,6 +84,22 @@ fn show_item_in_folder(item_path: String) -> bool {
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.show();
+                let _ = w.unminimize();
+                let _ = w.set_focus();
+            }
+            for arg in args.into_iter().skip(1) {
+                let clean = arg.trim_matches('"');
+                if clean.to_lowercase().ends_with(".pdf") {
+                    let res = read_pdf_file(clean.to_string());
+                    if res.ok {
+                        let _ = app.emit("open-pdf-file", res);
+                    }
+                }
+            }
+        }))
         .invoke_handler(tauri::generate_handler![read_pdf_file, get_initial_pdf, show_item_in_folder])
         .run(tauri::generate_context!())
         .expect("error while running Makeen tauri application");

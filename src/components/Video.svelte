@@ -28,6 +28,7 @@
   import { savePdfBytes } from '../lib/storage.js';
   import PomodoroWidget from './PomodoroWidget.svelte';
   import MarkdownEditor from './MarkdownEditor.svelte';
+  import { getOrCreateNoteForMaterial, updateNote } from '../lib/markdownStore.js';
 
   let {
     video = null,
@@ -233,6 +234,13 @@
         clearInterval(watchTimer);
         watchTimer = null;
       }
+    }
+  });
+
+  // Automatically fetch transcript when user opens transcript tab if not loaded yet
+  $effect(() => {
+    if (sidebarTab === 'transcript' && isYoutube && !transcript && !transcriptLoading && !transcriptError) {
+      untrack(() => loadTranscript(transcriptLang || (subtitleActiveLang !== 'off' ? subtitleActiveLang : '')));
     }
   });
 
@@ -1054,7 +1062,7 @@
     transcriptError = '';
 
     // 1. Desktop Electron bridge
-    const bridge = globalThis.window?.studyos;
+    const bridge = globalThis.window?.studyos || globalThis.window?.makeen;
     if (typeof bridge?.youtubeTranscript === 'function') {
       try {
         let result = await bridge.youtubeTranscript({ videoId, lang: preferred });
@@ -1141,6 +1149,44 @@
 
   function transcriptBaseName() {
     return safeBaseName(video?.title || transcript?.title || 'video', 'transcript');
+  }
+
+  async function copyTranscriptText(withTimestamps = true) {
+    if (!transcript?.cues || !transcript.cues.length) return;
+    const text = withTimestamps
+      ? transcript.cues.map((c) => `[${formatTimecode(c.start)}] ${c.text}`).join('\n')
+      : transcript.cues.map((c) => c.text).join('\n');
+    try {
+      await navigator.clipboard.writeText(text);
+      notify(t('video.transcriptCopied') || 'تم نسخ نص الترجمة بالكامل', 'ok');
+    } catch {
+      notify(t('toast.copyFailed') || 'تعذر النسخ', 'error');
+    }
+  }
+
+  async function copyCueText(cue) {
+    if (!cue?.text) return;
+    try {
+      await navigator.clipboard.writeText(`[${formatTimecode(cue.start)}] ${cue.text}`);
+      notify(t('video.cueCopied') || 'تم نسخ الجملة', 'ok');
+    } catch {
+      notify(t('toast.copyFailed') || 'تعذر النسخ', 'error');
+    }
+  }
+
+  function addTranscriptToMarkdown() {
+    if (!transcript?.cues || !transcript.cues.length) return;
+    const matId = video?.id || 'video-notes';
+    const matTitle = video?.title || video?.filename || 'Video Notes';
+    const note = getOrCreateNoteForMaterial(matId, 'video', matTitle);
+    const langLabel = transcriptLang || subtitleActiveLang || 'ar';
+    const lines = transcript.cues.map((c) => `- **[${formatTimecode(c.start)}]** ${c.text}`);
+    const timeNow = new Date().toLocaleTimeString();
+    const mdBlock = `\n\n### تفريغ نص الترجمة (${langLabel}) — ${timeNow}\n\n${lines.join('\n')}\n`;
+    const newContent = (note.content || '').trim() ? `${note.content.trim()}\n\n${mdBlock}` : `# ${matTitle}\n${mdBlock}`;
+    updateNote(note.id, { content: newContent });
+    notify(t('video.transcriptAddedToNotes') || 'تمت إضافة تفريغ النص إلى ملاحظات الفيديو بنجاح', 'ok');
+    sidebarTab = 'editor';
   }
 
   async function exportTranscriptTxt() {
@@ -2407,8 +2453,14 @@
           <div class="tab-panel">
             <div class="panel-header hstack" style="justify-content:space-between">
               <span class="section-title" style="margin:0">{t('video.drawerSubtitles')}</span>
-              <div class="hstack" style="gap:6px">
+              <div class="hstack" style="gap:6px; flex-wrap:wrap;">
                 {#if transcript}
+                  <button class="small" onclick={() => copyTranscriptText(true)} title="نسخ النص مع التوقيت">
+                    <Icon name="copy" size={13} /><span>{t('common.copy') || 'نسخ'}</span>
+                  </button>
+                  <button class="small primary" onclick={addTranscriptToMarkdown} title="إضافة التفريغ إلى ملاحظات Markdown">
+                    <Icon name="pencil" size={13} /><span>Markdown</span>
+                  </button>
                   <button class="small" onclick={exportTranscriptTxt} title={t('video.downloadTxt')}>
                     <Icon name="download" size={13} /><span>TXT</span>
                   </button>
@@ -2447,10 +2499,15 @@
             {:else}
               <div class="transcript-list" use:autoScrollbar>
                 {#each transcript.cues as cue, i (i)}
-                  <button class="cue {i === activeCueIndex ? 'active' : ''}" onclick={() => seekTo(cue.start)}>
-                    <span class="cue-time">{formatTimecode(cue.start)}</span>
-                    <span class="cue-text" dir="auto">{cue.text}</span>
-                  </button>
+                  <div class="cue-row {i === activeCueIndex ? 'active' : ''}">
+                    <button class="cue" onclick={() => seekTo(cue.start)} title={formatTimecode(cue.start)}>
+                      <span class="cue-time">{formatTimecode(cue.start)}</span>
+                      <span class="cue-text" dir="auto">{cue.text}</span>
+                    </button>
+                    <button class="cue-action-btn" title={t('common.copy') || 'نسخ'} onclick={(e) => { e.stopPropagation(); copyCueText(cue); }}>
+                      <Icon name="copy" size={12} />
+                    </button>
+                  </div>
                 {/each}
               </div>
             {/if}
@@ -3329,6 +3386,38 @@
     border-radius: 8px;
     background: var(--bg);
     margin-top: 8px;
+  }
+  .cue-row {
+    display: flex;
+    align-items: stretch;
+    border-bottom: 1px solid var(--border);
+    transition: background 0.15s ease;
+  }
+  .cue-row:last-child { border-bottom: 0; }
+  .cue-row:hover { background: var(--accent-soft); }
+  .cue-row.active {
+    background: var(--accent-soft);
+    border-inline-start: 3px solid var(--accent);
+    font-weight: 600;
+  }
+  .cue-row .cue {
+    border-bottom: 0;
+  }
+  .cue-action-btn {
+    flex: none;
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    padding: 0 10px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    opacity: 0.6;
+    transition: opacity 0.15s, color 0.15s;
+  }
+  .cue-action-btn:hover {
+    opacity: 1;
+    color: var(--accent);
   }
   .cue {
     display: flex;

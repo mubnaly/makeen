@@ -112,10 +112,13 @@
   let activeDoc = $state(null);
   let openTabs = $state([]);
   let activeVideo = $state(null);
-  let backgroundAudio = $state(false);
+  let backgroundAudio = $state(true);
   try {
-    backgroundAudio = localStorage.getItem('makeen.bgAudio') === '1';
-  } catch {}
+    const savedBgAudio = localStorage.getItem('makeen.bgAudio');
+    backgroundAudio = savedBgAudio !== null ? savedBgAudio !== '0' : true;
+  } catch {
+    backgroundAudio = true;
+  }
   let bgVideoState = $state({
     playing: false,
     current: 0,
@@ -294,8 +297,13 @@
       }).catch(() => {});
     }
     // Tauri desktop fallback
-    if (typeof window !== 'undefined' && window.__TAURI_INTERNALS__?.invoke) {
-      window.__TAURI_INTERNALS__.invoke('get_initial_pdf').then((initial) => {
+    const tauriInvoke = (typeof window !== 'undefined' && (
+      window.__TAURI__?.core?.invoke ||
+      window.__TAURI__?.invoke ||
+      window.__TAURI_INTERNALS__?.invoke
+    )) || null;
+    if (tauriInvoke) {
+      tauriInvoke('get_initial_pdf').then((initial) => {
         if (initial && initial.ok && initial.bytes) {
           importPdfBytes(initial.name, initial.bytes, { open: true, filePath: initial.path || '' });
         }
@@ -309,6 +317,15 @@
         }
       });
     }
+    let unsubscribeTauriPdf = null;
+    if (typeof window !== 'undefined' && window.__TAURI__?.event?.listen) {
+      window.__TAURI__.event.listen('open-pdf-file', (event) => {
+        const payload = event?.payload;
+        if (payload && payload.ok && payload.bytes) {
+          importPdfBytes(payload.name, payload.bytes, { open: true, filePath: payload.path || '' });
+        }
+      }).then((unsub) => { unsubscribeTauriPdf = unsub; }).catch(() => {});
+    }
 
     const handleLibChange = () => {
       docs = library.listDocuments();
@@ -318,6 +335,7 @@
     return () => {
       stopDueReminderLoop();
       unsubscribeOpenPdf?.();
+      unsubscribeTauriPdf?.();
       window.removeEventListener('studyos:library-changed', handleLibChange);
     };
   });
@@ -1772,18 +1790,20 @@
       {:else if view === 'Reader'}
         {#if activeDoc}
           <div style="height:calc(100vh - 92px); margin:-20px;">
-            <Reader doc={activeDoc} {sidecarStore} {undoManager} {notify} {onCapture} {captures}
-              onDeleteCapture={deleteCapture}
-              onSaveAnnotated={saveAnnotatedCopy}
-              onOpenGallery={() => (view = 'Gallery')}
-              onBack={() => (view = 'Library')}
-              {tabDocs} activeTabId={activeDoc?.id || ''}
-              onSelectTab={selectTab} onCloseTab={closeTab} onNewTab={pickPdf}
-              backgroundAudioEnabled={backgroundAudio && !!activeVideo}
-              backgroundVideoState={bgVideoState}
-              onToggleBgPlay={() => bgVideoController?.togglePlay()}
-              onSeekBg={(sec) => bgVideoController?.seekTo(sec)}
-              onOpenVideo={() => { view = 'Video'; }} />
+            {#key activeDoc.id}
+              <Reader doc={activeDoc} {sidecarStore} {undoManager} {notify} {onCapture} {captures}
+                onDeleteCapture={deleteCapture}
+                onSaveAnnotated={saveAnnotatedCopy}
+                onOpenGallery={() => (view = 'Gallery')}
+                onBack={() => (view = 'Library')}
+                {tabDocs} activeTabId={activeDoc?.id || ''}
+                onSelectTab={selectTab} onCloseTab={closeTab} onNewTab={pickPdf}
+                backgroundAudioEnabled={backgroundAudio && !!activeVideo}
+                backgroundVideoState={bgVideoState}
+                onToggleBgPlay={() => bgVideoController?.togglePlay()}
+                onSeekBg={(sec) => bgVideoController?.seekTo(sec)}
+                onOpenVideo={() => { view = 'Video'; }} />
+            {/key}
           </div>
         {:else}
           <EmptyState icon="reader" title={t('empty.readerTitle')} hint={t('empty.readerHint')}

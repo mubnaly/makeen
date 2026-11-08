@@ -95,8 +95,7 @@ app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
 app.commandLine.appendSwitch('disable-renderer-backgrounding');
 app.commandLine.appendSwitch('allow-file-access-from-files');
 
-// Memory optimizations: cap V8 heap to prevent runaway memory usage, enforce 1 renderer process, disable spare renderers
-app.commandLine.appendSwitch('js-flags', '--max-old-space-size=256');
+// Memory optimizations: enforce 1 renderer process, disable spare renderers
 app.commandLine.appendSwitch('renderer-process-limit', '1');
 app.commandLine.appendSwitch('disable-site-isolation-trials');
 app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion,SpareRendererForSitePerProcess');
