@@ -24,8 +24,8 @@
   // Graph data & simulation state
   let rawNodes = [];
   let rawEdges = [];
-  let nodes = [];
-  let edges = [];
+  let nodes = $state([]);
+  let edges = $state([]);
   let allNotesList = $state([]);
 
   // Transform (pan & zoom)
