@@ -5,6 +5,7 @@
   // project record.
   import Icon from './Icon.svelte';
   import { imagesToPdf, deliverBytes } from '../lib/export.js';
+  import { sheetToXlsx } from '../lib/xlsx.js';
   import { labelPng } from '../lib/labels.js';
   import { safeBaseName } from '../lib/filenames.js';
   import { formatTimecode } from '../lib/media.js';
@@ -577,6 +578,137 @@
     return canvas.toDataURL('image/png');
   }
 
+  async function exportProjectContent(type = 'xlsx', targetFolder = null) {
+    if (!activeProject) return;
+    const items = [];
+    const projName = activeProject.name || 'Project';
+    const contextTitle = targetFolder ? `${projName} - ${targetFolder.name}` : projName;
+    const safeName = safeBaseName(contextTitle, 'project-export');
+
+    if (targetFolder) {
+      for (const it of targetFolder.items || []) {
+        const title = it.title || it.refId || 'عنصر';
+        const typeStr = it.type === 'video' || it.type === 'youtube' ? 'فيديو' : it.type === 'pdf' ? 'مستند PDF' : it.type === 'deck' ? 'بطاقات' : it.type;
+        const link = it.url || it.refId || '';
+        items.push({
+          idx: items.length + 1,
+          folder: targetFolder.name,
+          type: typeStr,
+          title,
+          link
+        });
+      }
+    } else {
+      for (const f of projectFolders) {
+        for (const it of f.items || []) {
+          const title = it.title || it.refId || 'عنصر';
+          const typeStr = it.type === 'video' || it.type === 'youtube' ? 'فيديو' : it.type === 'pdf' ? 'مستند PDF' : it.type === 'deck' ? 'بطاقات' : it.type;
+          const link = it.url || it.refId || '';
+          items.push({
+            idx: items.length + 1,
+            folder: f.name,
+            type: typeStr,
+            title,
+            link
+          });
+        }
+      }
+
+      for (const vid of allProjectVideosList) {
+        items.push({
+          idx: items.length + 1,
+          folder: 'الفيديوهات',
+          type: 'فيديو',
+          title: vid.title || vid.id,
+          link: vid.url || `https://www.youtube.com/watch?v=${vid.id}`
+        });
+      }
+
+      for (const d of allProjectPdfsList) {
+        items.push({
+          idx: items.length + 1,
+          folder: 'المستندات',
+          type: 'مستند PDF',
+          title: d.title || d.id,
+          link: d.filename || d.id
+        });
+      }
+    }
+
+    if (!items.length) {
+      notify?.('لا توجد عناصر لاستخراجها في هذا المجلد أو المشروع', 'warn');
+      return;
+    }
+
+    if (type === 'xlsx') {
+      const columns = [
+        { key: 'idx', header: 'م', width: 6 },
+        { key: 'folder', header: 'المجلد / القسم', width: 22 },
+        { key: 'type', header: 'النوع', width: 14 },
+        { key: 'title', header: 'العنوان', width: 38 },
+        { key: 'link', header: 'الرابط / المسار', width: 45 }
+      ];
+      const rows = items.map((it) => ({
+        idx: it.idx,
+        folder: it.folder,
+        type: it.type,
+        title: it.title,
+        link: it.link
+      }));
+      const bytes = sheetToXlsx({ sheetName: 'محتوى المشروع', columns, rows });
+      await deliverBytes(bytes, `${safeName}.xlsx`, window.studyos || window.makeen, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      notify?.('تم استخراج وتصدير القائمة إلى ملف Excel بنجاح!', 'ok');
+    } else if (type === 'md') {
+      let md = `# ${contextTitle}\n\n`;
+      md += `> تم الاستخراج بتاريخ: ${new Date().toLocaleDateString('ar-EG')} — إجمالي العناصر: ${items.length}\n\n`;
+      md += `| م | المجلد / القسم | النوع | العنوان | الرابط / المسار |\n`;
+      md += `|---|----------------|------|--------|-----------------|\n`;
+      for (const it of items) {
+        const linkFmt = it.link.startsWith('http') ? `[رابط](${it.link})` : it.link;
+        md += `| ${it.idx} | ${it.folder} | ${it.type} | ${it.title} | ${linkFmt} |\n`;
+      }
+      const bytes = new TextEncoder().encode(md);
+      await deliverBytes(bytes, `${safeName}.md`, window.studyos || window.makeen, 'text/markdown');
+      notify?.('تم استخراج وتصدير القائمة إلى ملف Markdown بنجاح!', 'ok');
+    } else if (type === 'pdf') {
+      let printHtml = `
+        <!DOCTYPE html>
+        <html dir="rtl" lang="ar">
+        <head>
+          <meta charset="utf-8">
+          <title>${contextTitle}</title>
+          <style>
+            body { font-family: system-ui, sans-serif; padding: 24px; direction: rtl; }
+            h1 { color: #1e293b; border-bottom: 2px solid #3b82f6; padding-bottom: 8px; margin-bottom: 4px; }
+            .meta { color: #64748b; font-size: 13px; margin-bottom: 16px; }
+            table { width: 100%; border-collapse: collapse; margin-top: 14px; font-size: 13px; }
+            th, td { border: 1px solid #cbd5e1; padding: 8px 10px; text-align: right; }
+            th { background: #f8fafc; font-weight: 700; }
+            a { color: #2563eb; text-decoration: none; }
+          </style>
+        </head>
+        <body>
+          <h1>${contextTitle}</h1>
+          <div class="meta">تاريخ الاستخراج: ${new Date().toLocaleDateString('ar-EG')} · إجمالي العناصر: ${items.length}</div>
+          <table>
+            <thead><tr><th>م</th><th>المجلد / القسم</th><th>النوع</th><th>العنوان</th><th>الرابط / المسار</th></tr></thead>
+            <tbody>
+              ${items.map(it => `<tr><td>${it.idx}</td><td>${it.folder}</td><td>${it.type}</td><td>${it.title}</td><td><a href="${it.link}">${it.link}</a></td></tr>`).join('')}
+            </tbody>
+          </table>
+        </body>
+        </html>
+      `;
+      const printWin = window.open('', '_blank');
+      if (printWin) {
+        printWin.document.write(printHtml);
+        printWin.document.close();
+        printWin.focus();
+        setTimeout(() => printWin.print(), 250);
+      }
+    }
+  }
+
   async function exportPdf() {
     if (!activeProject || exporting || !plan.length) return;
     exporting = true;
@@ -685,9 +817,20 @@
         <h2 style="margin:0">{activeProject.name}</h2>
         <div class="meta">{tr('projects.updated', { when: new Date(activeProject.updatedAt).toLocaleDateString() })}</div>
       </div>
-      <button class="small" onclick={openShareModal} title={tr('projects.shareProject')}>
-        <Icon name="share" size={14} /><span>{tr('projects.shareProject')}</span>
-      </button>
+      <div class="hstack" style="gap:6px; flex-wrap:wrap;">
+        <button class="small primary hstack" onclick={() => exportProjectContent('xlsx')} title="استخراج المحتوى كملف Excel">
+          <Icon name="download" size={13} /><span>Excel</span>
+        </button>
+        <button class="small hstack" onclick={() => exportProjectContent('md')} title="استخراج المحتوى كملف Markdown">
+          <Icon name="file-text" size={13} /><span>MD</span>
+        </button>
+        <button class="small hstack" onclick={() => exportProjectContent('pdf')} title="طباعة أو تصدير PDF">
+          <Icon name="reader" size={13} /><span>PDF</span>
+        </button>
+        <button class="small" onclick={openShareModal} title={tr('projects.shareProject')}>
+          <Icon name="share" size={14} /><span>{tr('projects.shareProject')}</span>
+        </button>
+      </div>
       <span class="badge">{tr('projects.imagesCount', { n: counts.images })}</span>
     </div>
 
@@ -1015,6 +1158,9 @@
                   <span class="badge" style="font-size:11px;">{folder.items?.length || 0}</span>
                 </button>
                 <div class="hstack" style="gap:4px;">
+                  <button class="small hstack" onclick={() => exportProjectContent('xlsx', folder)} title="استخراج هذا المجلد كملف Excel">
+                    <Icon name="download" size={12} /><span>استخراج</span>
+                  </button>
                   <button class="small" onclick={() => (activeFolderForAdd = activeFolderForAdd === folder.id ? null : folder.id)} title={tr('projects.addResource')}>
                     <Icon name="plus" size={13} /><span>{tr('projects.addResource')}</span>
                   </button>

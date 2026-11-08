@@ -186,7 +186,11 @@ export async function importShareToMyLibrary(share) {
         mime: 'text/html',
         missing: false,
         playlistId,
-        isPlaylistChild: true // Stays in Playlists tab, avoids polluting flat individual videos
+        isPlaylistChild: true, // Stays in Playlists tab, avoids polluting flat individual videos
+        fromCommunity: true,
+        communityShareId: share.id,
+        isPaid: !!share.isPaid,
+        isProtected: !!share.isPaid || !item.isFreePreview
       });
       if (saved?.id) {
         childVideoIds.push(saved.id);
@@ -196,7 +200,11 @@ export async function importShareToMyLibrary(share) {
     upsertPlaylist({
       id: playlistId,
       title: share.title,
-      videoIds: childVideoIds
+      videoIds: childVideoIds,
+      fromCommunity: true,
+      communityShareId: share.id,
+      isPaid: !!share.isPaid,
+      isProtected: !!share.isPaid
     });
     return { ok: true, type: 'playlist', count: childVideoIds.length };
   }

@@ -176,12 +176,100 @@ export function activeCueAt(cues, seconds) {
 }
 
 /**
+ * Fetch video metadata (title, author, thumbnail) for any YouTube video.
+ * Works seamlessly in Browser, Desktop, and Mobile environments.
+ */
+export async function fetchYouTubeVideoMetadata(urlOrId) {
+  const raw = String(urlOrId || '').trim();
+  if (!raw) return null;
+  const vidMatch = raw.match(/(?:v=|\/embed\/|youtu\.be\/|^)([a-zA-Z0-9_-]{11})/);
+  const videoId = vidMatch ? vidMatch[1] : raw;
+  const watchUrl = `https://www.youtube.com/watch?v=${videoId}`;
+
+  // 1. Desktop bridge if available
+  const bridge = typeof window !== 'undefined' ? (window.makeen || window.studyos) : null;
+  if (bridge?.youtubeMetadata) {
+    try {
+      const res = await bridge.youtubeMetadata({ url: watchUrl, videoId });
+      if (res && res.title) return res;
+    } catch {}
+  }
+
+  // 2. Noembed (Official public oEmbed proxy with CORS: *)
+  try {
+    const res = await fetch(`https://noembed.com/embed?url=${encodeURIComponent(watchUrl)}`, {
+      signal: AbortSignal.timeout ? AbortSignal.timeout(4000) : undefined
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.title && !data.error) {
+        return {
+          ok: true,
+          videoId,
+          title: data.title,
+          author: data.author_name || '',
+          thumbnail: data.thumbnail_url || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`
+        };
+      }
+    }
+  } catch {}
+
+  // 3. Invidious instances fallback
+  const instances = [
+    'https://inv.nadeko.net',
+    'https://yewtu.be',
+    'https://invidious.nerdvpn.de',
+    'https://invidious.private.coffee'
+  ];
+  for (const inst of instances) {
+    try {
+      const res = await fetch(`${inst}/api/v1/videos/${videoId}`, {
+        signal: AbortSignal.timeout ? AbortSignal.timeout(3000) : undefined
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.title) {
+          return {
+            ok: true,
+            videoId,
+            title: data.title,
+            author: data.author || '',
+            thumbnail: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`
+          };
+        }
+      }
+    } catch {}
+  }
+
+  return {
+    ok: true,
+    videoId,
+    title: `فيديو (${videoId})`,
+    author: '',
+    thumbnail: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`
+  };
+}
+
+/**
  * Scrape playlist video links, titles, and thumbnails
- * Uses Desktop bridge, Vite dev API, or direct fetch.
+ * Uses Desktop bridge, Invidious CORS APIs, Vite dev API, or direct fetch.
  */
 export async function fetchPlaylistScrape(playlistUrl) {
   const url = String(playlistUrl || '').trim();
   if (!url) return { ok: false, error: 'emptyUrl' };
+
+  let listId = '';
+  try {
+    const parsed = new URL(url.startsWith('http') ? url : `https://www.youtube.com/${url}`);
+    listId = parsed.searchParams.get('list') || '';
+  } catch {}
+
+  if (!listId && url.startsWith('PL')) {
+    listId = url;
+  } else if (!listId) {
+    const m = url.match(/[?&]list=([a-zA-Z0-9_-]+)/);
+    if (m) listId = m[1];
+  }
 
   // 1. Desktop Electron Bridge
   const bridge = typeof window !== 'undefined' ? (window.makeen || window.studyos) : null;
@@ -196,7 +284,47 @@ export async function fetchPlaylistScrape(playlistUrl) {
     }
   }
 
-  // 2. Vite media server endpoint
+  // 2. Invidious API instances (High speed, zero API key, CORS: * enabled for browsers)
+  if (listId) {
+    const instances = [
+      'https://inv.nadeko.net',
+      'https://yewtu.be',
+      'https://invidious.nerdvpn.de',
+      'https://invidious.private.coffee'
+    ];
+    for (const inst of instances) {
+      try {
+        const res = await fetch(`${inst}/api/v1/playlists/${listId}`, {
+          signal: AbortSignal.timeout ? AbortSignal.timeout(6000) : undefined
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data && Array.isArray(data.videos) && data.videos.length > 0) {
+            const vids = data.videos.map((v) => ({
+              id: v.videoId,
+              title: v.title || 'فيديو بدون عنوان',
+              url: `https://www.youtube.com/watch?v=${v.videoId}`,
+              thumbnail: `https://i.ytimg.com/vi/${v.videoId}/hqdefault.jpg`,
+              duration: v.lengthSeconds || 0,
+              author: v.author || data.author || ''
+            }));
+            const thumb = vids[0]?.thumbnail || (data.playlistThumbnail ? `${inst}${data.playlistThumbnail}` : '');
+            return {
+              ok: true,
+              title: data.title || 'قائمة تشغيل',
+              thumbnail: thumb,
+              count: vids.length,
+              videos: vids
+            };
+          }
+        }
+      } catch (err) {
+        console.warn(`Invidious instance ${inst} failed:`, err?.message || err);
+      }
+    }
+  }
+
+  // 3. Vite media server endpoint
   try {
     const res = await fetch(`/api/playlist?url=${encodeURIComponent(url)}`);
     if (res.ok) {
@@ -207,15 +335,9 @@ export async function fetchPlaylistScrape(playlistUrl) {
     }
   } catch {}
 
-  // 3. Direct HTML extraction fallback
+  // 4. Direct HTML extraction fallback
   try {
     let cleanUrl = url;
-    let listId = '';
-    try {
-      const parsed = new URL(url.startsWith('http') ? url : `https://www.youtube.com/${url}`);
-      listId = parsed.searchParams.get('list') || '';
-    } catch {}
-
     if (listId) {
       cleanUrl = `https://www.youtube.com/playlist?list=${listId}`;
     } else if (!cleanUrl.startsWith('http')) {
@@ -225,10 +347,9 @@ export async function fetchPlaylistScrape(playlistUrl) {
     const res = await fetch(cleanUrl);
     if (!res.ok) return { ok: false, error: 'fetchFailed', status: res.status };
     const html = await res.text();
-    const marker = 'var ytInitialData = ';
-    const idx = html.indexOf(marker);
-    if (idx === -1) return { ok: false, error: 'noData' };
-    const start = idx + marker.length;
+    const markerMatch = html.match(/(?:var\s+ytInitialData|window\[['"]ytInitialData['"]\]|ytInitialData)\s*=\s*/);
+    if (!markerMatch) return { ok: false, error: 'noData' };
+    const start = markerMatch.index + markerMatch[0].length;
     let depth = 0, end = start;
     for (let i = start; i < html.length; i++) {
       if (html[i] === '{') depth++;

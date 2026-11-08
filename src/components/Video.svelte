@@ -12,10 +12,13 @@
   import { SPEEDS, clampSeek, formatTimecode, frameCaptureRecord } from '../lib/media.js';
   import { canvasCapture, loadImageQuality } from '../lib/imageQuality.js';
   import { setBookmarks, setPlaybackPosition, upsertDocument, getDocument, listPlaylists, upsertPlaylist, removePlaylist, addVideoToPlaylist, removeVideoFromPlaylist, moveVideoInPlaylist } from '../lib/library.js';
+  import { listProjects } from '../lib/projects.js';
+  import { sheetToXlsx } from '../lib/xlsx.js';
   import { flattenBookmarkTree, indentBookmark, outdentBookmark, toggleBookmarkCollapse } from '../lib/bookmarks.js';
   import {
     parseYouTube, youtubeDocId,
-    qualityLabel, normalizeQualities, activeCueAt
+    qualityLabel, normalizeQualities, activeCueAt,
+    fetchYouTubeVideoMetadata, fetchPlaylistScrape
   } from '../lib/youtube.js';
   import { deliverBytes } from '../lib/export.js';
   import { safeBaseName } from '../lib/filenames.js';
@@ -145,24 +148,111 @@
   let isHoveringControls = $state(false);
   let watchTimer = null;
   let playlists = $state(listPlaylists());
+  let allProjects = $state(listProjects());
   let newPlaylistTitle = $state('');
   let creatingPlaylist = $state(false);
   let pickerTab = $state('individual'); // 'individual' | 'playlists'
-  const individualVideos = $derived((videos || []).filter((v) => !v.playlistId && !v.isPlaylistChild));
+
+  // Collect all video IDs that belong to a project or project folder
+  const projectVideoIds = $derived.by(() => {
+    const ids = new Set();
+    for (const p of allProjects || []) {
+      for (const vid of p.videos || []) {
+        if (vid) ids.add(String(vid));
+      }
+      for (const f of p.folders || []) {
+        for (const it of f.items || []) {
+          if ((it.type === 'video' || it.type === 'youtube') && it.refId) {
+            ids.add(String(it.refId));
+          }
+        }
+      }
+      for (const cv of p.channelVideos || []) {
+        if (cv?.id) ids.add(String(cv.id));
+      }
+    }
+    return ids;
+  });
+
+  // Individual videos: ONLY standalone videos that do not belong to a playlist or project/folder
+  const individualVideos = $derived(
+    (videos || []).filter((v) => !v.playlistId && !v.isPlaylistChild && !projectVideoIds.has(String(v.id)))
+  );
 
   function resolveVideoDoc(id) {
     if (!id) return null;
     return (videos || []).find((v) => v.id === id) || getDocument(id) || null;
   }
 
+  // Project video playlists: derive virtual playlists from projects and folders containing videos
+  const projectPlaylists = $derived.by(() => {
+    const list = [];
+    for (const p of allProjects || []) {
+      const pVidIds = (p.videos || []).filter((id) => resolveVideoDoc(id) || (videos || []).some((v) => v.id === id));
+      if (pVidIds.length > 0) {
+        list.push({
+          id: `project-${p.id}`,
+          title: `مشروع: ${p.name || 'بدون اسم'}`,
+          videoIds: pVidIds,
+          isProject: true,
+          projectId: p.id,
+          count: pVidIds.length
+        });
+      }
+      for (const f of p.folders || []) {
+        const fVidIds = (f.items || [])
+          .filter((it) => (it.type === 'video' || it.type === 'youtube') && it.refId)
+          .map((it) => it.refId);
+        if (fVidIds.length > 0) {
+          list.push({
+            id: `projfolder-${p.id}-${f.id}`,
+            title: `مجلد: ${f.name} (${p.name})`,
+            videoIds: fVidIds,
+            isProjectFolder: true,
+            projectId: p.id,
+            folderId: f.id,
+            count: fVidIds.length
+          });
+        }
+      }
+    }
+    return list;
+  });
+
+  // Combined playlists shown in the playlists tab
+  const allPlaylistsList = $derived([...(playlists || []), ...projectPlaylists]);
+
+  // Auto-resolve video titles for YouTube links that currently show raw URLs or generic placeholders
+  const autoResolvedVideoIds = new Set();
+  $effect(() => {
+    const list = videos || [];
+    for (const v of list) {
+      if (v.provider === 'youtube' && !autoResolvedVideoIds.has(v.id)) {
+        const title = String(v.title || '').trim();
+        const isUrlTitle = title.startsWith('http://') || title.startsWith('https://') || title.startsWith('YouTube:') || title.startsWith('YouTube Video (');
+        if (isUrlTitle) {
+          autoResolvedVideoIds.add(v.id);
+          fetchYouTubeVideoMetadata(v.url || v.ytId || v.id).then((meta) => {
+            if (meta?.title && !meta.title.startsWith('فيديو (')) {
+              upsertDocument({ ...v, title: meta.title, author: meta.author || v.author || '', thumbnail: meta.thumbnail || v.thumbnail || '' });
+              refreshDocs?.();
+            }
+          });
+        }
+      }
+    }
+  });
+
   $effect(() => {
     void videos;
     playlists = listPlaylists();
+    allProjects = listProjects();
   });
 
   onMount(() => {
     const handleLibChange = () => {
       playlists = listPlaylists();
+      allProjects = listProjects();
       refreshDocs?.();
     };
     window.addEventListener('studyos:library-changed', handleLibChange);
@@ -377,6 +467,11 @@
   }
 
   let activePlaylistId = $state('');
+  const activePlaylistRecord = $derived(allPlaylistsList.find((p) => p.id === activePlaylistId) || null);
+  const isCommunityContent = $derived(
+    !!(video?.fromCommunity || video?.communityShareId || video?.isPaid || video?.isProtected || activePlaylistRecord?.fromCommunity)
+  );
+
   let playlistVideoAddOpen = $state(false);
   let playlistVideoUrlInput = $state('');
   let playlistVideoDocPick = $state('');
@@ -395,10 +490,11 @@
     activePlaylistId = plId;
   }
 
-  function handleAddVideoToActivePlaylist() {
+  async function handleAddVideoToActivePlaylist() {
     if (!activePlaylistId) return;
     if (playlistVideoUrlInput.trim()) {
-      const parsed = parseYouTube(playlistVideoUrlInput.trim());
+      const url = playlistVideoUrlInput.trim();
+      const parsed = parseYouTube(url);
       if (!parsed) return;
       const docId = youtubeDocId(parsed);
       const existing = (videos || []).find((d) => d.id === docId);
@@ -408,13 +504,15 @@
         provider: 'youtube',
         ytType: 'video',
         ytId: parsed.id,
-        title: `YouTube: ${parsed.id}`,
-        filename: `YouTube: ${parsed.id}`,
+        title: `جلب عنوان الفيديو...`,
+        filename: parsed.url,
         url: parsed.url,
         embedUrl: parsed.embedUrl,
         size: 0,
         mime: 'text/html',
-        missing: false
+        missing: false,
+        playlistId: activePlaylistId,
+        isPlaylistChild: true
       });
       addVideoToPlaylist(activePlaylistId, doc.id);
       refreshDocs?.();
@@ -422,12 +520,102 @@
       playlistVideoUrlInput = '';
       playlistVideoAddOpen = false;
       notify(t('video.addToPlaylist'), 'ok');
+
+      fetchYouTubeVideoMetadata(url).then((meta) => {
+        if (meta?.title) {
+          upsertDocument({ ...doc, title: meta.title, author: meta.author || '', thumbnail: meta.thumbnail || '' });
+          refreshDocs?.();
+          playlists = listPlaylists();
+        }
+      });
     } else if (playlistVideoDocPick) {
       addVideoToPlaylist(activePlaylistId, playlistVideoDocPick);
       playlists = listPlaylists();
       playlistVideoDocPick = '';
       playlistVideoAddOpen = false;
       notify(t('video.addToPlaylist'), 'ok');
+    }
+  }
+
+  async function exportPlaylistContent(type = 'xlsx') {
+    if (!activePlaylistRecord) return;
+    const items = (activePlaylistRecord.videoIds || []).map((id, idx) => {
+      const doc = resolveVideoDoc(id);
+      return {
+        idx: idx + 1,
+        title: doc?.title || `فيديو ${idx + 1}`,
+        url: doc?.url || doc?.filename || '',
+        duration: doc?.durationSeconds ? formatTimecode(doc.durationSeconds) : '--:--',
+        author: doc?.author || ''
+      };
+    });
+
+    const safeName = safeBaseName(activePlaylistRecord.title, 'playlist');
+
+    if (type === 'xlsx') {
+      const columns = [
+        { key: 'idx', header: 'م', width: 6 },
+        { key: 'title', header: 'عنوان الفيديو', width: 35 },
+        { key: 'duration', header: 'المدة', width: 12 },
+        { key: 'url', header: 'الرابط', width: 40 },
+        { key: 'author', header: 'القناة / الناشر', width: 25 }
+      ];
+      const rows = items.map((it) => ({
+        idx: it.idx,
+        title: it.title,
+        duration: it.duration,
+        url: it.url,
+        author: it.author
+      }));
+      const bytes = sheetToXlsx({ sheetName: 'قائمة الفيديوهات', columns, rows });
+      await deliverBytes(bytes, `${safeName}.xlsx`, window.studyos || window.makeen, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      notify('تم تصدير القائمة إلى ملف Excel بنجاح!', 'ok');
+    } else if (type === 'md') {
+      let md = `# ${activePlaylistRecord.title}\n\n`;
+      md += `> تم تصدير القائمة بتاريخ: ${new Date().toLocaleDateString('ar-EG')} — إجمالي الفيديوهات: ${items.length}\n\n`;
+      md += `| م | عنوان الفيديو | المدة | الرابط |\n`;
+      md += `|---|---------------|-------|--------|\n`;
+      for (const it of items) {
+        md += `| ${it.idx} | ${it.title} | ${it.duration} | [مشاهدة](${it.url}) |\n`;
+      }
+      const bytes = new TextEncoder().encode(md);
+      await deliverBytes(bytes, `${safeName}.md`, window.studyos || window.makeen, 'text/markdown');
+      notify('تم تصدير القائمة إلى ملف Markdown بنجاح!', 'ok');
+    } else if (type === 'pdf') {
+      let printHtml = `
+        <!DOCTYPE html>
+        <html dir="rtl" lang="ar">
+        <head>
+          <meta charset="utf-8">
+          <title>${activePlaylistRecord.title}</title>
+          <style>
+            body { font-family: system-ui, sans-serif; padding: 24px; direction: rtl; }
+            h1 { color: #1e293b; border-bottom: 2px solid #3b82f6; padding-bottom: 8px; }
+            table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 13px; }
+            th, td { border: 1px solid #cbd5e1; padding: 8px 12px; text-align: right; }
+            th { background: #f1f5f9; }
+            a { color: #2563eb; text-decoration: none; }
+          </style>
+        </head>
+        <body>
+          <h1>${activePlaylistRecord.title}</h1>
+          <p>إجمالي الدروس: ${items.length} فيديو</p>
+          <table>
+            <thead><tr><th>م</th><th>عنوان الفيديو</th><th>المدة</th><th>الرابط</th></tr></thead>
+            <tbody>
+              ${items.map(it => `<tr><td>${it.idx}</td><td>${it.title}</td><td>${it.duration}</td><td><a href="${it.url}">${it.url}</a></td></tr>`).join('')}
+            </tbody>
+          </table>
+        </body>
+        </html>
+      `;
+      const printWin = window.open('', '_blank');
+      if (printWin) {
+        printWin.document.write(printHtml);
+        printWin.document.close();
+        printWin.focus();
+        setTimeout(() => printWin.print(), 250);
+      }
     }
   }
 
@@ -823,6 +1011,10 @@
   }
 
   function toggleNativeControls() {
+    if (isCommunityContent) {
+      notify('لا يمكن تفعيل عناصر تحكم يوتيوب للمحتوى المشترك من المجتمع حمايةً للحقوق', 'warn');
+      return;
+    }
     ytShowNativeControls = !ytShowNativeControls;
     const record = currentRecord();
     if (record?.provider === 'youtube') {
@@ -832,7 +1024,8 @@
   }
 
   function addYoutube() {
-    const parsed = parseYouTube(ytInput);
+    const rawUrl = ytInput.trim();
+    const parsed = parseYouTube(rawUrl);
     if (!parsed) { notify(t('video.youtubeInvalid'), 'error'); return; }
     const id = youtubeDocId(parsed);
     const doc = upsertDocument({
@@ -841,7 +1034,7 @@
       provider: 'youtube',
       ytType: parsed.type,
       ytId: parsed.id,
-      title: parsed.url,
+      title: parsed.type === 'playlist' ? t('video.playlist') : `جلب عنوان الفيديو...`,
       filename: parsed.url,
       url: parsed.url,
       embedUrl: parsed.embedUrl,
@@ -852,25 +1045,77 @@
     ytInput = '';
     isAddOpen = false;
     refreshDocs?.();
-    notify(t('video.youtubeAdded', { title: doc.ytType === 'playlist' ? t('video.playlist') : doc.title }), 'ok');
+    notify(t('video.youtubeAdded', { title: parsed.id }), 'ok');
     if (!video) {
       onOpen?.(doc);
     }
+    fetchYouTubeVideoMetadata(rawUrl).then((meta) => {
+      if (meta?.title && !meta.title.startsWith('فيديو (')) {
+        upsertDocument({ ...doc, title: meta.title, author: meta.author || '', thumbnail: meta.thumbnail || '' });
+        refreshDocs?.();
+      }
+    });
   }
 
-  function handleAddPlaylistDirect() {
-    const parsed = parseYouTube(playlistUrlInput);
+  async function handleAddPlaylistDirect() {
+    const rawUrl = playlistUrlInput.trim();
+    const parsed = parseYouTube(rawUrl);
     if (!parsed || parsed.type !== 'playlist') {
       notify(t('video.youtubeInvalid'), 'error');
       return;
     }
+    playlistUrlInput = '';
+    isPlaylistAddOpen = false;
+    notify('جارِ استخراج فيديوهات قائمة التشغيل وعناوينها...', 'info');
+
+    try {
+      const scraped = await fetchPlaylistScrape(rawUrl);
+      if (scraped && scraped.ok && Array.isArray(scraped.videos) && scraped.videos.length > 0) {
+        const plId = `pl-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+        const childIds = [];
+        for (const item of scraped.videos) {
+          const docId = `yt-video-${item.id}`;
+          const childDoc = upsertDocument({
+            id: docId,
+            kind: 'video',
+            provider: 'youtube',
+            ytType: 'video',
+            ytId: item.id,
+            title: item.title,
+            filename: item.url,
+            url: item.url,
+            embedUrl: `https://www.youtube-nocookie.com/embed/${item.id}?rel=0&modestbranding=1`,
+            size: 0,
+            mime: 'text/html',
+            missing: false,
+            playlistId: plId,
+            isPlaylistChild: true,
+            thumbnail: item.thumbnail || ''
+          });
+          childIds.push(childDoc.id);
+        }
+        const pl = upsertPlaylist({
+          id: plId,
+          title: scraped.title || 'قائمة تشغيل',
+          videoIds: childIds
+        });
+        playlists = listPlaylists();
+        activePlaylistId = pl.id;
+        refreshDocs?.();
+        notify(`تمت إضافة قائمة "${pl.title}" وتضمين ${childIds.length} فيديو بعناوينها بنجاح!`, 'ok');
+        return;
+      }
+    } catch (e) {
+      console.warn('Scraping playlist direct failed:', e);
+    }
+
     const doc = upsertDocument({
       id: youtubeDocId(parsed),
       kind: 'video',
       provider: 'youtube',
       ytType: 'playlist',
       ytId: parsed.id,
-      title: parsed.url,
+      title: 'قائمة تشغيل يوتيوب',
       filename: parsed.url,
       url: parsed.url,
       embedUrl: parsed.embedUrl,
@@ -878,8 +1123,6 @@
       mime: 'text/html',
       missing: false
     });
-    playlistUrlInput = '';
-    isPlaylistAddOpen = false;
     refreshDocs?.();
     notify(t('video.youtubeAdded', { title: t('video.playlist') }), 'ok');
     onOpen?.(doc);
@@ -1782,7 +2025,7 @@
                 onclick={() => (pickerTab = 'playlists')}
               >
                 <Icon name="list" size={14} />
-                <span>{t('video.tabPlaylists')} ({playlists.length})</span>
+                <span>{t('video.tabPlaylists')} ({allPlaylistsList.length})</span>
               </button>
             </div>
 
@@ -1826,18 +2069,22 @@
           {/if}
         {:else}
           <!-- Playlists Tab -->
-          {#if playlists.length === 0}
+          {#if allPlaylistsList.length === 0}
             <div class="empty muted" style="padding:40px; text-align:center;">{t('video.noPlaylists')}</div>
           {:else}
             <div class="video-picker-grid">
-              {#each playlists as pl (pl.id)}
+              {#each allPlaylistsList as pl (pl.id)}
                 <div class="video-pick-card clickable" onclick={() => handlePlayAllPlaylist(pl)} role="button" tabindex="0" onkeydown={(e) => e.key === 'Enter' && handlePlayAllPlaylist(pl)}>
                   <div class="pick-thumb" style="background:var(--accent-soft); color:var(--accent);">
-                    <Icon name="list" size={26} />
+                    <Icon name={pl.isProject ? 'projects' : pl.isProjectFolder ? 'folder' : 'list'} size={24} />
                   </div>
                   <div class="pick-info">
                     <div class="pick-title" style="font-weight:700;">{pl.title}</div>
                     <div class="pick-meta muted">
+                      {#if pl.isProject}<span class="badge" style="font-size:10px;">مشروع</span>
+                      {:else if pl.isProjectFolder}<span class="badge" style="font-size:10px;">مجلد</span>
+                      {:else if pl.fromCommunity}<span class="badge" style="font-size:10px;">مجتمع</span>
+                      {/if}
                       {pl.videoIds?.length || 0} فيديو · انقر للتشغيل
                     </div>
                   </div>
@@ -1890,7 +2137,7 @@
                 </div>
               </div>
             {:else}
-              <div class="yt-host" bind:this={ytHost}>
+              <div class="yt-host" bind:this={ytHost} style="position:relative;">
                 <iframe
                   bind:this={ytFrame}
                   class="yt-embed"
@@ -1898,6 +2145,15 @@
                   title={video.title || 'YouTube'}
                   allow="autoplay; encrypted-media; picture-in-picture"
                   referrerpolicy="strict-origin-when-cross-origin"></iframe>
+                {#if !ytShowNativeControls}
+                  <!-- Protective shield preventing clicking YouTube Share / top bar links -->
+                  <div
+                    class="yt-top-shield"
+                    onclick={togglePlay}
+                    role="presentation"
+                    title="تشغيل / إيقاف مؤقت"
+                  ></div>
+                {/if}
               </div>
             {/if}
             {#if loading}<div class="yt-loading">{t('video.loading')}</div>{/if}
@@ -1977,7 +2233,7 @@
                     <option value="auto">{t('video.qualityAuto')}</option>
                   </select>
                 </label>
-                {#if !video?.isPaid && !video?.isProtected}
+                {#if !isCommunityContent}
                   <button class={ytShowNativeControls ? 'active' : ''} onclick={toggleNativeControls}
                     title={t('video.toggleNativeControls')}
                     aria-label={t('video.toggleNativeControls')}
@@ -2207,20 +2463,28 @@
         {:else if sidebarTab === 'playlists'}
           <div class="tab-panel">
             {#if activePlaylistId}
-              {@const currentPl = playlists.find((p) => p.id === activePlaylistId)}
+              {@const currentPl = allPlaylistsList.find((p) => p.id === activePlaylistId)}
               {@const plVideoIds = currentPl?.videoIds || []}
               {@const plVideos = plVideoIds.map((id) => resolveVideoDoc(id)).filter(Boolean)}
-              <div class="panel-header hstack" style="justify-content:space-between">
+              <div class="panel-header hstack" style="justify-content:space-between; flex-wrap:wrap; gap:6px;">
                 <button class="small hstack" onclick={() => (activePlaylistId = '')}>
                   <Icon name="chevron-left" size={14} /><span>{t('projects.back')}</span>
                 </button>
-                <div class="hstack" style="gap:6px">
+                <div class="hstack" style="gap:6px; flex-wrap:wrap;">
                   <button class="primary small" onclick={() => handlePlayAllPlaylist(currentPl)} disabled={!plVideos.length}>
                     <Icon name="play" size={13} /><span>{t('video.playAll')}</span>
                   </button>
-                  <button class="icon-btn" onclick={() => { removePlaylist(currentPl.id); playlists = listPlaylists(); activePlaylistId = ''; }} title={t('video.deletePlaylist')}>
-                    <Icon name="trash" size={14} />
+                  <button class="small hstack" onclick={() => exportPlaylistContent('xlsx')} title="تصدير كملف Excel">
+                    <Icon name="download" size={12} /><span>Excel</span>
                   </button>
+                  <button class="small hstack" onclick={() => exportPlaylistContent('md')} title="تصدير كملف Markdown">
+                    <Icon name="file-text" size={12} /><span>MD</span>
+                  </button>
+                  {#if !currentPl?.isProject && !currentPl?.isProjectFolder}
+                    <button class="icon-btn" onclick={() => { removePlaylist(currentPl.id); playlists = listPlaylists(); activePlaylistId = ''; }} title={t('video.deletePlaylist')}>
+                      <Icon name="trash" size={14} />
+                    </button>
+                  {/if}
                 </div>
               </div>
 
@@ -2230,38 +2494,40 @@
               </div>
 
               <!-- Add Video to this playlist -->
-              <div class="add-section-box" style="margin-bottom:12px;">
-                <button class="toggle-add-btn hstack" onclick={() => (playlistVideoAddOpen = !playlistVideoAddOpen)} aria-expanded={playlistVideoAddOpen}>
-                  <Icon name={playlistVideoAddOpen ? 'chevron-up' : 'plus'} size={14} />
-                  <span>{t('video.addVideoToPlaylist')}</span>
-                </button>
-                {#if playlistVideoAddOpen}
-                  <div class="add-subcard">
-                    <div style="display:flex; flex-direction:column; gap:8px;">
-                      <div class="yt-add">
-                        <input type="text" placeholder={t('video.youtubePlaceholder')} bind:value={playlistVideoUrlInput}
-                          onkeydown={(e) => e.key === 'Enter' && handleAddVideoToActivePlaylist()} />
-                        <button class="primary small" onclick={handleAddVideoToActivePlaylist} disabled={!playlistVideoUrlInput.trim()}>
-                          <Icon name="plus" size={13} /><span>{t('common.add')}</span>
-                        </button>
-                      </div>
-                      {#if videos.length > 0}
-                        <div class="hstack" style="gap:6px;">
-                          <select bind:value={playlistVideoDocPick} class="grow" style="font-size:12px;">
-                            <option value="">{t('projects.addVideo')}</option>
-                            {#each videos.filter((v) => !plVideoIds.includes(v.id)) as v (v.id)}
-                              <option value={v.id}>{v.title}</option>
-                            {/each}
-                          </select>
-                          <button class="small" onclick={handleAddVideoToActivePlaylist} disabled={!playlistVideoDocPick}>
+              {#if !currentPl?.isProject && !currentPl?.isProjectFolder}
+                <div class="add-section-box" style="margin-bottom:12px;">
+                  <button class="toggle-add-btn hstack" onclick={() => (playlistVideoAddOpen = !playlistVideoAddOpen)} aria-expanded={playlistVideoAddOpen}>
+                    <Icon name={playlistVideoAddOpen ? 'chevron-up' : 'plus'} size={14} />
+                    <span>{t('video.addVideoToPlaylist')}</span>
+                  </button>
+                  {#if playlistVideoAddOpen}
+                    <div class="add-subcard">
+                      <div style="display:flex; flex-direction:column; gap:8px;">
+                        <div class="yt-add">
+                          <input type="text" placeholder={t('video.youtubePlaceholder')} bind:value={playlistVideoUrlInput}
+                            onkeydown={(e) => e.key === 'Enter' && handleAddVideoToActivePlaylist()} />
+                          <button class="primary small" onclick={handleAddVideoToActivePlaylist} disabled={!playlistVideoUrlInput.trim()}>
                             <Icon name="plus" size={13} /><span>{t('common.add')}</span>
                           </button>
                         </div>
-                      {/if}
+                        {#if videos.length > 0}
+                          <div class="hstack" style="gap:6px;">
+                            <select bind:value={playlistVideoDocPick} class="grow" style="font-size:12px;">
+                              <option value="">{t('projects.addVideo')}</option>
+                              {#each videos.filter((v) => !plVideoIds.includes(v.id)) as v (v.id)}
+                                <option value={v.id}>{v.title}</option>
+                              {/each}
+                            </select>
+                            <button class="small" onclick={handleAddVideoToActivePlaylist} disabled={!playlistVideoDocPick}>
+                              <Icon name="plus" size={13} /><span>{t('common.add')}</span>
+                            </button>
+                          </div>
+                        {/if}
+                      </div>
                     </div>
-                  </div>
-                {/if}
-              </div>
+                  {/if}
+                </div>
+              {/if}
 
               <!-- Playlist Videos List -->
               {#if plVideos.length === 0}
@@ -2286,7 +2552,7 @@
             {:else}
               <!-- All Playlists View -->
               <div class="panel-header hstack" style="justify-content:space-between">
-                <span class="section-title" style="margin:0">{t('video.playlists')} ({playlists.length})</span>
+                <span class="section-title" style="margin:0">{t('video.playlists')} ({allPlaylistsList.length})</span>
                 <button class="primary small" onclick={() => (creatingPlaylist = true)}>
                   <Icon name="plus" size={14} /><span>{t('video.newPlaylist')}</span>
                 </button>
@@ -2307,27 +2573,37 @@
                 </div>
               {/if}
 
-              {#if playlists.length === 0}
+              {#if allPlaylistsList.length === 0}
                 <div class="empty muted" style="margin-top:20px; text-align:center;">{t('video.noPlaylists')}</div>
               {:else}
                 <div class="sidebar-video-list mt">
-                  {#each playlists as pl (pl.id)}
+                  {#each allPlaylistsList as pl (pl.id)}
                     <div class="playlist-row card" style="padding:10px 14px; margin-bottom:8px; background:var(--surface-2); border:1px solid var(--border);">
                       <div class="hstack" style="justify-content:space-between; align-items:center;">
                         <button class="grow hstack" onclick={() => handleSelectPlaylist(pl.id)} style="background:transparent; border:none; cursor:pointer; text-align:start; gap:8px;">
-                          <Icon name="list" size={18} />
+                          <div class="pick-thumb" style="width:32px; height:32px; border-radius:6px; display:flex; align-items:center; justify-content:center; background:var(--accent-soft); color:var(--accent); flex-shrink:0;">
+                            <Icon name={pl.isProject ? 'projects' : pl.isProjectFolder ? 'folder' : 'list'} size={17} />
+                          </div>
                           <div>
                             <div class="vrow-title" style="font-weight:600;">{pl.title}</div>
-                            <div class="meta muted" style="font-size:11px;">{pl.videoIds?.length || 0} {t('projects.videoCount', { n: pl.videoIds?.length || 0 })}</div>
+                            <div class="meta muted" style="font-size:11px;">
+                              {#if pl.isProject}<span class="badge" style="font-size:10px;">مشروع</span>
+                              {:else if pl.isProjectFolder}<span class="badge" style="font-size:10px;">مجلد</span>
+                              {:else if pl.fromCommunity}<span class="badge" style="font-size:10px;">مجتمع</span>
+                              {/if}
+                              {pl.videoIds?.length || 0} {t('projects.videoCount', { n: pl.videoIds?.length || 0 })}
+                            </div>
                           </div>
                         </button>
                         <div class="hstack" style="gap:4px;">
                           <button class="small primary" onclick={() => handlePlayAllPlaylist(pl)} disabled={!pl.videoIds?.length} title={t('video.playAll')}>
                             <Icon name="play" size={12} /><span>{t('video.playAll')}</span>
                           </button>
-                          <button class="icon-btn" onclick={() => { removePlaylist(pl.id); playlists = listPlaylists(); }} title={t('video.deletePlaylist')}>
-                            <Icon name="trash" size={13} />
-                          </button>
+                          {#if !pl.isProject && !pl.isProjectFolder}
+                            <button class="icon-btn" onclick={() => { removePlaylist(pl.id); playlists = listPlaylists(); }} title={t('video.deletePlaylist')}>
+                              <Icon name="trash" size={13} />
+                            </button>
+                          {/if}
                         </div>
                       </div>
                     </div>
@@ -2544,6 +2820,17 @@
 </div>
 
 <style>
+  .yt-top-shield {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 56px;
+    z-index: 5;
+    cursor: pointer;
+    background: transparent;
+  }
+
   .video-workspace {
     position: relative;
     display: flex;
