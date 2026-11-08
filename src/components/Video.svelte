@@ -188,7 +188,10 @@
   const projectPlaylists = $derived.by(() => {
     const list = [];
     for (const p of allProjects || []) {
-      const pVidIds = (p.videos || []).filter((id) => resolveVideoDoc(id) || (videos || []).some((v) => v.id === id));
+      const pVidIds = (p.videos || [])
+        .map((id) => resolveVideoDoc(id))
+        .filter(Boolean)
+        .map((d) => d.id);
       if (pVidIds.length > 0) {
         list.push({
           id: `project-${p.id}`,
@@ -202,7 +205,9 @@
       for (const f of p.folders || []) {
         const fVidIds = (f.items || [])
           .filter((it) => (it.type === 'video' || it.type === 'youtube') && it.refId)
-          .map((it) => it.refId);
+          .map((it) => resolveVideoDoc(it.refId))
+          .filter(Boolean)
+          .map((d) => d.id);
         if (fVidIds.length > 0) {
           list.push({
             id: `projfolder-${p.id}-${f.id}`,
@@ -389,17 +394,21 @@
   function startSidebarResize(e) {
     e.preventDefault();
     isResizing = true;
-    const isRtl = dir() === 'rtl';
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = 'col-resize';
     const onPointerMove = (ev) => {
       if (!isResizing || !workspaceEl) return;
       const rect = workspaceEl.getBoundingClientRect();
       const minW = Math.max(260, Math.round(rect.width * 0.15));
       const maxW = Math.round(rect.width * 0.75);
-      const calculatedW = isRtl ? (ev.clientX - rect.left) : (rect.right - ev.clientX);
+      // Since video workspace is displayed in LTR, sidebar is always positioned on the right
+      const calculatedW = rect.right - ev.clientX;
       sidebarWidth = Math.max(minW, Math.min(maxW, Math.round(calculatedW)));
     };
     const onPointerUp = () => {
       isResizing = false;
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
       window.removeEventListener('pointermove', onPointerMove);
       window.removeEventListener('pointerup', onPointerUp);
     };
@@ -673,14 +682,21 @@
   }
 
   async function loadVideo(id) {
+    // Persist position of previous video before destroying player
+    if (video?.id && current > 0) {
+      setPlaybackPosition(video.id, current);
+    }
+    if (positionTimer) {
+      clearTimeout(positionTimer);
+      positionTimer = null;
+    }
+
     const my = ++token;
     destroyPlayer();
     revoke();
     playState(false);
     loadError = '';
     ytError = '';
-    current = 0;
-    duration = 0;
     rate = 1;
     bookmarks = [];
     transcriptToken++;
@@ -693,8 +709,21 @@
     userSelectedQuality = loadPreferredQuality();
     ytQuality = userSelectedQuality;
     ytCurrentVideoId = '';
-    if (!id) return;
-    const record = videos.find((v) => v.id === id) || video;
+    if (!id) {
+      current = 0;
+      duration = 0;
+      return;
+    }
+    const record = getDocument(id) || videos.find((v) => v.id === id) || video;
+    if (record) {
+      if (!record.provider && (record.ytId || record.url?.includes('youtube.com') || record.url?.includes('youtu.be'))) {
+        record.provider = 'youtube';
+      }
+      current = Number(record.lastSeconds) || 0;
+    } else {
+      current = 0;
+    }
+    duration = 0;
     bookmarks = (record?.bookmarks || []).map((b) => ({ ...b }));
     if (record?.provider === 'youtube') {
       if (ytHost && ytFrameUrl && record.ytId) {
@@ -1578,7 +1607,7 @@
       if (videoEl.paused) await videoEl.play();
       else videoEl.pause();
     } catch (e) {
-      notify(t('video.frameFailed'), 'error');
+      console.warn('HTML5 video play/pause toggle prevented:', e);
     }
   }
 
@@ -1991,11 +2020,11 @@
 <div
   class="video-workspace"
   bind:this={workspaceEl}
+  class:is-resizing={isResizing}
   class:is-fullscreen={isFullscreen}
   class:has-subtitles={showSubtitles}
   class:idle={fsIdle}
   class:sidebar-open={sidebarOpen}
-  class:is-resizing={isResizing}
   style="--sidebar-w:{sidebarWidth}px"
   onmousemove={onMouseMove}
   onpointermove={onMouseMove}
@@ -2146,12 +2175,13 @@
                   allow="autoplay; encrypted-media; picture-in-picture"
                   referrerpolicy="strict-origin-when-cross-origin"></iframe>
                 {#if !ytShowNativeControls}
-                  <!-- Protective shield preventing clicking YouTube Share / top bar links -->
+                  <!-- Full screen clickable shield: clicking anywhere toggles play/pause -->
                   <div
-                    class="yt-top-shield"
+                    class="yt-screen-shield"
                     onclick={togglePlay}
+                    ondblclick={toggleFullscreen}
                     role="presentation"
-                    title="تشغيل / إيقاف مؤقت"
+                    title="انقر لتشغيل أو إيقاف الفيديو مؤقتاً"
                   ></div>
                 {/if}
               </div>
@@ -2820,15 +2850,17 @@
 </div>
 
 <style>
+  .yt-screen-shield,
   .yt-top-shield {
     position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 56px;
+    inset: 0;
     z-index: 5;
     cursor: pointer;
     background: transparent;
+  }
+
+  .video-workspace.is-resizing iframe {
+    pointer-events: none !important;
   }
 
   .video-workspace {

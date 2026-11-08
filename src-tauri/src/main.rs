@@ -81,6 +81,55 @@ fn show_item_in_folder(item_path: String) -> bool {
     }
 }
 
+#[tauri::command]
+fn fetch_url_content(url: String) -> Result<String, String> {
+    #[cfg(target_os = "windows")]
+    {
+        use std::process::Command;
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        let output = Command::new("curl.exe")
+            .creation_flags(CREATE_NO_WINDOW)
+            .args(&[
+                "-s",
+                "-L",
+                &url,
+                "-H",
+                "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "-H",
+                "Accept-Language: ar,en-US;q=0.9,en;q=0.8"
+            ])
+            .output()
+            .map_err(|e| e.to_string())?;
+
+        if !output.status.success() {
+            return Err("Failed to fetch with curl".to_string());
+        }
+
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        use std::process::Command;
+        let output = Command::new("curl")
+            .args(&[
+                "-s",
+                "-L",
+                &url,
+                "-H",
+                "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "-H",
+                "Accept-Language: ar,en-US;q=0.9,en;q=0.8"
+            ])
+            .output()
+            .map_err(|e| e.to_string())?;
+        if !output.status.success() {
+            return Err("Failed to fetch with curl".to_string());
+        }
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    }
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -100,7 +149,7 @@ fn main() {
                 }
             }
         }))
-        .invoke_handler(tauri::generate_handler![read_pdf_file, get_initial_pdf, show_item_in_folder])
+        .invoke_handler(tauri::generate_handler![read_pdf_file, get_initial_pdf, show_item_in_folder, fetch_url_content])
         .run(tauri::generate_context!())
         .expect("error while running Makeen tauri application");
 }

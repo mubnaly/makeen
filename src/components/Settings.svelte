@@ -2,6 +2,7 @@
   // src/components/Settings.svelte — Categorized Settings Workspace for Makeen
   // Features a dedicated categories sidebar with contents shown beside it.
 
+  import { onMount } from 'svelte';
   import Icon from './Icon.svelte';
   import { t, ui, setLang } from '../lib/lang.svelte.js';
   import { LANGS } from '../lib/i18n.js';
@@ -18,6 +19,7 @@
   import { savePdfAutosaveSettings } from '../lib/storage.js';
   import { loadDefaultVideoQuality, saveDefaultVideoQuality, VIDEO_QUALITY_OPTIONS } from '../lib/videoSettings.js';
   import PomodoroSoundModal from './PomodoroSoundModal.svelte';
+  import { getApiBaseUrl, setApiBaseUrl, checkBackendHealth } from '../lib/api.js';
 
   let {
     theme = 'midnight',
@@ -43,8 +45,30 @@
   let restoreInputEl = $state();
   let isRestoring = $state(false);
   let pomoSoundOpen = $state(false);
-
   let appStorageFolder = $state('');
+
+  let apiUrlInput = $state(getApiBaseUrl());
+  let testingBackend = $state(false);
+  let backendHealthStatus = $state(null);
+
+  async function handleTestDbConnection() {
+    testingBackend = true;
+    backendHealthStatus = null;
+    try {
+      setApiBaseUrl(apiUrlInput);
+      const res = await checkBackendHealth();
+      backendHealthStatus = res;
+      if (res.ok) {
+        notify('تم الاتصال بخادم PostgreSQL بنجاح!', 'ok');
+      } else {
+        notify('تعذر الوصول إلى خادم API، تأكد من تشغيل backend أو صحة الرابط', 'warn');
+      }
+    } catch (e) {
+      notify(String(e), 'error');
+    } finally {
+      testingBackend = false;
+    }
+  }
 
   onMount(async () => {
     const bridge = (typeof window !== 'undefined' && (window.makeen || window.studyos)) || null;
@@ -525,6 +549,36 @@
           <Icon name="trash" size={14} />
           <span>{t('trash.emptyAll')}</span>
         </button>
+
+        <div class="section-title mt">خادم قاعدة البيانات الحقيقية (PostgreSQL Server)</div>
+        <p class="muted" style="font-size:13px; margin:2px 0 10px;">
+          اربط التطبيق بخادم PostgreSQL سحابي أو محلي لمزامنة الكورسات والمسارات والمشاركات بين جميع أجهزتك والطلاب.
+        </p>
+        <div class="hstack" style="gap:8px; flex-wrap:wrap;">
+          <input
+            type="url"
+            placeholder="http://localhost:4000/api"
+            bind:value={apiUrlInput}
+            style="flex:1; min-width:240px; font-size:12.5px;"
+          />
+          <button class="primary small hstack" onclick={handleTestDbConnection} disabled={testingBackend}>
+            {#if testingBackend}
+              <Icon name="rotate-right" size={13} class="spin" />
+              <span>جارِ الفحص...</span>
+            {:else}
+              <Icon name="check" size={13} />
+              <span>حفظ وفحص الاتصال</span>
+            {/if}
+          </button>
+        </div>
+        {#if backendHealthStatus}
+          <div class="db-status-banner hstack mt" style="padding:8px 12px; border-radius:6px; font-size:12px; gap:8px; background:{backendHealthStatus.ok ? 'rgba(39, 174, 96, 0.15)' : 'rgba(239, 68, 68, 0.15)'}; color:{backendHealthStatus.ok ? '#27ae60' : '#ef4444'};">
+            <Icon name={backendHealthStatus.ok ? 'check' : 'x'} size={14} />
+            <span>
+              {backendHealthStatus.ok ? `متصل بنجاح: ${backendHealthStatus.data?.database?.db || 'PostgreSQL DB'} (${backendHealthStatus.data?.service || 'Makeen API'})` : 'الخادم غير متاح حالياً (يتم استخدام قاعدة البيانات المحلية IndexedDB تلقائياً)'}
+            </span>
+          </div>
+        {/if}
 
         <div class="section-title mt">{t('settings.data')}</div>
         <p class="muted" style="font-size:13px">{t('settings.dataHelp')}</p>

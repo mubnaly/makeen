@@ -6,6 +6,51 @@ import { putCard, putCommunityShare, listCommunitySharesDb, deleteCommunityShare
 import { createNote } from './markdownStore.js';
 import { getCurrentUser } from './auth.js';
 import { isContentUnlocked } from './sessionStore.js';
+import { upsertProject } from './projects.js';
+import {
+  apiFetchCommunityShares,
+  apiPublishCommunityShare,
+  apiUpdateCommunityShare,
+  apiDeleteCommunityShare,
+  apiRecordShareVisit
+} from './api.js';
+
+export function formatTotalDuration(seconds) {
+  const sec = Number(seconds) || 0;
+  if (sec <= 0) return '';
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = Math.floor(sec % 60);
+  if (h > 0) return `${h} س${m > 0 ? ' ' + m + ' د' : ''}`;
+  if (m > 0) return `${m} د`;
+  return `${s} ث`;
+}
+
+export function computeShareTotalDuration(share) {
+  if (!share) return 0;
+  if (share.totalDurationSeconds && share.totalDurationSeconds > 0) return share.totalDurationSeconds;
+  let total = 0;
+  if (Array.isArray(share.items)) {
+    for (const it of share.items) {
+      total += Number(it.duration || it.durationSeconds || it.lengthSeconds || 0);
+    }
+  }
+  if (Array.isArray(share.pathCourses)) {
+    for (const c of share.pathCourses) {
+      total += Number(c.durationSeconds || c.totalDurationSeconds || 0);
+    }
+  }
+  return total;
+}
+
+export async function listUserCommunityShares(userId, authorName) {
+  const all = await listCommunityShares();
+  return all.filter((s) => {
+    if (userId && s.creatorId && String(s.creatorId) === String(userId)) return true;
+    if (authorName && s.author && s.author.toLowerCase() === authorName.toLowerCase()) return true;
+    return false;
+  });
+}
 
 const VIEWS_STORAGE_KEY = 'makeen.community.views';
 const WIPED_INITIAL_KEY = 'makeen.community.wiped_v2';
@@ -53,11 +98,17 @@ export async function updateCommunityShare(shareId, updatedData) {
     updatedAt: Date.now()
   };
 
+  try {
+    await apiUpdateCommunityShare(shareId, merged);
+  } catch {}
   await putCommunityShare(merged);
   return merged;
 }
 
 export async function deleteCommunityShare(shareId) {
+  try {
+    await apiDeleteCommunityShare(shareId);
+  } catch {}
   await deleteCommunityShareDb(shareId);
   return true;
 }
@@ -70,9 +121,16 @@ export function isShareOwner(share, user) {
 }
 
 /**
- * Lists community items sorted and loaded from IndexedDB.
+ * Lists community items sorted and loaded from PostgreSQL backend or IndexedDB fallback.
  */
 export async function listCommunityShares() {
+  try {
+    const remote = await apiFetchCommunityShares();
+    if (Array.isArray(remote) && remote.length > 0) {
+      return remote;
+    }
+  } catch {}
+
   await ensureFreshCommunityData();
   const dbShares = await listCommunitySharesDb();
   const viewsMap = loadViewsMap();
@@ -84,7 +142,7 @@ export async function listCommunityShares() {
 }
 
 /**
- * Publishes a new community item into IndexedDB.
+ * Publishes a new community item into PostgreSQL or IndexedDB.
  */
 export async function publishCommunityShare(shareData) {
   const user = getCurrentUser();
@@ -101,7 +159,7 @@ export async function publishCommunityShare(shareData) {
 
   const newShare = {
     id: `comm-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-    type: shareData.type || 'playlist', // 'playlist' | 'pdf' | 'cards' | 'notes' | 'video'
+    type: shareData.type || 'playlist', // 'playlist' | 'path' | 'pdf' | 'cards' | 'notes' | 'video'
     title: shareData.title.trim(),
     titleEn: shareData.titleEn || shareData.title.trim(),
     author: authorName,
@@ -118,6 +176,8 @@ export async function publishCommunityShare(shareData) {
     isPaid,
     price,
     currency: shareData.currency || 'EGP',
+    totalDurationSeconds: shareData.totalDurationSeconds || computeShareTotalDuration(shareData) || 0,
+    pathCourses: Array.isArray(shareData.pathCourses) ? shareData.pathCourses : [],
     // Detailed items with individual free preview toggle
     items: Array.isArray(shareData.items) ? shareData.items : [],
     playlistData: shareData.playlistData || null,
@@ -127,6 +187,9 @@ export async function publishCommunityShare(shareData) {
     createdAt: Date.now()
   };
 
+  try {
+    await apiPublishCommunityShare(newShare);
+  } catch {}
   await putCommunityShare(newShare);
   return newShare;
 }
@@ -141,6 +204,9 @@ function loadViewsMap() {
 }
 
 export function recordShareVisit(shareId) {
+  try {
+    apiRecordShareVisit(shareId);
+  } catch {}
   try {
     const map = loadViewsMap();
     map[shareId] = (map[shareId] || 0) + 1;
@@ -157,6 +223,84 @@ export async function importShareToMyLibrary(share) {
 
   if (share.isPaid && !isContentUnlocked(share)) {
     throw new Error('CONTENT_LOCKED_PAYMENT_REQUIRED');
+  }
+
+  if (share.type === 'path') {
+    const courses = Array.isArray(share.pathCourses) && share.pathCourses.length ? share.pathCourses : (Array.isArray(share.items) ? share.items : []);
+    const projId = `proj-path-${Date.now()}`;
+    const projectFolders = [];
+    const allProjVideos = [];
+
+    for (let cIdx = 0; cIdx < courses.length; cIdx++) {
+      const course = courses[cIdx];
+      const folderId = `fld-${cIdx + 1}-${Date.now()}`;
+      const folderItems = [];
+      const playlistId = `pl-path-${Date.now()}-${cIdx}`;
+      const childVideoIds = [];
+      const vids = Array.isArray(course.videos) ? course.videos : (Array.isArray(course.items) ? course.items : []);
+
+      for (let i = 0; i < vids.length; i++) {
+        const item = vids[i];
+        const url = item.url || item;
+        const vidMatch = String(url).match(/(?:v=|\/embed\/|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+        const ytId = vidMatch ? vidMatch[1] : '';
+        const docId = `yt-video-${ytId || Math.random().toString(36).slice(2)}`;
+
+        const saved = upsertDocument({
+          id: docId,
+          kind: 'video',
+          provider: ytId ? 'youtube' : 'local',
+          ytType: 'video',
+          ytId,
+          title: item.title || `${course.title || 'دورة'} — درس ${i + 1}`,
+          filename: url,
+          url,
+          embedUrl: ytId ? `https://www.youtube-nocookie.com/embed/${ytId}?rel=0&modestbranding=1` : url,
+          size: 0,
+          mime: 'text/html',
+          missing: false,
+          playlistId,
+          isPlaylistChild: true,
+          fromCommunity: true,
+          communityShareId: share.id,
+          isPaid: !!share.isPaid,
+          isProtected: !!share.isPaid || !item.isFreePreview
+        });
+        if (saved?.id) {
+          childVideoIds.push(saved.id);
+          allProjVideos.push(saved.id);
+          folderItems.push({ type: 'video', refId: saved.id, name: saved.title });
+        }
+      }
+
+      upsertPlaylist({
+        id: playlistId,
+        title: `${share.title} — ${course.title || `مرحلة ${cIdx + 1}`}`,
+        videoIds: childVideoIds,
+        fromCommunity: true,
+        communityShareId: share.id,
+        isPaid: !!share.isPaid,
+        isProtected: !!share.isPaid
+      });
+
+      projectFolders.push({
+        id: folderId,
+        name: course.title || `المرحلة ${cIdx + 1}`,
+        items: folderItems
+      });
+    }
+
+    upsertProject({
+      id: projId,
+      name: `مسار: ${share.title}`,
+      description: share.description || '',
+      category: share.category || 'مسار تعليمي',
+      videos: allProjVideos,
+      folders: projectFolders,
+      studyList: allProjVideos
+    });
+
+    return { ok: true, type: 'path', coursesCount: courses.length, totalVideos: allProjVideos.length };
   }
 
   if (share.type === 'playlist') {

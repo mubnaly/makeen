@@ -203,7 +203,9 @@ export const ICONS = {
   image: [['rect', 3, 3, 18, 18, 2], ['circle', 8.5, 8.5, 1.5], ['polyline', '21 15 16 10 5 21']],
   lock: [['rect', 3, 11, 18, 11, 2], ['path', 'M7 11V7a5 5 0 0 1 10 0v4']],
   unlock: [['rect', 3, 11, 18, 11, 2], ['path', 'M7 11V7a5 5 0 0 1 9.9-1']],
-  square: [['rect', 3, 3, 18, 18, 2]]
+  square: [['rect', 3, 3, 18, 18, 2]],
+  layers: [['path', 'M12 2L2 7l10 5 10-5-10-5z'], ['path', 'M2 17l10 5 10-5'], ['path', 'M2 12l10 5 10-5']],
+  playlist: [['line', 8, 6, 21, 6], ['line', 8, 12, 21, 12], ['line', 8, 18, 21, 18], ['line', 3, 6, 3.01, 6], ['line', 3, 12, 3.01, 12], ['line', 3, 18, 3.01, 18]]
 };
 
 export const ICON_NAMES = Object.keys(ICONS);

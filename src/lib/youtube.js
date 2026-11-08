@@ -251,102 +251,11 @@ export async function fetchYouTubeVideoMetadata(urlOrId) {
 }
 
 /**
- * Scrape playlist video links, titles, and thumbnails
- * Uses Desktop bridge, Invidious CORS APIs, Vite dev API, or direct fetch.
+ * Parse YouTube playlist page HTML containing ytInitialData
  */
-export async function fetchPlaylistScrape(playlistUrl) {
-  const url = String(playlistUrl || '').trim();
-  if (!url) return { ok: false, error: 'emptyUrl' };
-
-  let listId = '';
+export function parseYoutubePlaylistHtml(html) {
+  if (!html || typeof html !== 'string') return { ok: false, error: 'emptyHtml' };
   try {
-    const parsed = new URL(url.startsWith('http') ? url : `https://www.youtube.com/${url}`);
-    listId = parsed.searchParams.get('list') || '';
-  } catch {}
-
-  if (!listId && url.startsWith('PL')) {
-    listId = url;
-  } else if (!listId) {
-    const m = url.match(/[?&]list=([a-zA-Z0-9_-]+)/);
-    if (m) listId = m[1];
-  }
-
-  // 1. Desktop Electron Bridge
-  const bridge = typeof window !== 'undefined' ? (window.makeen || window.studyos) : null;
-  if (bridge?.youtubePlaylist) {
-    try {
-      const res = await bridge.youtubePlaylist({ url });
-      if (res && res.ok && Array.isArray(res.videos) && res.videos.length > 0) {
-        return res;
-      }
-    } catch (e) {
-      console.warn('Bridge playlist scrape failed, falling back:', e);
-    }
-  }
-
-  // 2. Invidious API instances (High speed, zero API key, CORS: * enabled for browsers)
-  if (listId) {
-    const instances = [
-      'https://inv.nadeko.net',
-      'https://yewtu.be',
-      'https://invidious.nerdvpn.de',
-      'https://invidious.private.coffee'
-    ];
-    for (const inst of instances) {
-      try {
-        const res = await fetch(`${inst}/api/v1/playlists/${listId}`, {
-          signal: AbortSignal.timeout ? AbortSignal.timeout(6000) : undefined
-        });
-        if (res.ok) {
-          const data = await res.json();
-          if (data && Array.isArray(data.videos) && data.videos.length > 0) {
-            const vids = data.videos.map((v) => ({
-              id: v.videoId,
-              title: v.title || 'فيديو بدون عنوان',
-              url: `https://www.youtube.com/watch?v=${v.videoId}`,
-              thumbnail: `https://i.ytimg.com/vi/${v.videoId}/hqdefault.jpg`,
-              duration: v.lengthSeconds || 0,
-              author: v.author || data.author || ''
-            }));
-            const thumb = vids[0]?.thumbnail || (data.playlistThumbnail ? `${inst}${data.playlistThumbnail}` : '');
-            return {
-              ok: true,
-              title: data.title || 'قائمة تشغيل',
-              thumbnail: thumb,
-              count: vids.length,
-              videos: vids
-            };
-          }
-        }
-      } catch (err) {
-        console.warn(`Invidious instance ${inst} failed:`, err?.message || err);
-      }
-    }
-  }
-
-  // 3. Vite media server endpoint
-  try {
-    const res = await fetch(`/api/playlist?url=${encodeURIComponent(url)}`);
-    if (res.ok) {
-      const data = await res.json();
-      if (data && data.ok && Array.isArray(data.videos) && data.videos.length > 0) {
-        return data;
-      }
-    }
-  } catch {}
-
-  // 4. Direct HTML extraction fallback
-  try {
-    let cleanUrl = url;
-    if (listId) {
-      cleanUrl = `https://www.youtube.com/playlist?list=${listId}`;
-    } else if (!cleanUrl.startsWith('http')) {
-      cleanUrl = `https://www.youtube.com/playlist?list=${cleanUrl}`;
-    }
-
-    const res = await fetch(cleanUrl);
-    if (!res.ok) return { ok: false, error: 'fetchFailed', status: res.status };
-    const html = await res.text();
     const markerMatch = html.match(/(?:var\s+ytInitialData|window\[['"]ytInitialData['"]\]|ytInitialData)\s*=\s*/);
     if (!markerMatch) return { ok: false, error: 'noData' };
     const start = markerMatch.index + markerMatch[0].length;
@@ -373,11 +282,13 @@ export async function fetchPlaylistScrape(playlistUrl) {
           seen.add(p.videoId);
           const vTitle = p.title?.runs?.[0]?.text || p.title?.simpleText || 'فيديو';
           const thumb = p.thumbnail?.thumbnails?.slice(-1)[0]?.url || `https://i.ytimg.com/vi/${p.videoId}/hqdefault.jpg`;
+          const durSec = p.lengthSeconds ? Number(p.lengthSeconds) : 0;
           videos.push({
             id: p.videoId,
             title: vTitle,
             url: `https://www.youtube.com/watch?v=${p.videoId}`,
-            thumbnail: thumb
+            thumbnail: thumb,
+            duration: durSec
           });
         }
         return;
@@ -393,7 +304,8 @@ export async function fetchPlaylistScrape(playlistUrl) {
             id: vId,
             title: vTitle,
             url: `https://www.youtube.com/watch?v=${vId}`,
-            thumbnail: thumb
+            thumbnail: thumb,
+            duration: 0
           });
         }
         return;
@@ -413,6 +325,136 @@ export async function fetchPlaylistScrape(playlistUrl) {
       videos
     };
   } catch (err) {
-    return { ok: false, error: 'scrapeFailed', message: String(err?.message || err) };
+    return { ok: false, error: 'parseError', message: String(err?.message || err) };
   }
+}
+
+/**
+ * Scrape playlist video links, titles, and thumbnails
+ * Uses Tauri native bridge, Desktop Electron bridge, Invidious CORS APIs, Vite dev API, or direct fetch.
+ */
+export async function fetchPlaylistScrape(playlistUrl) {
+  const url = String(playlistUrl || '').trim();
+  if (!url) return { ok: false, error: 'emptyUrl' };
+
+  let listId = '';
+  try {
+    const parsed = new URL(url.startsWith('http') ? url : `https://www.youtube.com/${url}`);
+    listId = parsed.searchParams.get('list') || '';
+  } catch {}
+
+  if (!listId && url.startsWith('PL')) {
+    listId = url;
+  } else if (!listId) {
+    const m = url.match(/[?&]list=([a-zA-Z0-9_-]+)/);
+    if (m) listId = m[1];
+  }
+
+  let cleanUrl = url;
+  if (listId) {
+    cleanUrl = `https://www.youtube.com/playlist?list=${listId}`;
+  } else if (!cleanUrl.startsWith('http')) {
+    cleanUrl = `https://www.youtube.com/playlist?list=${cleanUrl}`;
+  }
+
+  // 1. Tauri Native Desktop Bridge (Zero CORS, 100% reliable curl extraction)
+  const tauriInvoke = (typeof window !== 'undefined' && (
+    window.__TAURI__?.core?.invoke ||
+    window.__TAURI__?.invoke ||
+    window.__TAURI_INTERNALS__?.invoke
+  )) || null;
+  if (tauriInvoke) {
+    try {
+      const html = await tauriInvoke('fetch_url_content', { url: cleanUrl });
+      if (html) {
+        const parsed = parseYoutubePlaylistHtml(html);
+        if (parsed && parsed.ok && Array.isArray(parsed.videos) && parsed.videos.length > 0) {
+          return parsed;
+        }
+      }
+    } catch (e) {
+      console.warn('Tauri fetch_url_content failed, falling back:', e);
+    }
+  }
+
+  // 2. Desktop Electron Bridge
+  const bridge = typeof window !== 'undefined' ? (window.makeen || window.studyos) : null;
+  if (bridge?.youtubePlaylist) {
+    try {
+      const res = await bridge.youtubePlaylist({ url: cleanUrl });
+      if (res && res.ok && Array.isArray(res.videos) && res.videos.length > 0) {
+        return res;
+      }
+    } catch (e) {
+      console.warn('Bridge playlist scrape failed, falling back:', e);
+    }
+  }
+
+  // 3. High-Speed Invidious API instances (CORS: * enabled for browsers)
+  if (listId) {
+    const instances = [
+      'https://inv.nadeko.net',
+      'https://invidious.jing.rocks',
+      'https://invidious.nerdvpn.de',
+      'https://yewtu.be',
+      'https://invidious.private.coffee'
+    ];
+    for (const inst of instances) {
+      try {
+        const res = await fetch(`${inst}/api/v1/playlists/${listId}`, {
+          signal: AbortSignal.timeout ? AbortSignal.timeout(6000) : undefined
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data && Array.isArray(data.videos) && data.videos.length > 0) {
+            const vids = data.videos.map((v) => ({
+              id: v.videoId,
+              title: v.title || 'فيديو بدون عنوان',
+              url: `https://www.youtube.com/watch?v=${v.videoId}`,
+              thumbnail: `https://i.ytimg.com/vi/${v.videoId}/hqdefault.jpg`,
+              duration: v.lengthSeconds || 0,
+              author: v.author || data.author || ''
+            }));
+            const thumb = vids[0]?.thumbnail || (data.playlistThumbnail ? (data.playlistThumbnail.startsWith('http') ? data.playlistThumbnail : `${inst}${data.playlistThumbnail}`) : '');
+            return {
+              ok: true,
+              title: data.title || 'قائمة تشغيل',
+              thumbnail: thumb,
+              count: vids.length,
+              videos: vids
+            };
+          }
+        }
+      } catch (err) {
+        console.warn(`Invidious instance ${inst} failed:`, err?.message || err);
+      }
+    }
+  }
+
+  // 4. Local Vite media server / Backend endpoint
+  try {
+    const res = await fetch(`/api/playlist?url=${encodeURIComponent(cleanUrl)}`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.ok && Array.isArray(data.videos) && data.videos.length > 0) {
+        return data;
+      }
+    }
+  } catch {}
+
+  // 5. Direct HTML extraction fallback
+  try {
+    const res = await fetch(cleanUrl);
+    if (res.ok) {
+      const html = await res.text();
+      const parsed = parseYoutubePlaylistHtml(html);
+      if (parsed && parsed.ok && Array.isArray(parsed.videos) && parsed.videos.length > 0) {
+        return parsed;
+      }
+    }
+  } catch (err) {
+    console.warn('Direct fetch failed:', err?.message || err);
+  }
+
+  return { ok: false, error: 'scrapeFailed' };
 }

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  parseYouTube, youtubeDocId, qualityLabel, normalizeQualities, activeCueAt
+  parseYouTube, youtubeDocId, qualityLabel, normalizeQualities, activeCueAt, parseYoutubePlaylistHtml
 } from '../src/lib/youtube.js';
 
 const ID = 'dQw4w9WgXcQ';
@@ -89,4 +89,64 @@ test('the active caption follows playback and respects gaps', () => {
   assert.equal(activeCueAt(cues, NaN), -1);
   const open = [{ start: 4, text: 'no duration' }];
   assert.equal(activeCueAt(open, 10), 0);
+});
+
+test('parseYoutubePlaylistHtml extracts videos from ytInitialData', () => {
+  const mockJson = {
+    metadata: {
+      playlistMetadataRenderer: { title: 'قائمة تجريبية' }
+    },
+    contents: {
+      twoColumnBrowseResultsRenderer: {
+        tabs: [{
+          tabRenderer: {
+            content: {
+              sectionListRenderer: {
+                contents: [{
+                  itemSectionRenderer: {
+                    contents: [{
+                      playlistVideoListRenderer: {
+                        contents: [
+                          {
+                            playlistVideoRenderer: {
+                              videoId: 'video123456',
+                              title: { runs: [{ text: 'الدرس الأول: مقدمة' }] },
+                              thumbnail: { thumbnails: [{ url: 'https://example.com/thumb1.jpg' }] },
+                              lengthSeconds: '120'
+                            }
+                          },
+                          {
+                            playlistVideoRenderer: {
+                              videoId: 'video789012',
+                              title: { simpleText: 'الدرس الثاني: التطبيق' },
+                              thumbnail: { thumbnails: [{ url: 'https://example.com/thumb2.jpg' }] },
+                              lengthSeconds: '240'
+                            }
+                          }
+                        ]
+                      }
+                    }]
+                  }
+                }]
+              }
+            }
+          }
+        }]
+      }
+    }
+  };
+
+  const html = `<!DOCTYPE html><html><head><script>var ytInitialData = ${JSON.stringify(mockJson)};</script></head><body></body></html>`;
+  const result = parseYoutubePlaylistHtml(html);
+
+  assert.equal(result.ok, true);
+  assert.equal(result.title, 'قائمة تجريبية');
+  assert.equal(result.count, 2);
+  assert.equal(result.videos.length, 2);
+  assert.equal(result.videos[0].id, 'video123456');
+  assert.equal(result.videos[0].title, 'الدرس الأول: مقدمة');
+  assert.equal(result.videos[0].url, 'https://www.youtube.com/watch?v=video123456');
+  assert.equal(result.videos[0].duration, 120);
+  assert.equal(result.videos[1].id, 'video789012');
+  assert.equal(result.videos[1].title, 'الدرس الثاني: التطبيق');
 });

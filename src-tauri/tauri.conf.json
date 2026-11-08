@@ -11,6 +11,7 @@
     "windows": [
       {
         "title": "Makeen",
+        "url": "index.html",
         "width": 1280,
         "height": 860,
         "minWidth": 800,

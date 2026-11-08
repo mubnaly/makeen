@@ -13,7 +13,9 @@
     deleteCommunityShare,
     isShareOwner,
     importShareToMyLibrary,
-    recordShareVisit
+    recordShareVisit,
+    formatTotalDuration,
+    computeShareTotalDuration
   } from '../lib/communityStore.js';
   import {
     isContentUnlocked,
@@ -79,6 +81,61 @@
   let reviewRating = $state(5);
   let reviewComment = $state('');
   let activeShareReviews = $state([]);
+
+  // Learning Path Courses State
+  let newSharePathCourses = $state([]);
+  let newPathCourseTitle = $state('');
+  let newPathCourseUrl = $state('');
+  let isAddingPathCourse = $state(false);
+
+  async function handleAddCourseToPath() {
+    const url = newPathCourseUrl.trim();
+    const title = newPathCourseTitle.trim();
+    if (!url && !title) return;
+    isAddingPathCourse = true;
+    notify('جارِ استخراج محتوى الكورس للمسار...', 'info');
+    try {
+      const scraped = await fetchPlaylistScrape(url);
+      if (scraped && scraped.ok && Array.isArray(scraped.videos) && scraped.videos.length > 0) {
+        newSharePathCourses = [...newSharePathCourses, {
+          id: `pc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          title: title || scraped.title || `كورس ${newSharePathCourses.length + 1}`,
+          url,
+          thumbnail: scraped.thumbnail || scraped.videos[0]?.thumbnail || '',
+          videos: scraped.videos,
+          videoCount: scraped.videos.length,
+          durationSeconds: scraped.videos.reduce((acc, v) => acc + (Number(v.duration || v.lengthSeconds) || 0), 0)
+        }];
+        if (!newShareThumbnail && scraped.thumbnail) {
+          newShareThumbnail = scraped.thumbnail;
+        }
+        newPathCourseTitle = '';
+        newPathCourseUrl = '';
+        notify(`تمت إضافة "${title || scraped.title}" (${scraped.videos.length} درس) إلى المسار!`, 'ok');
+      } else {
+        newSharePathCourses = [...newSharePathCourses, {
+          id: `pc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          title: title || `كورس ${newSharePathCourses.length + 1}`,
+          url,
+          thumbnail: '',
+          videos: url ? [{ id: '1', title, url }] : [],
+          videoCount: 1,
+          durationSeconds: 0
+        }];
+        newPathCourseTitle = '';
+        newPathCourseUrl = '';
+        notify('تمت إضافة الكورس إلى المسار بنجاح', 'ok');
+      }
+    } catch (e) {
+      notify('تعذر استخراج الكورس تلقائياً، يمكنك إضافته يدوياً', 'warn');
+    } finally {
+      isAddingPathCourse = false;
+    }
+  }
+
+  function handleRemovePathCourse(idx) {
+    newSharePathCourses = newSharePathCourses.filter((_, i) => i !== idx);
+  }
 
   let importingId = $state(null);
 
@@ -288,6 +345,9 @@
     playlistScrapeUrl = '';
     isScrapingPlaylist = false;
     newShareThumbnail = share.thumbnail || '';
+    newSharePathCourses = Array.isArray(share.pathCourses) ? JSON.parse(JSON.stringify(share.pathCourses)) : [];
+    newPathCourseTitle = '';
+    newPathCourseUrl = '';
     isShareModalOpen = true;
   }
 
@@ -450,8 +510,12 @@
         isPaid: newShareIsPaid,
         price: newSharePrice,
         isAnonymous: newShareIsAnonymous,
-        itemsCount: items.length || 1,
-        items,
+        itemsCount: newShareType === 'path' ? newSharePathCourses.reduce((acc, c) => acc + (c.videoCount || 1), 0) : (items.length || 1),
+        items: newShareType === 'path' ? newSharePathCourses : items,
+        pathCourses: newShareType === 'path' ? newSharePathCourses : [],
+        totalDurationSeconds: newShareType === 'path'
+          ? newSharePathCourses.reduce((acc, c) => acc + (c.durationSeconds || 0), 0)
+          : items.reduce((acc, it) => acc + Number(it.duration || it.durationSeconds || 0), 0),
         playlistData,
         pdfData: newShareFile ? { name: newShareFile.name, size: newShareFile.size } : null
       };
@@ -477,6 +541,9 @@
       newVideoTitleInput = '';
       playlistScrapeUrl = '';
       newShareThumbnail = '';
+      newSharePathCourses = [];
+      newPathCourseTitle = '';
+      newPathCourseUrl = '';
       isShareModalOpen = false;
       await reload();
       if (selectedShareDetails && selectedShareDetails.id === editingShareId) {
@@ -490,6 +557,7 @@
   }
 
   function typeIcon(type) {
+    if (type === 'path') return 'layers';
     if (type === 'playlist' || type === 'video') return 'video';
     if (type === 'cards') return 'flashcards';
     if (type === 'notes') return 'file-text';
@@ -497,6 +565,7 @@
   }
 
   function typeLabel(type) {
+    if (type === 'path') return ui.lang === 'ar' ? 'مسار تعليمي' : 'Learning Path';
     if (type === 'playlist') return t('community.filterPlaylists');
     if (type === 'cards') return t('community.filterCards');
     if (type === 'notes') return t('community.filterNotes');
@@ -600,6 +669,14 @@
           {/if}
         </button>
       {/if}
+
+      <button
+        class="filter-pill {activeFilter === 'path' ? 'active' : ''}"
+        onclick={() => (activeFilter = 'path')}
+      >
+        <Icon name="layers" size={14} />
+        <span>{ui.lang === 'ar' ? 'المسارات التعليمية' : 'Learning Paths'}</span>
+      </button>
 
       <button
         class="filter-pill {activeFilter === 'playlist' ? 'active' : ''}"
@@ -739,23 +816,66 @@
       </div>
 
       <!-- Curriculum / Videos List Section -->
-      <div class="curriculum-card card" style="margin-top:20px; padding:18px;">
-        <div class="curriculum-header hstack" style="justify-content:space-between; margin-bottom:14px; flex-wrap:wrap; gap:8px;">
-          <div class="hstack" style="gap:8px;">
-            <Icon name="video" size={18} />
-            <h3 style="margin:0; font-size:16px;">
-              {ui.lang === 'ar' ? 'فيديوهات ودروس القائمة' : 'Course Lessons'} ({share.items?.length || share.playlistData?.videoUrls?.length || 1})
-            </h3>
+      {#if share.type === 'path'}
+        <div class="curriculum-card card" style="margin-top:20px; padding:18px;">
+          <div class="curriculum-header hstack" style="justify-content:space-between; margin-bottom:14px; flex-wrap:wrap; gap:8px;">
+            <div class="hstack" style="gap:8px;">
+              <Icon name="layers" size={18} />
+              <h3 style="margin:0; font-size:16px;">
+                مراحل وكورسات المسار التعليمي ({share.pathCourses?.length || share.items?.length || 0} دورات)
+              </h3>
+            </div>
+            <small class="muted">
+              مسار متسلسل يجمع عدة دورات لتحقيق إتقان كامل للمجال
+            </small>
           </div>
-          <small class="muted">
-            {unlocked ? (ui.lang === 'ar' ? 'كافة الدروس مفتوحة لك للمشاهدة' : 'All lessons unlocked') : (ui.lang === 'ar' ? 'الدروس المميزة بـ "معاينة مجانية" متاحة للجميع' : 'Preview lessons are free to watch')}
-          </small>
-        </div>
 
-        <div class="curriculum-list" style="display:flex; flex-direction:column; gap:8px;">
-          {#each (share.items || (share.playlistData?.videoUrls || []).map((u, i) => ({ title: `${share.title} - درس ${i + 1}`, url: u, isFreePreview: i === 0 || !share.isPaid }))) as subItem, idx}
-            {@const canWatch = unlocked || subItem.isFreePreview || !share.isPaid}
-            <div class="curriculum-item-row card hstack" style="padding:10px 14px; gap:12px; background:var(--surface-2); border:1px solid var(--border); border-radius:8px; align-items:center;">
+          <div class="path-stages-display" style="display:flex; flex-direction:column; gap:12px;">
+            {#each (share.pathCourses || share.items || []) as courseStage, sIdx}
+              <div class="stage-block card" style="padding:14px; background:var(--surface-2); border:1px solid var(--border); border-radius:8px;">
+                <div class="hstack" style="justify-content:space-between; margin-bottom:8px; flex-wrap:wrap; gap:6px;">
+                  <div class="hstack" style="gap:10px;">
+                    <span class="badge" style="font-weight:700; font-size:13px; padding:4px 10px; background:var(--accent); color:#fff; border-radius:6px;">المرحلة {sIdx + 1}</span>
+                    <strong style="font-size:15px;">{courseStage.title}</strong>
+                  </div>
+                  <span class="muted" style="font-size:12px;">{courseStage.videoCount || courseStage.videos?.length || 1} فيديوهات · {formatTotalDuration(courseStage.durationSeconds) || ''}</span>
+                </div>
+                {#if courseStage.videos && courseStage.videos.length > 0}
+                  <div class="stage-videos-list" style="display:flex; flex-direction:column; gap:4px; margin-top:8px;">
+                    {#each courseStage.videos.slice(0, 5) as sv, vIdx}
+                      <div class="stage-v-item hstack muted" style="font-size:12px; gap:8px; padding:4px 8px; background:var(--surface-1); border-radius:4px;">
+                        <span class="idx">{vIdx + 1}.</span>
+                        <span class="truncate grow">{sv.title}</span>
+                        <span>{formatTotalDuration(sv.duration || sv.lengthSeconds) || ''}</span>
+                      </div>
+                    {/each}
+                    {#if courseStage.videos.length > 5}
+                      <small class="muted" style="text-align:center; padding:4px;">+{courseStage.videos.length - 5} فيديوهات أخرى داخل هذه المرحلة</small>
+                    {/if}
+                  </div>
+                {/if}
+              </div>
+            {/each}
+          </div>
+        </div>
+      {:else}
+        <div class="curriculum-card card" style="margin-top:20px; padding:18px;">
+          <div class="curriculum-header hstack" style="justify-content:space-between; margin-bottom:14px; flex-wrap:wrap; gap:8px;">
+            <div class="hstack" style="gap:8px;">
+              <Icon name="video" size={18} />
+              <h3 style="margin:0; font-size:16px;">
+                {ui.lang === 'ar' ? 'فيديوهات ودروس القائمة' : 'Course Lessons'} ({share.items?.length || share.playlistData?.videoUrls?.length || 1})
+              </h3>
+            </div>
+            <small class="muted">
+              {unlocked ? (ui.lang === 'ar' ? 'كافة الدروس مفتوحة لك للمشاهدة' : 'All lessons unlocked') : (ui.lang === 'ar' ? 'الدروس المميزة بـ "معاينة مجانية" متاحة للجميع' : 'Preview lessons are free to watch')}
+            </small>
+          </div>
+
+          <div class="curriculum-list" style="display:flex; flex-direction:column; gap:8px;">
+            {#each (share.items || (share.playlistData?.videoUrls || []).map((u, i) => ({ title: `${share.title} - درس ${i + 1}`, url: u, isFreePreview: i === 0 || !share.isPaid }))) as subItem, idx}
+              {@const canWatch = unlocked || subItem.isFreePreview || !share.isPaid}
+              <div class="curriculum-item-row card hstack" style="padding:10px 14px; gap:12px; background:var(--surface-2); border:1px solid var(--border); border-radius:8px; align-items:center;">
               <div class="lesson-num-badge" style="width:26px; height:26px; border-radius:50%; background:var(--surface-1); border:1px solid var(--border); display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700;">
                 {idx + 1}
               </div>
@@ -804,6 +924,7 @@
           {/each}
         </div>
       </div>
+      {/if}
     </div>
   {:else if filteredShares.length === 0}
     <div class="empty-state card">
@@ -824,6 +945,7 @@
       {#each filteredShares as item (item.id)}
         {@const unlocked = isContentUnlocked(item, currentUser)}
         {@const isOwner = isShareOwner(item, currentUser)}
+        {@const totalDur = formatTotalDuration(computeShareTotalDuration(item))}
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <div
           class="share-card card clickable-card"
@@ -869,6 +991,13 @@
               <span>{typeLabel(item.type)}</span>
             </span>
 
+            {#if totalDur}
+              <span class="duration-badge-floating hstack">
+                <Icon name="clock" size={11} />
+                <span>{totalDur}</span>
+              </span>
+            {/if}
+
             {#if item.isPaid}
               <span class="price-badge-floating {unlocked ? 'unlocked' : 'locked'}">
                 {#if unlocked}
@@ -889,20 +1018,20 @@
             <h4 class="share-title">{ui.lang === 'en' && item.titleEn ? item.titleEn : item.title}</h4>
             <p class="share-description muted">{ui.lang === 'en' && item.descriptionEn ? item.descriptionEn : item.description}</p>
 
-            <!-- Free Preview Items Pill List (if paid) -->
-            {#if item.items && item.items.length > 0}
-              <div class="preview-items-row">
-                {#each item.items.slice(0, 3) as subItem, idx}
-                  <span class="subitem-pill {subItem.isFreePreview ? 'free-preview' : 'paid-locked'}">
-                    <Icon name={subItem.isFreePreview ? 'play' : 'lock'} size={11} />
-                    <span>{subItem.title || `درس ${idx + 1}`}</span>
-                    {#if subItem.isFreePreview}
-                      <small class="free-tag">مجاني</small>
-                    {/if}
-                  </span>
-                {/each}
-                {#if item.items.length > 3}
-                  <span class="more-subitems">+{item.items.length - 3} دروس أخرى</span>
+            {#if item.type === 'playlist' || item.type === 'video'}
+              <div class="card-meta-line hstack muted" style="font-size:12px; gap:8px; margin:4px 0 8px 0;">
+                <span class="hstack" style="gap:4px;"><Icon name="video" size={12} /> {item.items?.length || item.itemsCount || 1} دروس</span>
+                {#if totalDur}
+                  <span class="meta-dot">·</span>
+                  <span class="hstack" style="gap:4px;"><Icon name="clock" size={12} /> {totalDur}</span>
+                {/if}
+              </div>
+            {:else if item.type === 'path'}
+              <div class="card-meta-line hstack muted" style="font-size:12px; gap:8px; margin:4px 0 8px 0;">
+                <span class="hstack" style="gap:4px;"><Icon name="layers" size={12} /> {item.pathCourses?.length || item.items?.length || 0} دورات</span>
+                {#if totalDur}
+                  <span class="meta-dot">·</span>
+                  <span class="hstack" style="gap:4px;"><Icon name="clock" size={12} /> {totalDur}</span>
                 {/if}
               </div>
             {/if}
@@ -974,21 +1103,30 @@
 
   <!-- 1. SHARE / EDIT CONTENT MODAL DIALOG -->
   {#if isShareModalOpen}
-    <div class="modal-backdrop" onclick={() => (isShareModalOpen = false)} role="presentation"></div>
-    <div class="share-modal card" role="dialog" aria-modal="true" aria-label={editingShareId ? 'تعديل مشاركة المجتمع' : t('community.shareModalTitle')}>
-      <div class="modal-header">
-        <div class="hstack" style="gap:8px;">
-          <Icon name={editingShareId ? 'pencil' : 'globe'} size={18} />
-          <h3>{editingShareId ? (ui.lang === 'ar' ? 'تعديل المحتوى المشترك' : 'Edit Shared Content') : t('community.shareModalTitle')}</h3>
+    <div class="modal-root" role="dialog" aria-modal="true">
+      <div class="modal-backdrop" onclick={() => (isShareModalOpen = false)} role="presentation"></div>
+      <div class="share-modal card" aria-label={editingShareId ? 'تعديل مشاركة المجتمع' : t('community.shareModalTitle')}>
+        <div class="modal-header">
+          <div class="hstack" style="gap:8px;">
+            <Icon name={editingShareId ? 'pencil' : 'globe'} size={18} />
+            <h3>{editingShareId ? (ui.lang === 'ar' ? 'تعديل المحتوى المشترك' : 'Edit Shared Content') : t('community.shareModalTitle')}</h3>
+          </div>
+          <button class="icon-btn" onclick={() => (isShareModalOpen = false)}>
+            <Icon name="x" size={16} />
+          </button>
         </div>
-        <button class="icon-btn" onclick={() => (isShareModalOpen = false)}>
-          <Icon name="x" size={16} />
-        </button>
-      </div>
 
       <div class="modal-body">
         <label class="field-label">{t('community.shareType')}</label>
         <div class="type-picker-row">
+          <button
+            type="button"
+            class="type-pill {newShareType === 'path' ? 'active' : ''}"
+            onclick={() => (newShareType = 'path')}
+          >
+            <Icon name="layers" size={14} />
+            <span>مسار تعليمي متكامل</span>
+          </button>
           <button
             type="button"
             class="type-pill {newShareType === 'playlist' ? 'active' : ''}"
@@ -1227,6 +1365,81 @@
               </div>
             {/if}
           </div>
+        {:else if newShareType === 'path'}
+          <div class="path-courses-editor card" style="margin: 12px 0; padding: 14px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px;">
+            <div class="hstack" style="justify-content:space-between; margin-bottom:10px;">
+              <label class="field-label" style="margin:0; font-weight:700;">
+                مراحل وكورسات المسار التعليمي ({newSharePathCourses.length} كورسات)
+              </label>
+              <span class="badge-pill">{newSharePathCourses.reduce((acc, c) => acc + (c.videoCount || 1), 0)} فيديو إجمالي</span>
+            </div>
+
+            <!-- Add Course to Path Input Bar -->
+            <div class="path-add-box" style="padding:10px; background:rgba(59, 130, 246, 0.08); border:1px solid rgba(59, 130, 246, 0.28); border-radius:6px; margin-bottom:12px;">
+              <div style="display:flex; flex-direction:column; gap:8px;">
+                <input
+                  type="text"
+                  placeholder="اسم المرحلة / الكورس (مثال: المرحلة الأولى - الأساسيات)"
+                  bind:value={newPathCourseTitle}
+                />
+                <div class="hstack" style="gap:8px;">
+                  <input
+                    type="url"
+                    placeholder="رابط قائمة تشغيل يوتيوب للكورس..."
+                    bind:value={newPathCourseUrl}
+                    style="flex:1;"
+                    onkeydown={(e) => { if (e.key === 'Enter') handleAddCourseToPath(); }}
+                  />
+                  <button
+                    type="button"
+                    class="primary small hstack"
+                    disabled={isAddingPathCourse || (!newPathCourseTitle.trim() && !newPathCourseUrl.trim())}
+                    onclick={handleAddCourseToPath}
+                  >
+                    {#if isAddingPathCourse}
+                      <Icon name="rotate-right" size={13} class="spin" />
+                      <span>جارِ الاستخراج...</span>
+                    {:else}
+                      <Icon name="plus" size={13} />
+                      <span>إضافة الكورس</span>
+                    {/if}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- List of Added Courses in Path -->
+            {#if newSharePathCourses.length === 0}
+              <div class="empty muted" style="text-align:center; padding:12px; font-size:12.5px;">
+                لم تقم بإضافة كورسات للمسار بعد. أضف روابط قوائم التشغيل للمراحل التعليمية أعلاه.
+              </div>
+            {:else}
+              <div class="path-courses-list" style="display:flex; flex-direction:column; gap:8px;">
+                {#each newSharePathCourses as c, idx (c.id)}
+                  <div class="path-course-row hstack card" style="padding:8px 12px; justify-content:space-between; align-items:center;">
+                    <div class="hstack" style="gap:10px; min-width:0;">
+                      <span class="badge" style="font-weight:700;">{idx + 1}</span>
+                      {#if c.thumbnail}
+                        <img src={c.thumbnail} alt="" style="width:50px; height:30px; object-fit:cover; border-radius:4px;" />
+                      {/if}
+                      <div style="min-width:0;">
+                        <div style="font-weight:700; font-size:13px;" class="truncate">{c.title}</div>
+                        <div class="muted" style="font-size:11.5px;">{c.videoCount || 1} فيديوهات · {formatTotalDuration(c.durationSeconds) || 'مدد متنوعة'}</div>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      class="icon-btn small danger"
+                      onclick={() => handleRemovePathCourse(idx)}
+                      title="إزالة هذا الكورس من المسار"
+                    >
+                      <Icon name="trash" size={13} />
+                    </button>
+                  </div>
+                {/each}
+              </div>
+            {/if}
+          </div>
         {:else if newShareType === 'pdf'}
           <label class="field-label">رفع ملف المستند (PDF)</label>
           <input type="file" accept="application/pdf" onchange={handleFileSelected} />
@@ -1308,21 +1521,23 @@
         </button>
       </div>
     </div>
+  </div>
   {/if}
 
   <!-- 2. PAYMENT RECEIPT UPLOAD MODAL -->
   {#if isPaymentModalOpen && selectedShareForPayment}
-    <div class="modal-backdrop" onclick={() => (isPaymentModalOpen = false)} role="presentation"></div>
-    <div class="share-modal card" role="dialog" aria-modal="true" aria-label="شراء المحتوى ورفع الإيصال">
-      <div class="modal-header">
-        <div class="hstack" style="gap:8px;">
-          <Icon name="creditCard" size={18} />
-          <h3>شراء وتفعيل: {selectedShareForPayment.title}</h3>
+    <div class="modal-root" role="dialog" aria-modal="true">
+      <div class="modal-backdrop" onclick={() => (isPaymentModalOpen = false)} role="presentation"></div>
+      <div class="share-modal card" aria-label="شراء المحتوى ورفع الإيصال">
+        <div class="modal-header">
+          <div class="hstack" style="gap:8px;">
+            <Icon name="creditCard" size={18} />
+            <h3>شراء وتفعيل: {selectedShareForPayment.title}</h3>
+          </div>
+          <button class="icon-btn" onclick={() => (isPaymentModalOpen = false)}>
+            <Icon name="x" size={16} />
+          </button>
         </div>
-        <button class="icon-btn" onclick={() => (isPaymentModalOpen = false)}>
-          <Icon name="x" size={16} />
-        </button>
-      </div>
 
       <div class="modal-body">
         <div class="payment-instructions card">
@@ -1366,79 +1581,83 @@
         </button>
       </div>
     </div>
+  </div>
   {/if}
 
   <!-- 3. CREATOR PAYMENT REQUESTS VERIFICATION MODAL -->
   {#if isOrdersModalOpen}
-    <div class="modal-backdrop" onclick={() => (isOrdersModalOpen = false)} role="presentation"></div>
-    <div class="share-modal card wide" role="dialog" aria-modal="true" aria-label="مراجعة طلبات الدفع">
-      <div class="modal-header">
-        <div class="hstack" style="gap:8px;">
-          <Icon name="check" size={18} />
-          <h3>طلبات الدفع والاشتراكات المقدمة</h3>
-        </div>
-        <button class="icon-btn" onclick={() => (isOrdersModalOpen = false)}>
-          <Icon name="x" size={16} />
-        </button>
-      </div>
-
-      <div class="modal-body">
-        {#if pendingOrders.length === 0}
-          <div class="empty-state">
-            <Icon name="clock" size={36} />
-            <p>لا توجد طلبات اشتراك أو إيصالات بانتظار المراجعة حالياً.</p>
+    <div class="modal-root" role="dialog" aria-modal="true">
+      <div class="modal-backdrop" onclick={() => (isOrdersModalOpen = false)} role="presentation"></div>
+      <div class="share-modal card wide" aria-label="مراجعة طلبات الدفع">
+        <div class="modal-header">
+          <div class="hstack" style="gap:8px;">
+            <Icon name="check" size={18} />
+            <h3>طلبات الدفع والاشتراكات المقدمة</h3>
           </div>
-        {:else}
-          <div class="orders-table">
-            {#each pendingOrders as ord (ord.id)}
-              <div class="order-row card">
-                <div class="hstack" style="justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
-                  <div>
-                    <div style="font-weight:700; font-size:14px;">{ord.shareTitle}</div>
-                    <div class="muted" style="font-size:12px;">
-                      الطالب: <strong>{ord.buyerName}</strong> ({ord.buyerEmail || 'مستخدم مسجل'}) · المبلغ: {ord.sharePrice} EGP
+          <button class="icon-btn" onclick={() => (isOrdersModalOpen = false)}>
+            <Icon name="x" size={16} />
+          </button>
+        </div>
+
+        <div class="modal-body">
+          {#if pendingOrders.length === 0}
+            <div class="empty-state">
+              <Icon name="clock" size={36} />
+              <p>لا توجد طلبات اشتراك أو إيصالات بانتظار المراجعة حالياً.</p>
+            </div>
+          {:else}
+            <div class="orders-table">
+              {#each pendingOrders as ord (ord.id)}
+                <div class="order-row card">
+                  <div class="hstack" style="justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+                    <div>
+                      <div style="font-weight:700; font-size:14px;">{ord.shareTitle}</div>
+                      <div class="muted" style="font-size:12px;">
+                        الطالب: <strong>{ord.buyerName}</strong> ({ord.buyerEmail || 'مستخدم مسجل'}) · المبلغ: {ord.sharePrice} EGP
+                      </div>
+                      {#if ord.buyerNote}
+                        <div class="buyer-note-text">ملاحظة الطالب: {ord.buyerNote}</div>
+                      {/if}
                     </div>
-                    {#if ord.buyerNote}
-                      <div class="buyer-note-text">ملاحظة الطالب: {ord.buyerNote}</div>
-                    {/if}
-                  </div>
 
-                  <div class="hstack" style="gap:8px;">
-                    {#if ord.receiptImage}
-                      <button class="secondary small hstack" onclick={() => (previewReceiptImg = ord.receiptImage)}>
-                        <Icon name="image" size={13} />
-                        <span>معاينة الإيصال</span>
-                      </button>
-                    {/if}
+                    <div class="hstack" style="gap:8px;">
+                      {#if ord.receiptImage}
+                        <button class="secondary small hstack" onclick={() => (previewReceiptImg = ord.receiptImage)}>
+                          <Icon name="image" size={13} />
+                          <span>معاينة الإيصال</span>
+                        </button>
+                      {/if}
 
-                    {#if ord.status === 'pending'}
-                      <button class="primary small hstack" onclick={() => handleOrderDecision(ord.id, 'accepted')}>
-                        <Icon name="check" size={13} />
-                        <span>قبول وتفعيل</span>
-                      </button>
-                      <button class="secondary small danger hstack" onclick={() => handleOrderDecision(ord.id, 'rejected')}>
-                        <Icon name="x" size={13} />
-                        <span>رفض</span>
-                      </button>
-                    {:else}
-                      <span class="status-badge {ord.status}">
-                        {ord.status === 'accepted' ? 'تم التفعيل' : 'مرفوض'}
-                      </span>
-                    {/if}
+                      {#if ord.status === 'pending'}
+                        <button class="primary small hstack" onclick={() => handleOrderDecision(ord.id, 'accepted')}>
+                          <Icon name="check" size={13} />
+                          <span>قبول وتفعيل</span>
+                        </button>
+                        <button class="secondary small danger hstack" onclick={() => handleOrderDecision(ord.id, 'rejected')}>
+                          <Icon name="x" size={13} />
+                          <span>رفض</span>
+                        </button>
+                      {:else}
+                        <span class="status-badge {ord.status}">
+                          {ord.status === 'accepted' ? 'تم التفعيل' : 'مرفوض'}
+                        </span>
+                      {/if}
+                    </div>
                   </div>
                 </div>
-              </div>
-            {/each}
-          </div>
-        {/if}
+              {/each}
+            </div>
+          {/if}
+        </div>
       </div>
     </div>
   {/if}
 
   <!-- 4. FULL-SIZE RECEIPT IMAGE PREVIEW DIALOG -->
   {#if previewReceiptImg}
-    <div class="modal-backdrop receipt-zoom-backdrop" onclick={() => (previewReceiptImg = null)} role="presentation">
-      <div class="receipt-zoom-container" onclick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+    <div class="modal-root" role="dialog" aria-modal="true">
+      <div class="modal-backdrop receipt-zoom-backdrop" onclick={() => (previewReceiptImg = null)} role="presentation"></div>
+      <div class="receipt-zoom-container" onclick={(e) => e.stopPropagation()}>
         <div class="hstack" style="justify-content:space-between; margin-bottom:8px;">
           <span style="color:#fff; font-weight:700;">صورة إيصال التحويل</span>
           <button class="icon-btn" style="color:#fff;" onclick={() => (previewReceiptImg = null)}>
@@ -1452,67 +1671,69 @@
 
   <!-- 5. REVIEWS & RATINGS MODAL -->
   {#if activeReviewShare}
-    <div class="modal-backdrop" onclick={() => (activeReviewShare = null)} role="presentation"></div>
-    <div class="share-modal card" role="dialog" aria-modal="true" aria-label="التقييمات والآراء">
-      <div class="modal-header">
-        <div class="hstack" style="gap:8px;">
-          <Icon name="star" size={18} />
-          <h3>آراء وتقييمات: {activeReviewShare.title}</h3>
+    <div class="modal-root" role="dialog" aria-modal="true">
+      <div class="modal-backdrop" onclick={() => (activeReviewShare = null)} role="presentation"></div>
+      <div class="share-modal card" aria-label="التقييمات والآراء">
+        <div class="modal-header">
+          <div class="hstack" style="gap:8px;">
+            <Icon name="star" size={18} />
+            <h3>آراء وتقييمات: {activeReviewShare.title}</h3>
+          </div>
+          <button class="icon-btn" onclick={() => (activeReviewShare = null)}>
+            <Icon name="x" size={16} />
+          </button>
         </div>
-        <button class="icon-btn" onclick={() => (activeReviewShare = null)}>
-          <Icon name="x" size={16} />
-        </button>
-      </div>
 
-      <div class="modal-body">
-        <!-- New Review Form -->
-        <div class="add-review-box card">
-          <div class="field-label">أضف تقييمك ورأيك:</div>
-          <div class="stars-picker hstack">
-            {#each [1, 2, 3, 4, 5] as starVal}
-              <button
-                type="button"
-                class="star-btn {reviewRating >= starVal ? 'selected' : ''}"
-                onclick={() => (reviewRating = starVal)}
-              >
-                <Icon name="star" size={20} />
+        <div class="modal-body">
+          <!-- New Review Form -->
+          <div class="add-review-box card">
+            <div class="field-label">أضف تقييمك ورأيك:</div>
+            <div class="stars-picker hstack">
+              {#each [1, 2, 3, 4, 5] as starVal}
+                <button
+                  type="button"
+                  class="star-btn {reviewRating >= starVal ? 'selected' : ''}"
+                  onclick={() => (reviewRating = starVal)}
+                >
+                  <Icon name="star" size={20} />
+                </button>
+              {/each}
+              <span class="star-rating-text">{reviewRating} من 5</span>
+            </div>
+            <textarea
+              rows="2"
+              placeholder="اكتب تعليقك وتجربتك مع المحتوى…"
+              bind:value={reviewComment}
+            ></textarea>
+            <div class="hstack" style="justify-content:flex-end;">
+              <button class="primary small" onclick={handleAddReview}>
+                <Icon name="check" size={13} />
+                <span>{t('community.submitReview')}</span>
               </button>
-            {/each}
-            <span class="star-rating-text">{reviewRating} من 5</span>
+            </div>
           </div>
-          <textarea
-            rows="2"
-            placeholder="اكتب تعليقك وتجربتك مع المحتوى…"
-            bind:value={reviewComment}
-          ></textarea>
-          <div class="hstack" style="justify-content:flex-end;">
-            <button class="primary small" onclick={handleAddReview}>
-              <Icon name="check" size={13} />
-              <span>{t('community.submitReview')}</span>
-            </button>
-          </div>
-        </div>
 
-        <!-- Existing Reviews List -->
-        <div class="reviews-list">
-          <div class="field-label">جميع التقييمات ({activeShareReviews.length})</div>
-          {#if activeShareReviews.length === 0}
-            <div class="empty muted" style="padding:15px; text-align:center;">لا توجد تقييمات سابقة. كن أول من يقيّم هذا المحتوى!</div>
-          {:else}
-            {#each activeShareReviews as rev (rev.id)}
-              <div class="review-item card">
-                <div class="hstack" style="justify-content:space-between;">
-                  <span class="rev-user">{rev.userName}</span>
-                  <span class="rev-stars hstack" style="gap:2px;">
-                    {#each Array(rev.rating) as _}
-                      <Icon name="star" size={12} />
-                    {/each}
-                  </span>
+          <!-- Existing Reviews List -->
+          <div class="reviews-list">
+            <div class="field-label">جميع التقييمات ({activeShareReviews.length})</div>
+            {#if activeShareReviews.length === 0}
+              <div class="empty muted" style="padding:15px; text-align:center;">لا توجد تقييمات سابقة. كن أول من يقيّم هذا المحتوى!</div>
+            {:else}
+              {#each activeShareReviews as rev (rev.id)}
+                <div class="review-item card">
+                  <div class="hstack" style="justify-content:space-between;">
+                    <span class="rev-user">{rev.userName}</span>
+                    <span class="rev-stars hstack" style="gap:2px;">
+                      {#each Array(rev.rating) as _}
+                        <Icon name="star" size={12} />
+                      {/each}
+                    </span>
+                  </div>
+                  <div class="rev-text">{rev.comment}</div>
                 </div>
-                <div class="rev-text">{rev.comment}</div>
-              </div>
-            {/each}
-          {/if}
+              {/each}
+            {/if}
+          </div>
         </div>
       </div>
     </div>
@@ -1863,28 +2084,40 @@
   }
 
   /* Modals */
+  .modal-root {
+    position: fixed;
+    inset: 0;
+    z-index: 99999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow-y: auto;
+    padding: 20px 14px;
+    background: rgba(0, 0, 0, 0.65);
+    backdrop-filter: blur(5px);
+  }
   .modal-backdrop {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.6);
-    backdrop-filter: blur(4px);
-    z-index: 9998;
+    background: transparent;
+    z-index: 1;
   }
   .share-modal {
-    position: fixed;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    width: min(560px, 92vw);
-    max-height: 88vh;
+    position: relative;
+    top: auto;
+    left: auto;
+    transform: none;
+    margin: auto;
+    width: min(580px, 94vw);
+    max-height: calc(100vh - 40px);
     overflow-y: auto;
-    z-index: 9999;
-    padding: 20px;
+    z-index: 2;
+    padding: 22px;
     border-radius: var(--radius-lg);
     display: flex;
     flex-direction: column;
     gap: 14px;
-    box-shadow: 0 12px 36px rgba(0, 0, 0, 0.28);
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
     background: var(--surface);
   }
   .share-modal.wide {

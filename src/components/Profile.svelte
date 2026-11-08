@@ -1,10 +1,12 @@
 <script>
+  import { onMount } from 'svelte';
   import Icon from './Icon.svelte';
   import { t, ui } from '../lib/lang.svelte.js';
   import {
     loadUserAvatar, saveUserAvatar, LEARNER_AVATARS,
     loadStudyStats, computeStudySummary
   } from '../lib/stats.js';
+  import { listUserCommunityShares, formatTotalDuration, computeShareTotalDuration } from '../lib/communityStore.js';
 
   let {
     currentUser = null,
@@ -20,6 +22,51 @@
   let avatarPickerOpen = $state(false);
   let stats = $state(loadStudyStats());
   let fileInputEl = $state();
+  let userShares = $state([]);
+  let loadingShares = $state(true);
+
+  async function loadShares() {
+    loadingShares = true;
+    try {
+      userShares = await listUserCommunityShares(currentUser?.id, currentUser?.name || currentUser?.username);
+    } catch {
+      userShares = [];
+    } finally {
+      loadingShares = false;
+    }
+  }
+
+  onMount(() => {
+    loadShares();
+  });
+
+  const activityDays = $derived.by(() => {
+    const arr = [];
+    const today = new Date();
+    const daysMap = stats.days || {};
+    // 16 weeks = 112 days
+    for (let i = 111; i >= 0; i--) {
+      const d = new Date(today);
+      d.setDate(d.getDate() - i);
+      const key = d.toISOString().slice(0, 10);
+      const dayData = daysMap[key];
+      const sec = Number(dayData?.studySec || dayData?.totalSec || 0);
+      let level = 0;
+      if (sec > 7200) level = 4;
+      else if (sec > 3600) level = 3;
+      else if (sec > 1200) level = 2;
+      else if (sec > 0) level = 1;
+      arr.push({ date: key, sec, level });
+    }
+    return arr;
+  });
+
+  const totalCommunityVisits = $derived(userShares.reduce((acc, s) => acc + (s.visits || 0), 0));
+  const avgCommunityRating = $derived.by(() => {
+    if (!userShares.length) return '5.0';
+    const sum = userShares.reduce((acc, s) => acc + (Number(s.rating) || 5), 0);
+    return (sum / userShares.length).toFixed(1);
+  });
 
   function refresh() {
     avatar = loadUserAvatar();
@@ -273,6 +320,109 @@
         <span class="field-label">{ui.lang === 'ar' ? 'تاريخ البدء' : 'Member Since'}</span>
         <span class="field-value">{memberSinceFormatted}</span>
       </div>
+    </div>
+  </section>
+
+  <!-- GitHub-Style Community Contributions & Activity Heatmap -->
+  <section class="github-community-section card" style="margin-top:20px; padding:20px;">
+    <div class="hstack" style="justify-content:space-between; margin-bottom:16px; flex-wrap:wrap; gap:10px;">
+      <div class="hstack" style="gap:10px;">
+        <span class="gh-icon-box" style="padding:6px; background:var(--surface-2); border-radius:6px;"><Icon name="globe" size={20} /></span>
+        <div>
+          <h3 style="margin:0; font-size:17px;">{ui.lang === 'ar' ? 'مساهمات المجتمع والنشاط الأكاديمي' : 'Community Contributions & Activity'}</h3>
+          <p class="muted" style="margin:2px 0 0; font-size:12.5px;">
+            {ui.lang === 'ar' ? 'سجل مشاركاتك، الكورسات المفتوحة، وتفاعل الطلاب مع محتواك' : 'Your public courses, learning paths, and learner interactions'}
+          </p>
+        </div>
+      </div>
+
+      <!-- Quick Stats Pill Bar -->
+      <div class="hstack" style="gap:12px; font-size:13px;">
+        <span class="gh-stat-pill hstack" style="gap:5px; background:var(--surface-2); padding:4px 10px; border-radius:999px;">
+          <Icon name="layers" size={13} />
+          <strong>{userShares.length}</strong> {ui.lang === 'ar' ? 'مساهمات' : 'shares'}
+        </span>
+        <span class="gh-stat-pill hstack" style="gap:5px; background:var(--surface-2); padding:4px 10px; border-radius:999px;">
+          <Icon name="eye" size={13} />
+          <strong>{totalCommunityVisits}</strong> {ui.lang === 'ar' ? 'مشاهدة' : 'views'}
+        </span>
+        <span class="gh-stat-pill hstack" style="gap:5px; background:var(--surface-2); padding:4px 10px; border-radius:999px;">
+          <Icon name="star" size={13} />
+          <strong>{avgCommunityRating}</strong>
+        </span>
+      </div>
+    </div>
+
+    <!-- GitHub Activity Heat Grid (16 Weeks x 7 Days) -->
+    <div class="activity-graph-container card" style="background:var(--surface-2); padding:14px; border-radius:8px; margin-bottom:20px;">
+      <div class="hstack" style="justify-content:space-between; margin-bottom:8px; font-size:12px;">
+        <span class="muted">{ui.lang === 'ar' ? 'سجل النشاط اليومي للدراسة والمساهمة (16 أسبوعاً)' : '16-Week Daily Study & Contribution Activity'}</span>
+        <div class="hstack" style="gap:4px; align-items:center;">
+          <span class="muted" style="font-size:11px;">{ui.lang === 'ar' ? 'أقل' : 'Less'}</span>
+          <span class="heat-box level-0"></span>
+          <span class="heat-box level-1"></span>
+          <span class="heat-box level-2"></span>
+          <span class="heat-box level-3"></span>
+          <span class="heat-box level-4"></span>
+          <span class="muted" style="font-size:11px;">{ui.lang === 'ar' ? 'أكثر' : 'More'}</span>
+        </div>
+      </div>
+
+      <div class="activity-grid">
+        {#each activityDays as day}
+          <div
+            class="heat-square level-{day.level}"
+            title="{day.date}: {day.sec > 0 ? formatSec(day.sec) : (ui.lang === 'ar' ? 'لا نشاط' : 'No activity')}"
+          ></div>
+        {/each}
+      </div>
+    </div>
+
+    <!-- Pinned / My Community Shared Content (Repositories style) -->
+    <div class="my-community-shares">
+      <div class="hstack" style="justify-content:space-between; margin-bottom:12px;">
+        <strong style="font-size:14px;">{ui.lang === 'ar' ? 'محتواي المنشور في المجتمع' : 'Published Community Content'} ({userShares.length})</strong>
+      </div>
+
+      {#if loadingShares}
+        <div class="empty-state-small muted">{ui.lang === 'ar' ? 'جارِ تحميل المساهمات…' : 'Loading contributions...'}</div>
+      {:else if userShares.length === 0}
+        <div class="empty-state-small card" style="text-align:center; padding:16px; background:var(--surface-2); border-radius:8px;">
+          <Icon name="globe" size={28} />
+          <p class="muted" style="font-size:12.5px; margin:6px 0 0;">
+            {ui.lang === 'ar' ? 'لم تقم بمشاركة أي محتوى في المجتمع حتى الآن. شارك قوائمك وكورساتك ومساراتك لتظهر هنا كإنجازات أكاديمية!' : 'No community shares published yet. Share your playlists and learning paths to showcase them here!'}
+          </p>
+        </div>
+      {:else}
+        <div class="gh-repo-grid">
+          {#each userShares as s (s.id)}
+            {@const totalDur = formatTotalDuration(computeShareTotalDuration(s))}
+            <div class="gh-repo-card card">
+              <div class="hstack" style="justify-content:space-between; align-items:flex-start; gap:8px;">
+                <div class="hstack" style="gap:8px; min-width:0;">
+                  <span class="gh-repo-icon"><Icon name={s.type === 'path' ? 'layers' : (s.type === 'playlist' ? 'video' : 'reader')} size={15} /></span>
+                  <strong class="gh-repo-name truncate" title={s.title}>{s.title}</strong>
+                </div>
+                <span class="badge" style="font-size:10.5px; padding:2px 8px;">{s.isPaid ? `${s.price} EGP` : 'مجاني'}</span>
+              </div>
+
+              {#if s.description}
+                <p class="gh-repo-desc muted truncate-2" style="font-size:12px; margin:6px 0 10px; line-height:1.4;">{s.description}</p>
+              {/if}
+
+              <div class="gh-repo-meta hstack" style="gap:12px; font-size:11.5px; color:var(--muted); margin-top:auto;">
+                <span class="hstack" style="gap:3px;"><Icon name="star" size={12} /> {Number(s.rating || 5).toFixed(1)}</span>
+                <span class="hstack" style="gap:3px;"><Icon name="eye" size={12} /> {s.visits || 1}</span>
+                {#if totalDur}
+                  <span class="hstack" style="gap:3px;"><Icon name="clock" size={12} /> {totalDur}</span>
+                {/if}
+                <span class="grow"></span>
+                <span class="badge" style="background:var(--surface-3); font-size:10.5px;">{s.type === 'path' ? 'مسار' : 'كورس'}</span>
+              </div>
+            </div>
+          {/each}
+        </div>
+      {/if}
     </div>
   </section>
 
@@ -845,5 +995,58 @@
   .upload-custom-btn:hover {
     background: var(--surface-3, rgba(0, 0, 0, 0.08));
     border-color: var(--primary);
+  }
+
+  /* GitHub-Style Activity Grid & Repositories */
+  .activity-grid {
+    display: grid;
+    grid-template-rows: repeat(7, 12px);
+    grid-auto-flow: column;
+    grid-auto-columns: 12px;
+    gap: 4px;
+    overflow-x: auto;
+    padding-bottom: 6px;
+  }
+  .heat-square {
+    width: 12px;
+    height: 12px;
+    border-radius: 2px;
+    transition: transform 0.1s ease;
+  }
+  .heat-square:hover {
+    transform: scale(1.3);
+  }
+  .heat-box {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+  }
+  .level-0 { background: var(--surface-3, rgba(255, 255, 255, 0.08)); }
+  .level-1 { background: #0e4429; }
+  .level-2 { background: #006d32; }
+  .level-3 { background: #26a641; }
+  .level-4 { background: #39d353; }
+
+  .gh-repo-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 12px;
+  }
+  .gh-repo-card {
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    transition: border-color 0.15s ease, transform 0.15s ease;
+  }
+  .gh-repo-card:hover {
+    border-color: var(--accent);
+    transform: translateY(-2px);
+  }
+  .gh-repo-icon {
+    color: var(--accent);
   }
 </style>
