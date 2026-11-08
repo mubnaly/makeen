@@ -1,4 +1,4 @@
-name: Build Windows Desktop App
+name: Build Windows Desktop App (Tauri)
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-windows-desktop:
+  build-tauri-windows:
     runs-on: windows-latest
     steps:
       - name: Checkout repository
@@ -19,16 +19,17 @@ jobs:
           node-version: 22
           cache: 'npm'
 
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
       - name: Install dependencies
         run: npm ci
 
-      - name: Build Windows Desktop Installer
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run installer
+      - name: Build Tauri Desktop Executable
+        run: npm run desktop:tauri
 
-      - name: Upload Windows Desktop Installer
+      - name: Upload Tauri Desktop Executable
         uses: actions/upload-artifact@v4
         with:
-          name: Makeen-Windows-Setup-Installer
-          path: release/Makeen-Setup-*.exe
+          name: Makeen-Tauri-x64
+          path: release/Makeen-Tauri-x64.exe

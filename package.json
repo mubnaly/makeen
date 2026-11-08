@@ -22,7 +22,7 @@
     "test": "node --test tests/*.test.mjs",
     "desktop": "npm run build && electron .",
     "installer": "npm run build && electron-builder --win nsis --publish never",
-    "desktop:tauri": "npm run build && cargo build --release --manifest-path src-tauri/Cargo.toml && copy /Y src-tauri\\target\\release\\makeen.exe release\\Makeen-Tauri-x64.exe",
+    "desktop:tauri": "npm run build && (cargo --version >nul 2>&1 || set PATH=%USERPROFILE%\\.cargo\\bin;%PATH%) && cargo build --release --manifest-path src-tauri/Cargo.toml && if not exist release mkdir release && copy /Y src-tauri\\target\\release\\makeen.exe release\\Makeen-Tauri-x64.exe",
     "mobile:sync": "npm run build && npx cap sync android",
     "mobile:open": "npx cap open android",
     "mobile:build": "npm run build && npx cap sync android && cd android && gradlew.bat :app:assembleDebug && cd .. && copy android\\app\\build\\outputs\\apk\\debug\\app-debug.apk release\\Makeen.apk"
