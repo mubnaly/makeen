@@ -383,12 +383,32 @@
       let bytes = await readPdfBytes(d.id);
       if (token !== loadToken) return;
       if (!bytes && d.filePath && typeof window !== 'undefined') {
+        // 1. Electron bridge
         const bridge = window.makeen || window.studyos;
         if (bridge?.readPdfFile) {
-          const diskRes = await bridge.readPdfFile(d.filePath);
-          if (diskRes?.ok && diskRes?.bytes) {
-            bytes = diskRes.bytes;
-            await savePdfBytes(d.id, bytes);
+          try {
+            const diskRes = await bridge.readPdfFile(d.filePath);
+            if (diskRes?.ok && diskRes?.bytes) {
+              bytes = diskRes.bytes;
+              await savePdfBytes(d.id, bytes);
+            }
+          } catch (e) {
+            console.warn('Electron readPdfFile error:', e);
+          }
+        }
+        // 2. Tauri native bridge
+        const tauriInvoke = window.__TAURI__?.core?.invoke ||
+                            window.__TAURI__?.invoke ||
+                            window.__TAURI_INTERNALS__?.invoke;
+        if (!bytes && tauriInvoke) {
+          try {
+            const diskRes = await tauriInvoke('read_pdf_file', { filePath: d.filePath });
+            if (diskRes?.ok && diskRes?.bytes) {
+              bytes = new Uint8Array(diskRes.bytes);
+              await savePdfBytes(d.id, bytes);
+            }
+          } catch (e) {
+            console.warn('Tauri read_pdf_file error:', e);
           }
         }
       }
@@ -397,7 +417,7 @@
         loading = false;
         return;
       }
-      pdfDoc = await loadDocument(bytes);
+      pdfDoc = await loadDocument(bytes, d.id);
       if (token !== loadToken) return;
       numPages = pdfDoc.numPages;
       pageNum = clamp(pageNum, 1, numPages);
@@ -434,19 +454,21 @@
   }
 
   async function loadPageSizes(source, total, token) {
+    let defaultWidth = 595;
+    let defaultHeight = 842;
+    try {
+      const firstPage = await source.getPage(1);
+      const base = firstPage.getViewport({ scale: 1, rotation: 0 });
+      defaultWidth = base.width;
+      defaultHeight = base.height;
+    } catch {}
+
+    if (token !== loadToken) return;
     const sizes = {};
     for (let n = 1; n <= total; n++) {
-      if (token !== loadToken) return;
-      try {
-        const page = await source.getPage(n);
-        const base = page.getViewport({ scale: 1, rotation: 0 });
-        sizes[n] = { width: base.width, height: base.height };
-      } catch {
-        sizes[n] = { width: 595, height: 842 };
-      }
-      if (n % 10 === 0) pageSizes = { ...sizes };
+      sizes[n] = { width: defaultWidth, height: defaultHeight };
     }
-    if (token === loadToken) pageSizes = { ...sizes };
+    pageSizes = sizes;
   }
 
   function teardown() {
@@ -1859,7 +1881,7 @@
         <PomodoroWidget materialTitle={doc?.title || doc?.name} compact={true} />
       </div>
 
-      <div class="stage {layout}" bind:this={stage} onscroll={onStageScroll} use:autoScrollbar>
+      <div class="stage {layout}" bind:this={stage} onscroll={onStageScroll}>
         {#if loading}
           <div class="empty">{tr('reader.loading')}</div>
         {/if}

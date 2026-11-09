@@ -55,13 +55,14 @@
 
   let ready = $state(false);
   let hasText = $state(false);
-  let inView = $state(true);
+  let inView = $state(!lazy || active);
   let dpr = 1;
   let rendering = false;
   let queued = false;
   let renderSeq = 0;
   let cursorPoint = null;
   let currentRenderTask = null;
+  let observer = null;
 
   let editor = $state(null);
   let editorRequestKey = null;
@@ -106,6 +107,23 @@
   onMount(() => {
     dpr = window.devicePixelRatio || 1;
     if (!lazy || active) inView = true;
+
+    if (lazy && typeof IntersectionObserver !== 'undefined' && wrap) {
+      observer = new IntersectionObserver((entries) => {
+        const entry = entries[0];
+        if (entry) {
+          inView = entry.isIntersecting;
+          if (inView && (!ready || renderedScale !== scale || renderedRotation !== rotation)) {
+            queueMicrotask(() => renderPage());
+          }
+        }
+      }, {
+        root: scrollRoot || wrap?.closest('.stage') || null,
+        rootMargin: '800px 0px 800px 0px'
+      });
+      observer.observe(wrap);
+    }
+
     const onRestore = () => {
       if (inView) queueMicrotask(() => renderPage());
     };
@@ -122,6 +140,7 @@
     window.addEventListener('scroll', onScroll, { passive: true });
 
     return () => {
+      observer?.disconnect();
       pdfCanvas?.removeEventListener('contextrestored', onRestore);
       scrollTarget?.removeEventListener('scroll', onScroll);
       window.removeEventListener('scroll', onScroll);
@@ -145,11 +164,13 @@
     void rotation;
     if (!pdfDoc || !pdfCanvas) return;
     if (renderedScale === scale && renderedRotation === rotation && renderedDoc === pdfDoc && ready) return;
+    if (lazy && !inView && !active) return;
     queueMicrotask(() => renderPage());
   });
 
   async function renderPage() {
     if (!pdfDoc || !pdfCanvas) return;
+    if (lazy && !inView && !active) return;
     if (rendering) {
       queued = true;
       if (currentRenderTask) {

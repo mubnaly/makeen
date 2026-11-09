@@ -8,7 +8,38 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc;
 
 export { pdfjsLib };
 
-export async function loadDocument(bytes) {
+// LRU Document cache to make opening and switching between 20-30 PDF tabs instantaneous
+const MAX_CACHED_DOCS = 40;
+const pdfDocCache = new Map();
+
+export function evictPdfDocCache(docId) {
+  if (!docId) return;
+  const cached = pdfDocCache.get(docId);
+  if (cached) {
+    pdfDocCache.delete(docId);
+    try { cached.destroy(); } catch {}
+  }
+}
+
+export function clearPdfDocCache() {
+  for (const doc of pdfDocCache.values()) {
+    try { doc?.destroy(); } catch {}
+  }
+  pdfDocCache.clear();
+}
+
+export async function loadDocument(bytes, docId = null) {
+  if (docId && pdfDocCache.has(docId)) {
+    const cached = pdfDocCache.get(docId);
+    if (cached && !cached._transport?.destroyed) {
+      // Refresh LRU ordering
+      pdfDocCache.delete(docId);
+      pdfDocCache.set(docId, cached);
+      return cached;
+    }
+    pdfDocCache.delete(docId);
+  }
+
   // Normalize any view/typed array into a clean standalone ArrayBuffer
   let data;
   if (bytes instanceof ArrayBuffer) {
@@ -23,21 +54,33 @@ export async function loadDocument(bytes) {
     data = bytes;
   }
 
+  let doc = null;
   try {
-    return await pdfjsLib.getDocument({ data }).promise;
+    doc = await pdfjsLib.getDocument({ data }).promise;
   } catch (err) {
     console.warn('PDF.js worker initialization failed, falling back to main-thread parser:', err);
     // If worker spawn is blocked by file:// origin or WebView2 custom protocol:
     const prevSrc = pdfjsLib.GlobalWorkerOptions.workerSrc;
     pdfjsLib.GlobalWorkerOptions.workerSrc = '';
     try {
-      const doc = await pdfjsLib.getDocument({ data }).promise;
-      return doc;
+      doc = await pdfjsLib.getDocument({ data }).promise;
     } catch (fallbackErr) {
       pdfjsLib.GlobalWorkerOptions.workerSrc = prevSrc;
       throw fallbackErr;
     }
   }
+
+  if (doc && docId) {
+    if (pdfDocCache.size >= MAX_CACHED_DOCS) {
+      const oldestKey = pdfDocCache.keys().next().value;
+      const oldestDoc = pdfDocCache.get(oldestKey);
+      pdfDocCache.delete(oldestKey);
+      try { oldestDoc?.destroy(); } catch {}
+    }
+    pdfDocCache.set(docId, doc);
+  }
+
+  return doc;
 }
 
 // Render one page into a canvas at scale * devicePixelRatio, CSS-sized to the

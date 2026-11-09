@@ -29,6 +29,7 @@
   import { getCurrentUser } from './lib/auth.js';
   import { createSidecarStore, fileBridge, listCaptures, listCards, putCapture, putCard, deleteCaptureById, deleteCardById, clearCaptures, clearCards, clearTasks, migrateLocalCollections, listTasks } from './lib/storage.js';
   import { savePdfBytes, deleteFileBytes, loadPdfAutosaveSettings, savePdfAutosaveSettings } from './lib/storage.js';
+  import { evictPdfDocCache } from './lib/pdf.js';
   import { imagesToPdf, deliverBytes } from './lib/export.js';
   import { labelPng } from './lib/labels.js';
   import { sheetToXlsx } from './lib/xlsx.js';
@@ -662,10 +663,47 @@
     }
   }
 
+  async function importMultiplePdfFiles(files) {
+    const pdfFiles = files.filter(isPdfFile);
+    if (!pdfFiles.length) {
+      notify(t('toast.dropUnsupported'), 'error');
+      return;
+    }
+    const importedIds = [];
+    let firstDoc = null;
+    let count = 0;
+    for (const file of pdfFiles) {
+      try {
+        const doc = await importPdfFile(file, { open: false, quiet: true });
+        if (doc) {
+          importedIds.push(doc.id);
+          firstDoc ??= doc;
+          count += 1;
+        }
+      } catch (err) {
+        console.warn('Import failed for', file.name, err);
+      }
+    }
+    if (count > 0) {
+      notify(t('toast.importedMany', { n: count }), 'ok');
+      if (importedIds.length) {
+        openTabs = Array.from(new Set([...openTabs, ...importedIds]));
+        persistTabs();
+      }
+      if (firstDoc) openDoc(firstDoc);
+    }
+  }
+
   async function importPdf(event) {
-    const file = event.target.files?.[0];
+    const fileList = event.target.files;
     event.target.value = '';
-    if (file) await importPdfFile(file);
+    if (!fileList || !fileList.length) return;
+    const files = Array.from(fileList);
+    if (files.length === 1) {
+      await importPdfFile(files[0]);
+    } else {
+      await importMultiplePdfFiles(files);
+    }
   }
 
   async function importVideo(event) {
@@ -676,15 +714,15 @@
     try { await importVideoFile(file); } finally { importingVideo = false; }
   }
 
-  // Dropping several files at once imports them all, then opens the first PDF
-  // (or the first video if no PDF was dropped) so the user lands on the thing
-  // they just brought in.
+  // Dropping several files at once imports them all, opens all PDFs into tabs,
+  // then focuses the first PDF (or the first video if no PDF was dropped).
   async function importFiles(files) {
     const accepted = files.filter((file) => isPdfFile(file) || mediaKindOf(file) === 'video');
     if (!accepted.length) { notify(t('toast.dropUnsupported'), 'error'); return; }
     let firstPdf = null;
     let firstVideo = null;
     let count = 0;
+    const importedPdfIds = [];
     for (const file of accepted) {
       const doc = isPdfFile(file)
         ? await importPdfFile(file, { open: false, quiet: true })
@@ -692,10 +730,17 @@
       if (!doc) continue;
       count += 1;
       if (kindOf(doc) === 'video') firstVideo ??= doc;
-      else firstPdf ??= doc;
+      else {
+        firstPdf ??= doc;
+        importedPdfIds.push(doc.id);
+      }
     }
     if (!count) return;
     notify(t('toast.importedMany', { n: count }), 'ok');
+    if (importedPdfIds.length) {
+      openTabs = Array.from(new Set([...openTabs, ...importedPdfIds]));
+      persistTabs();
+    }
     if (firstPdf) openDoc(firstPdf);
     else if (firstVideo) openDoc(firstVideo);
   }
@@ -858,6 +903,7 @@
   function closeTab(id) {
     const index = openTabs.indexOf(id);
     if (index < 0) return;
+    evictPdfDocCache(id);
     openTabs = openTabs.filter((tabId) => tabId !== id);
     if (activeDoc?.id === id) {
       const nextId = openTabs[index] || openTabs[index - 1] || '';
@@ -1545,7 +1591,7 @@
         <Icon name="menu" size={18} />
         <span class="more-label">{t('nav.more')}</span>
       </button>
-      <input bind:this={pdfInput} type="file" accept="application/pdf" onchange={importPdf} style="display:none" />
+      <input bind:this={pdfInput} type="file" accept="application/pdf,.pdf" multiple onchange={importPdf} style="display:none" />
       <input bind:this={videoInput} type="file" accept="video/*,audio/*,.mp4,.webm,.mkv,.mov,.avi,.mp3,.wav,.m4a,.ogg,.aac,.flac" onchange={importVideo} style="display:none" />
     </header>
 

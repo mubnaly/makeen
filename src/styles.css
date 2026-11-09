@@ -1590,6 +1590,36 @@ button:active:not([disabled]) { transform: translateY(1px); }
 .stage {
   flex: 1; min-width: 0; display: block; overflow: auto;
   padding: 20px 30px 20px 20px; background: var(--surface-2);
+  scrollbar-width: thin;
+  scrollbar-color: rgba(140, 140, 160, 0.35) transparent;
+}
+:root[data-theme='dark'] .stage {
+  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+}
+.stage::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+  background: transparent;
+}
+.stage::-webkit-scrollbar-track {
+  background: transparent;
+}
+.stage::-webkit-scrollbar-thumb {
+  background: rgba(140, 140, 160, 0.35);
+  border-radius: 999px;
+  transition: background 0.15s;
+}
+:root[data-theme='dark'] .stage::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.22);
+}
+.stage::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 100, 130, 0.65);
+}
+:root[data-theme='dark'] .stage::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.55);
+}
+.stage::-webkit-scrollbar-corner {
+  background: transparent;
 }
 .reader.is-fullscreen .stage { padding: 8px 30px 8px 8px; }
 .stage > .empty { margin: 40px auto; }
