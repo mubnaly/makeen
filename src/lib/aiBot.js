@@ -17,10 +17,14 @@ const _DEFAULT_B64 = 'QVEuQWI4Uk42SUdPNUs2V3VlN29xbkVJRXdRVm4wMmJhNWMtMmw3bU4yeX
 export const DEFAULT_GEMINI_KEY = typeof atob === 'function' ? atob(_DEFAULT_B64) : '';
 
 export const AVAILABLE_MODELS = [
-  { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash (فائق السرعة والأحدث)' },
-  { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash (سريع ومتوازن)' },
-  { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro (تفكير عميق وتحليل متقدم)' }
+  { id: 'gemini-3.5-flash', name: 'Gemini 3.5 Flash (فائق السرعة ومستقر - موصى به)' },
+  { id: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash (الجيل الأحدث 3.8)' },
+  { id: 'gemini-3.7-flash', name: 'Gemini 3.7 Flash' },
+  { id: 'gemini-3.1-flash-lite', name: 'Gemini 3.1 Flash Lite (خفيف وسريع)' },
+  { id: 'gemini-flash-latest', name: 'Gemini Flash Latest' }
 ];
+
+export const DEFAULT_AI_MODEL = 'gemini-3.5-flash';
 
 export function getAiApiKey() {
   if (typeof localStorage === 'undefined') return DEFAULT_GEMINI_KEY;
@@ -34,8 +38,14 @@ export function saveAiApiKey(key) {
 }
 
 export function getAiModel() {
-  if (typeof localStorage === 'undefined') return 'gemini-2.0-flash';
-  return localStorage.getItem(MODEL_STORAGE) || 'gemini-2.0-flash';
+  if (typeof localStorage === 'undefined') return DEFAULT_AI_MODEL;
+  const stored = localStorage.getItem(MODEL_STORAGE);
+  // Auto-migrate retired models (gemini-2.0-flash, gemini-1.5-flash, gemini-1.5-pro, gemini-2.5-flash)
+  if (!stored || stored.includes('2.0') || stored.includes('1.5') || stored.includes('2.5')) {
+    localStorage.setItem(MODEL_STORAGE, DEFAULT_AI_MODEL);
+    return DEFAULT_AI_MODEL;
+  }
+  return stored;
 }
 
 export function saveAiModel(model) {
@@ -194,11 +204,19 @@ export async function sendAiQuery(userPrompt, history = []) {
     };
   }
 
-  const model = getAiModel();
+  const primaryModel = getAiModel();
   const context = await gatherAppContext();
   const systemInstruction = buildSystemInstruction(context);
 
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+  // Models queue with fallback support
+  const candidateModels = [
+    primaryModel,
+    'gemini-3.5-flash',
+    'gemini-3.8-flash',
+    'gemini-3.7-flash',
+    'gemini-flash-latest'
+  ];
+  const tryModels = [...new Set(candidateModels.filter(Boolean))];
 
   // Convert conversation history into Gemini contents format
   const contents = [];
@@ -233,44 +251,69 @@ export async function sendAiQuery(userPrompt, history = []) {
     }
   };
 
-  try {
-    const res = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
+  let lastErrorMsg = '';
 
-    if (!res.ok) {
-      const errJson = await res.json().catch(() => ({}));
-      const errMsg = errJson.error?.message || `HTTP ${res.status} ${res.statusText}`;
+  for (let i = 0; i < tryModels.length; i++) {
+    const activeModel = tryModels[i];
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(activeModel)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+
+    try {
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        lastErrorMsg = errJson.error?.message || `HTTP ${res.status} ${res.statusText}`;
+        console.warn(`Gemini model ${activeModel} failed (${res.status}): ${lastErrorMsg}. Trying fallback...`);
+        // If retired (404) or high-demand spike (503), try next model
+        if ((res.status === 404 || res.status === 503 || res.status === 400) && i < tryModels.length - 1) {
+          continue;
+        }
+        return {
+          text: `تعذر الاتصال بـ Gemini API: ${lastErrorMsg}`,
+          error: lastErrorMsg
+        };
+      }
+
+      const data = await res.json();
+      const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      if (!rawText) {
+        if (i < tryModels.length - 1) continue;
+        return { text: 'لم يتم استلام رد من النموذج. حاول مرة أخرى.' };
+      }
+
+      // If a fallback model succeeded, update current preferred model
+      if (activeModel !== primaryModel) {
+        saveAiModel(activeModel);
+      }
+
+      // Parse actions embedded in [ACTION:type:json]
+      const { cleanText, actions } = parseBotActions(rawText);
+
       return {
-        text: `تعذر الاتصال بـ Gemini API: ${errMsg}`,
-        error: errMsg
+        text: cleanText,
+        rawText,
+        actions,
+        model: activeModel
+      };
+    } catch (err) {
+      lastErrorMsg = err.message || String(err);
+      console.warn(`Gemini model ${activeModel} threw exception:`, err);
+      if (i < tryModels.length - 1) continue;
+      return {
+        text: `حدث خطأ أثناء معالجة الطلب: ${lastErrorMsg}`,
+        error: lastErrorMsg
       };
     }
-
-    const data = await res.json();
-    const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-    if (!rawText) {
-      return { text: 'لم يتم استلام رد من النموذج. حاول مرة أخرى.' };
-    }
-
-    // Parse actions embedded in [ACTION:type:json]
-    const { cleanText, actions } = parseBotActions(rawText);
-
-    return {
-      text: cleanText,
-      rawText,
-      actions,
-      model
-    };
-  } catch (err) {
-    console.error('Gemini API call failed:', err);
-    return {
-      text: `حدث خطأ أثناء معالجة الطلب: ${err.message || String(err)}`,
-      error: err.message || String(err)
-    };
   }
+
+  return {
+    text: `تعذر الاتصال بـ Gemini API: ${lastErrorMsg}`,
+    error: lastErrorMsg
+  };
 }
 
 /**
