@@ -1503,10 +1503,10 @@
 
         <!-- Pricing & Access Section -->
         <div class="pricing-section card">
-          <div class="hstack" style="justify-content:space-between; align-items:center;">
-            <div>
-              <div class="field-label" style="margin:0;">نوع الوصول والتسعير</div>
-              <small class="muted">حدد ما إذا كان المحتوى مجانياً بالكامل أو مدفوعاً مع إتاحة أول درس كمعاينة مجانية</small>
+          <div class="pricing-header-row hstack" style="justify-content:space-between; align-items:center; gap:16px; flex-wrap:wrap;">
+            <div style="flex:1; min-width:200px;">
+              <div class="field-label" style="margin:0 0 2px 0;">نوع الوصول والتسعير</div>
+              <small class="muted" style="line-height:1.4; display:block;">حدد ما إذا كان المحتوى مجانياً بالكامل أو مدفوعاً مع إتاحة أول درس كمعاينة مجانية</small>
             </div>
             <div class="pricing-toggle-group">
               <button
@@ -1963,8 +1963,8 @@
   /* Grid of Shares */
   .shares-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-    gap: 16px;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 420px));
+    gap: 18px;
   }
 
   .share-card {
@@ -2239,29 +2239,36 @@
   }
 
   .pricing-section {
-    padding: 12px;
+    padding: 12px 14px;
     background: var(--surface-2);
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: var(--radius-md, 8px);
   }
   .pricing-toggle-group {
-    display: flex;
+    display: inline-flex;
+    flex-shrink: 0;
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius-sm, 6px);
     overflow: hidden;
+    background: var(--surface-1);
   }
   .price-toggle-btn {
     border: none;
     background: transparent;
-    padding: 5px 12px;
-    font-size: 12px;
+    padding: 7px 18px;
+    font-size: 13px;
+    font-weight: 500;
     cursor: pointer;
-    color: var(--text);
+    color: var(--text-muted);
+    white-space: nowrap;
+    min-width: 70px;
+    text-align: center;
+    transition: background 0.15s ease, color 0.15s ease;
   }
   .price-toggle-btn.active {
     background: var(--accent);
     color: #fff;
-    font-weight: 600;
+    font-weight: 700;
   }
 
   .receipt-preview-box {

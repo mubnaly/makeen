@@ -10,11 +10,13 @@ export const DEFAULT_THEME = 'light';
 
 export const THEMES = [
   { id: 'light', mode: 'light', label: 'theme.light', accent: '#4f6bff', bg: '#f7f7fb', surface: '#ffffff' },
+  { id: 'clean-white', mode: 'light', label: 'theme.cleanWhite', accent: '#0071e3', bg: '#ffffff', surface: '#ffffff' },
   { id: 'sand', mode: 'light', label: 'theme.sand', accent: '#b45309', bg: '#f7f1e3', surface: '#fffaf0' },
   { id: 'mint', mode: 'light', label: 'theme.mint', accent: '#0f766e', bg: '#f2f8f5', surface: '#ffffff' },
   { id: 'sky', mode: 'light', label: 'theme.sky', accent: '#2563eb', bg: '#f3f7fb', surface: '#ffffff' },
   { id: 'rose', mode: 'light', label: 'theme.rose', accent: '#be185d', bg: '#fbf5f7', surface: '#ffffff' },
   { id: 'dark', mode: 'dark', label: 'theme.dark', accent: '#6f86ff', bg: '#14151c', surface: '#1c1d26' },
+  { id: 'oled', mode: 'dark', label: 'theme.oled', accent: '#2997ff', bg: '#000000', surface: '#0d0d0d' },
   { id: 'midnight', mode: 'dark', label: 'theme.midnight', accent: '#38bdf8', bg: '#0a1220', surface: '#111c2e' },
   { id: 'forest', mode: 'dark', label: 'theme.forest', accent: '#4ade80', bg: '#0c1511', surface: '#12201a' },
   { id: 'plum', mode: 'dark', label: 'theme.plum', accent: '#c084fc', bg: '#150f1b', surface: '#1e1626' },

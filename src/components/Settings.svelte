@@ -20,6 +20,17 @@
   import { loadDefaultVideoQuality, saveDefaultVideoQuality, VIDEO_QUALITY_OPTIONS } from '../lib/videoSettings.js';
   import PomodoroSoundModal from './PomodoroSoundModal.svelte';
   import { getApiBaseUrl, setApiBaseUrl, checkBackendHealth } from '../lib/api.js';
+  import {
+    getAiApiKey,
+    saveAiApiKey,
+    getAiModel,
+    saveAiModel,
+    AVAILABLE_MODELS,
+    DEFAULT_GEMINI_KEY,
+    clearChatHistory,
+    gatherAppContext,
+    sendAiQuery
+  } from '../lib/aiBot.js';
 
   let {
     theme = 'midnight',
@@ -50,6 +61,58 @@
   let apiUrlInput = $state(getApiBaseUrl());
   let testingBackend = $state(false);
   let backendHealthStatus = $state(null);
+
+  // AI Assistant Settings State
+  let aiApiKey = $state(getAiApiKey());
+  let aiModel = $state(getAiModel());
+  let showApiKeyText = $state(false);
+  let isTestingAi = $state(false);
+  let aiTestStatus = $state(null);
+  let aiContextStats = $state(null);
+
+  async function handleSaveAiSettings() {
+    saveAiApiKey(aiApiKey);
+    saveAiModel(aiModel);
+    notify(t('settings.saved') || 'تم حفظ إعدادات الذكاء الاصطناعي بنجاح', 'ok');
+  }
+
+  function handleResetAiKey() {
+    aiApiKey = DEFAULT_GEMINI_KEY;
+    saveAiApiKey(DEFAULT_GEMINI_KEY);
+    notify('تمت استعادة مفتاح Gemini API الافتراضي بنجاح', 'ok');
+  }
+
+  async function handleTestAiConnection() {
+    if (!aiApiKey.trim()) {
+      notify('يرجى إدخال مفتاح API أولاً', 'error');
+      return;
+    }
+    isTestingAi = true;
+    aiTestStatus = null;
+    try {
+      saveAiApiKey(aiApiKey);
+      saveAiModel(aiModel);
+      const res = await sendAiQuery('اختبار اتصال سريع بكلمة واحدة: جاهز');
+      if (res.error) {
+        aiTestStatus = { ok: false, message: res.error };
+        notify('فشل اختبار الاتصال: ' + res.error, 'error');
+      } else {
+        aiTestStatus = { ok: true, message: `متصل بنجاح! الرد: "${res.text}" (النموذج النشط: ${res.model})` };
+        notify('تم الاتصال بـ Gemini API بنجاح!', 'ok');
+      }
+    } catch (e) {
+      aiTestStatus = { ok: false, message: e.message || String(e) };
+      notify('فشل الاتصال: ' + (e.message || String(e)), 'error');
+    } finally {
+      isTestingAi = false;
+    }
+  }
+
+  function handleClearAiChat() {
+    if (!confirm('هل تريد مسح سجل محادثات المساعد الذكي بالكامل؟')) return;
+    clearChatHistory();
+    notify('تم مسح سجل محادثات المساعد الذكي', 'ok');
+  }
 
   async function handleTestDbConnection() {
     testingBackend = true;
@@ -82,6 +145,11 @@
     } else if (typeof localStorage !== 'undefined') {
       appStorageFolder = localStorage.getItem('makeen:storage_folder') || 'Documents/Makeen';
     }
+
+    try {
+      const ctx = await gatherAppContext();
+      aiContextStats = ctx.stats;
+    } catch {}
   });
 
   async function handlePickStorageFolder() {
@@ -117,6 +185,7 @@
 
   const CATEGORIES = [
     { id: 'general', labelKey: 'settings.catGeneral', icon: 'globe' },
+    { id: 'ai', labelKey: 'settings.catAi', icon: 'sparkles' },
     { id: 'prayer', labelKey: 'settings.catPrayer', icon: 'moon' },
     { id: 'habits', labelKey: 'settings.catHabits', icon: 'check' },
     { id: 'markdown', labelKey: 'settings.catMarkdown', icon: 'file-text' },
@@ -270,7 +339,140 @@
       </div>
     {/if}
 
-    <!-- 2. PRAYER & ISLAMIC ALERTS -->
+    <!-- 2. AI ASSISTANT & GEMINI API SETTINGS -->
+    {#if activeCategory === 'ai'}
+      <div class="card settings-section-card">
+        <div class="hstack" style="justify-content:space-between; flex-wrap:wrap; gap:8px;">
+          <div>
+            <h3 style="margin:0;" class="hstack">
+              <Icon name="sparkles" size={18} />
+              <span>{ui.lang === 'ar' ? 'إعدادات الذكاء الاصطناعي (Gemini API)' : 'AI Assistant Settings (Gemini API)'}</span>
+            </h3>
+            <p class="muted" style="font-size:13px; margin:4px 0 0 0;">
+              {ui.lang === 'ar'
+                ? 'تخصيص المفتاح والنموذج المشغل لمساعد مَكِين الذكي، وتجربة الاتصال بـ Google Gemini API.'
+                : 'Configure API key and model powering Makeen AI Assistant, and test Google Gemini connection.'}
+            </p>
+          </div>
+          {#if aiContextStats}
+            <div class="hstack" style="gap:6px; font-size:11.5px; background:var(--surface-2); padding:4px 10px; border-radius:999px; border:1px solid var(--border);">
+              <span class="hstack" style="gap:3px;"><Icon name="reader" size={11} /> {aiContextStats.pdfCount} كتب</span>
+              <span>·</span>
+              <span class="hstack" style="gap:3px;"><Icon name="video" size={11} /> {aiContextStats.videoCount} فيديو</span>
+              <span>·</span>
+              <span class="hstack" style="gap:3px;"><Icon name="file-text" size={11} /> {aiContextStats.noteCount} ملاحظات</span>
+            </div>
+          {/if}
+        </div>
+
+        <!-- Model Picker -->
+        <div class="section-title mt">{ui.lang === 'ar' ? 'نموذج الذكاء الاصطناعي النشط' : 'Active Gemini Model'}</div>
+        <div style="margin-bottom:12px;">
+          <select bind:value={aiModel} onchange={handleSaveAiSettings} style="width:100%; max-width:480px;">
+            {#each AVAILABLE_MODELS as m}
+              <option value={m.id}>{m.name}</option>
+            {/each}
+          </select>
+          <small class="muted" style="display:block; margin-top:4px;">
+            {ui.lang === 'ar'
+              ? 'النموذج الافتراضي 3.5 Flash فائق السرعة، مع ميزة التبديل والاحتياط التلقائي في حال وجود ضغط على أي نموذج.'
+              : 'Default 3.5 Flash provides optimal speed and reliability with automatic fallback if servers face peak demand.'}
+          </small>
+        </div>
+
+        <!-- API Key Configuration -->
+        <div class="section-title mt">{ui.lang === 'ar' ? 'مفتاح Gemini API Key' : 'Gemini API Key'}</div>
+        <div class="field-col" style="max-width:560px;">
+          <div class="hstack" style="gap:8px; width:100%;">
+            {#if showApiKeyText}
+              <input
+                type="text"
+                bind:value={aiApiKey}
+                placeholder="AIzaSy... أو مفتاحك الخاص"
+                style="flex:1; font-family:monospace; font-size:12px;"
+              />
+            {:else}
+              <input
+                type="password"
+                bind:value={aiApiKey}
+                placeholder="AIzaSy... أو مفتاحك الخاص"
+                style="flex:1; font-family:monospace; font-size:12px;"
+              />
+            {/if}
+            <button
+              type="button"
+              class="secondary small hstack"
+              onclick={() => (showApiKeyText = !showApiKeyText)}
+              title={showApiKeyText ? 'إخفاء المفتاح' : 'إظهار المفتاح'}
+            >
+              <Icon name={showApiKeyText ? 'eye-slash' : 'eye'} size={14} />
+            </button>
+            <button
+              type="button"
+              class="primary small hstack"
+              onclick={handleSaveAiSettings}
+            >
+              <Icon name="check" size={13} />
+              <span>{ui.lang === 'ar' ? 'حفظ' : 'Save'}</span>
+            </button>
+          </div>
+
+          <div class="hstack" style="gap:8px; margin-top:8px; flex-wrap:wrap;">
+            <button
+              type="button"
+              class="secondary small hstack"
+              onclick={handleTestAiConnection}
+              disabled={isTestingAi}
+            >
+              {#if isTestingAi}
+                <Icon name="rotate-right" size={13} class="spin" />
+                <span>{ui.lang === 'ar' ? 'جارِ فحص الاتصال...' : 'Testing...'}</span>
+              {:else}
+                <Icon name="sparkles" size={13} />
+                <span>{ui.lang === 'ar' ? 'فحص واختبار الاتصال' : 'Test API Connection'}</span>
+              {/if}
+            </button>
+
+            <button
+              type="button"
+              class="secondary small hstack"
+              onclick={handleResetAiKey}
+              title="استعادة المفتاح الافتراضي المدمج"
+            >
+              <Icon name="rotate-left" size={13} />
+              <span>{ui.lang === 'ar' ? 'استعادة المفتاح الافتراضي' : 'Reset to Default Key'}</span>
+            </button>
+
+            <button
+              type="button"
+              class="danger small hstack"
+              onclick={handleClearAiChat}
+              title="مسح سجل المحادثات السابقة"
+            >
+              <Icon name="trash" size={13} />
+              <span>{ui.lang === 'ar' ? 'مسح سجل المحادثات' : 'Clear Chat History'}</span>
+            </button>
+          </div>
+
+          {#if aiTestStatus}
+            <div
+              class="test-status-banner hstack"
+              style="margin-top:10px; padding:8px 12px; border-radius:8px; font-size:12.5px; {aiTestStatus.ok ? 'background:rgba(48,209,88,0.12); border:1px solid var(--ok); color:var(--ok);' : 'background:rgba(255,69,58,0.12); border:1px solid var(--danger); color:var(--danger);'}"
+            >
+              <Icon name={aiTestStatus.ok ? 'check' : 'x'} size={15} />
+              <span>{aiTestStatus.message}</span>
+            </div>
+          {/if}
+
+          <div class="card" style="margin-top:14px; padding:12px; background:var(--surface-2); border-radius:8px; font-size:12px; line-height:1.6; color:var(--muted);">
+            <div style="font-weight:700; color:var(--text); margin-bottom:4px;">{ui.lang === 'ar' ? 'كيفية الحصول على مفتاح مجاني؟' : 'How to get a free API Key?'}</div>
+            {ui.lang === 'ar'
+              ? 'يمكنك إنشاء مفتاح API مجاني تماماً وسريع من Google AI Studio عبر الرابط: aistudio.google.com واستخدامه في مكين بدون أي قيود.'
+              : 'You can create a 100% free API key from Google AI Studio at aistudio.google.com and use it in Makeen without restrictions.'}
+          </div>
+        </div>
+      </div>
+    {/if}
     {#if activeCategory === 'prayer'}
       <div class="card settings-section-card">
         <h3>{t('settings.catPrayer')}</h3>

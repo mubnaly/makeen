@@ -82,7 +82,7 @@ export function clearChatHistory() {
 /**
  * Gathers complete live context from all parts of Makeen
  */
-export async function gatherAppContext() {
+export async function gatherAppContext(viewContext = null) {
   const allDocs = library.listDocuments() || [];
   const pdfDocs = allDocs.filter((d) => d.kind === 'pdf' || !d.kind);
   const videoDocs = allDocs.filter((d) => d.kind === 'video');
@@ -104,6 +104,8 @@ export async function gatherAppContext() {
   return {
     today: new Date().toISOString().slice(0, 10),
     nowTime: `${String(new Date().getHours()).padStart(2, '0')}:${String(new Date().getMinutes()).padStart(2, '0')}`,
+    currentView: viewContext?.currentView || 'Today',
+    activeResource: viewContext?.activeDoc?.title || viewContext?.activeVideo?.title || viewContext?.activeNote?.title || null,
     stats: {
       pdfCount: pdfDocs.length,
       videoCount: videoDocs.length,
@@ -164,12 +166,24 @@ export async function gatherAppContext() {
 /**
  * Builds the comprehensive system prompt for Makeen AI
  */
-function buildSystemInstruction(context) {
+function buildSystemInstruction(context, viewContext = null) {
   const contextJson = JSON.stringify(context, null, 2);
+
+  let activeViewSection = '';
+  if (viewContext) {
+    activeViewSection = `
+سياق الشاشة المفتوحة الآن أمام المستخدم (Active Screen Context):
+- الشاشة الحالية: ${viewContext.currentView || 'الرئيسية'}
+${viewContext.activeDoc ? `- كتاب / مستند PDF المفتوح حالياً: "${viewContext.activeDoc.title || viewContext.activeDoc.filename || viewContext.activeDoc.name || viewContext.activeDoc.id}" (الصفحة: ${viewContext.activeDoc.currentPage || 1})` : ''}
+${viewContext.activeVideo ? `- الفيديو المعروض حالياً: "${viewContext.activeVideo.title || viewContext.activeVideo.name || viewContext.activeVideo.id}" (الرابط: ${viewContext.activeVideo.url || 'ملف محلي'}، التوقيت: ${Math.floor(viewContext.videoTime || 0)} ثانية)` : ''}
+${viewContext.activeNote ? `- الملاحظة المفتوحة حالياً: "${viewContext.activeNote.title || 'ملاحظة'}"` : ''}
+إذا سأل المستخدم عن "هذا الكتاب" أو "هذا الفيديو" أو "هذه الملاحظة" أو أراد تلخيصها، فالمقصود به فوراً هو هذا المحتوى المعروض أعلاه.
+`;
+  }
 
   return `أنت "مساعد مَكِين الذكي" (Makeen AI Assistant)، الرفيق والمدير الذكي الشامل لنظام الدراسة والإنتاجية "مَكِين" (Makeen Study OS).
 لديك وصول كامل ومباشر لكل بيانات المستخدم داخل التطبيق (كتب PDF، فيديوهات وشروحات، ملاحظات ماركداون، بطاقات تكرار متباعد، مهام وجدول المخطط، التذكيرات، وتقويم Google).
-
+${activeViewSection}
 البيانات الحالية للتطبيق في هذه اللحظة (Live Context):
 \`\`\`json
 ${contextJson}
@@ -195,7 +209,7 @@ ${contextJson}
 /**
  * Sends prompt to Google Gemini API and parses response & actions
  */
-export async function sendAiQuery(userPrompt, history = []) {
+export async function sendAiQuery(userPrompt, history = [], viewContext = null) {
   const apiKey = getAiApiKey();
   if (!apiKey) {
     return {
@@ -205,8 +219,8 @@ export async function sendAiQuery(userPrompt, history = []) {
   }
 
   const primaryModel = getAiModel();
-  const context = await gatherAppContext();
-  const systemInstruction = buildSystemInstruction(context);
+  const context = await gatherAppContext(viewContext);
+  const systemInstruction = buildSystemInstruction(context, viewContext);
 
   // Models queue with fallback support
   const candidateModels = [

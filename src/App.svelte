@@ -2436,12 +2436,31 @@
   <HelpDialog onclose={() => (helpOpen = false)} onshowguide={showQuickStart} />
 {/if}
 
+<!-- Global AI Assistant Floating Action Button (Always Accessible Everywhere) -->
+<button
+  type="button"
+  class="global-ai-fab hstack"
+  onclick={() => (aiBotOpen = true)}
+  title="مساعد مَكِين الذكي (Ctrl+J)"
+  aria-label="مساعد مَكِين الذكي"
+>
+  <div class="fab-icon-glow">
+    <Icon name="sparkles" size={18} />
+  </div>
+  <span class="fab-label">مساعد مَكِين</span>
+</button>
+
 {#if aiBotOpen}
   <MakeenBotModal
     open={aiBotOpen}
     onclose={() => (aiBotOpen = false)}
     {notify}
     onOpenResource={openResource}
+    currentView={view}
+    {activeDoc}
+    {activeVideo}
+    videoTime={bgVideoState?.currentTime || 0}
+    onNavigate={(v) => { view = v; }}
   />
 {/if}
 

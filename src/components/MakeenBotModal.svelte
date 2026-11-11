@@ -9,7 +9,17 @@
   } from '../lib/aiBot.js';
   import { t as tr, ui } from '../lib/lang.svelte.js';
 
-  let { onclose = () => {}, onOpenResource = () => {}, onNavigate = () => {}, notify = () => {} } = $props();
+  let {
+    onclose = () => {},
+    onOpenResource = () => {},
+    onNavigate = () => {},
+    notify = () => {},
+    currentView = 'Today',
+    activeDoc = null,
+    activeVideo = null,
+    activeNote = null,
+    videoTime = 0
+  } = $props();
 
   let messages = $state([]);
   let inputQuery = $state('');
@@ -21,13 +31,105 @@
   let contextStats = $state(null);
   let messagesContainer = $state(null);
 
-  const QUICK_PROMPTS = [
-    { label: 'عمل من 9 إلى 2', prompt: 'اعمل لي حدث في المخطط للشغل اليوم من 9:00 صباحاً إلى 2:00 ظهراً' },
-    { label: 'جلسة قراءة من 5 إلى 8', prompt: 'اعمل لي جلسة قراءة من 5:00 عصراً إلى 8:00 مساءً واربطها بأحد كتب الـ PDF الموجودة' },
-    { label: 'تلخيص الملاحظات', prompt: 'ما هي أهم الملاحظات والملخصات المخزنة في التطبيق؟ لخصها لي باختصار' },
-    { label: 'فحص الكتب والفيديوهات', prompt: 'أعطني تقريراً عن الكتب والفيديوهات المخزنة حالياً في التطبيق وما تم إنجازه منها' },
-    { label: 'تذكير مخصص', prompt: 'أضف تذكير مخصص اليوم الساعة 9:00 مساءً لمراجعة البطاقات والملاحظات' }
-  ];
+  const viewContext = $derived({
+    currentView,
+    activeDoc,
+    activeVideo,
+    activeNote,
+    videoTime
+  });
+
+  const activeContextLabel = $derived.by(() => {
+    if (activeVideo && (currentView === 'Video' || currentView === 'video')) {
+      const title = activeVideo.title || activeVideo.name || 'الفيديو';
+      return {
+        icon: 'video',
+        title: `سياق: ${title}`,
+        sub: `مشاهدة فيديو (${Math.floor(videoTime)} ث)`
+      };
+    }
+    if (activeDoc && (currentView === 'Reader' || currentView === 'reader')) {
+      const title = activeDoc.title || activeDoc.filename || activeDoc.name || 'المستند';
+      return {
+        icon: 'book',
+        title: `سياق: ${title}`,
+        sub: `قراءة كتاب PDF (ص ${activeDoc.currentPage || 1})`
+      };
+    }
+    if (currentView === 'Planner') {
+      return {
+        icon: 'calendar',
+        title: 'سياق: المخطط والتقويم',
+        sub: 'تنظيم وجدولة المهام والأوقات'
+      };
+    }
+    if (currentView === 'MarkdownEditor') {
+      return {
+        icon: 'file-text',
+        title: activeNote ? `سياق: ${activeNote.title || 'الملاحظة'}` : 'سياق: الملاحظات والملخصات',
+        sub: 'محرر الملاحظات الماركدوان'
+      };
+    }
+    if (currentView === 'Community') {
+      return {
+        icon: 'globe',
+        title: 'سياق: المجتمع المفتوح',
+        sub: 'استكشاف الكورسات والمواد'
+      };
+    }
+    return {
+      icon: 'sparkles',
+      title: 'سياق: النظام الشامل',
+      sub: 'وصول لكافة ملفاتك ومهامك'
+    };
+  });
+
+  const contextualPrompts = $derived.by(() => {
+    if (activeVideo && (currentView === 'Video' || currentView === 'video')) {
+      const vTitle = activeVideo.title || activeVideo.name || 'هذا الفيديو';
+      return [
+        { label: 'تلخيص هذا الفيديو', prompt: `لخص لي محتوى فيديو "${vTitle}" وأهم النقاط والأفكار الرئيسية فيه باختصار.` },
+        { label: 'استخراج أهم النقاط', prompt: `ما هي أهم الفوائد والخطوات العملية التي يمكن تعلمها من فيديو "${vTitle}"؟` },
+        { label: 'جدولة وقت للمشاهدة', prompt: `اعمل لي جلسة في المخطط اليوم لمتابعة واستكمال دراسة فيديو "${vTitle}" لمدة 45 دقيقة.` },
+        { label: 'إنشاء 3 أسئلة استذكار', prompt: `اصنع لي 3 أسئلة استذكار ذكية (Flashcards) مع الإجابات لاختبار فهمي لموضوع فيديو "${vTitle}".` },
+        { label: 'صياغة ملاحظة دراسية', prompt: `اكتب لي مسودة ملاحظة منظمة ومرتبة بعناوين رئيسية وفرعية يمكنني حفظها في ملاحظاتي حول فيديو "${vTitle}".` }
+      ];
+    }
+    if (activeDoc && (currentView === 'Reader' || currentView === 'reader')) {
+      const dTitle = activeDoc.title || activeDoc.filename || activeDoc.name || 'هذا الكتاب';
+      return [
+        { label: 'تلخيص هذا الكتاب', prompt: `أعطني ملخصاً شاملاً عن كتاب "${dTitle}" وأهم موضوعاته وأفكاره.` },
+        { label: 'جدولة جلسة قراءة', prompt: `اعمل لي جلسة قراءة لكتاب "${dTitle}" اليوم في المخطط من الساعة 5:00 عصراً إلى 7:00 مساءً.` },
+        { label: 'خطة مذاكرة للكتاب', prompt: `اقترح لي خطة دراسية لإنهاء قراءة كتاب "${dTitle}" خلال 10 أيام مع تقسيم الفصول.` },
+        { label: 'أسئلة مراجعة سريعة', prompt: `اطرح علي أسئلة ذكية لاختبار فهمي لأهم المفاهيم في كتاب "${dTitle}".` },
+        { label: 'استخراج بطاقات Anki', prompt: `استخرج أهم المصطلحات والتعريفات من كتاب "${dTitle}" على شكل بطاقات استذكار سريعة.` }
+      ];
+    }
+    if (currentView === 'Planner') {
+      return [
+        { label: 'عمل من 9 إلى 2', prompt: 'اعمل لي حدث للشغل في المخطط اليوم من الساعة 9:00 صباحاً إلى 2:00 ظهراً.' },
+        { label: 'جلسة مذاكرة من 5 إلى 8', prompt: 'اعمل لي جلسة مذاكرة في المخطط اليوم من 5:00 عصراً إلى 8:00 مساءً مع استراحة قصيرة.' },
+        { label: 'ما هي مهامي اليوم؟', prompt: 'ما هي المهام والأحداث المجدولة لليوم في المخطط؟ وما أولوياتها المقترحة؟' },
+        { label: 'إضافة تذكير ذكي', prompt: 'أضف تذكير مخصص اليوم الساعة 9:00 مساءً لمراجعة ما أنجزته من مهام.' },
+        { label: 'توزيع ساعات المذاكرة', prompt: 'وزع لي ساعات المذاكرة اليوم بناء على الكتب والفيديوهات المتاحة في مكتبتي.' }
+      ];
+    }
+    if (currentView === 'MarkdownEditor') {
+      return [
+        { label: 'تلخيص ملاحظاتي', prompt: 'لخص لي أهم النقاط والأفكار الرئيسية المكتوبة في ملاحظاتي الحالية باختصار ووضوح.' },
+        { label: 'إعادة تنظيم وهيكلة', prompt: 'اقترح لي طريقة احترافية لهيكلة وتنظيم هذه الملاحظات باستخدام عناوين وجداول ونقاط.' },
+        { label: 'تحويل لبطاقات حفظ', prompt: 'حول هذه الملاحظات إلى بطاقات مراجعة سريعة (سؤال وجواب) لحفظها في تكرار متباعد.' },
+        { label: 'إنشاء تذكير لمراجعتها', prompt: 'أضف تذكير مخصص غداً الساعة 8:00 مساءً لمراجعة هذه الملاحظة.' }
+      ];
+    }
+    return [
+      { label: 'عمل من 9 إلى 2', prompt: 'اعمل لي حدث في المخطط للشغل اليوم من 9:00 صباحاً إلى 2:00 ظهراً' },
+      { label: 'جلسة قراءة من 5 إلى 8', prompt: 'اعمل لي جلسة قراءة من 5:00 عصراً إلى 8:00 مساءً واربطها بأحد كتب الـ PDF الموجودة' },
+      { label: 'تلخيص الملاحظات', prompt: 'ما هي أهم الملاحظات والملخصات المخزنة في التطبيق؟ لخصها لي باختصار' },
+      { label: 'فحص الكتب والفيديوهات', prompt: 'أعطني تقريراً عن الكتب والفيديوهات المخزنة حالياً في التطبيق وما تم إنجازه منها' },
+      { label: 'تذكير مخصص', prompt: 'أضف تذكير مخصص اليوم الساعة 9:00 مساءً لمراجعة البطاقات والملاحظات' }
+    ];
+  });
 
   onMount(async () => {
     messages = loadChatHistory();
@@ -44,7 +146,7 @@
     }
 
     try {
-      const ctx = await gatherAppContext();
+      const ctx = await gatherAppContext(viewContext);
       contextStats = ctx.stats;
     } catch {}
 
@@ -83,7 +185,7 @@
 
     loading = true;
     try {
-      const res = await sendAiQuery(textToSend, messages);
+      const res = await sendAiQuery(textToSend, messages, viewContext);
       const modelMsg = {
         id: crypto.randomUUID(),
         role: 'model',
@@ -286,9 +388,23 @@
       {/if}
     </div>
 
-    <!-- Quick Prompts Row -->
+    <!-- Active Screen Context Banner -->
+    <div class="active-context-pill-banner hstack" style="justify-content: space-between; align-items: center; padding: 6px 12px; background: var(--surface-2); border-radius: 8px; font-size: 11.5px; margin: 4px 0; border: 1px solid var(--border);">
+      <div class="hstack" style="gap: 6px; min-width: 0;">
+        <span class="context-icon-wrap" style="color: var(--accent); display: flex;">
+          <Icon name={activeContextLabel.icon} size={14} />
+        </span>
+        <strong class="truncate" style="color: var(--text);">{activeContextLabel.title}</strong>
+        <span class="muted truncate">({activeContextLabel.sub})</span>
+      </div>
+      <span class="badge" style="font-size: 10px; padding: 2px 7px; background: rgba(59, 130, 246, 0.12); color: var(--accent); border-radius: 999px; flex-shrink: 0;">
+        سياق نشط
+      </span>
+    </div>
+
+    <!-- Contextual Prompts Row -->
     <div class="quick-prompts-bar hstack" style="gap: 6px; overflow-x: auto; padding: 6px 2px; white-space: nowrap;">
-      {#each QUICK_PROMPTS as p}
+      {#each contextualPrompts as p}
         <button
           type="button"
           class="quick-pill"

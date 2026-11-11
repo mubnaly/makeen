@@ -5,10 +5,10 @@ import {
   themeMode, themesByMode
 } from '../src/lib/themes.js';
 
-test('theme catalogue has five light and five dark palettes', () => {
-  assert.equal(THEMES.length, 10);
-  assert.equal(themesByMode('light').length, 5);
-  assert.equal(themesByMode('dark').length, 5);
+test('theme catalogue has six light and six dark palettes', () => {
+  assert.equal(THEMES.length, 12);
+  assert.equal(themesByMode('light').length, 6);
+  assert.equal(themesByMode('dark').length, 6);
   assert.equal(new Set(THEMES.map((theme) => theme.id)).size, THEMES.length);
   for (const theme of THEMES) {
     assert.ok(theme.accent && theme.bg && theme.surface, `${theme.id} has swatches`);
