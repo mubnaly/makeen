@@ -29,7 +29,11 @@
     DEFAULT_GEMINI_KEY,
     clearChatHistory,
     gatherAppContext,
-    sendAiQuery
+    sendAiQuery,
+    getAiCustomPrePrompt,
+    saveAiCustomPrePrompt,
+    DEFAULT_PREPROMPT,
+    getAiUsageStats
   } from '../lib/aiBot.js';
 
   let {
@@ -65,6 +69,8 @@
   // AI Assistant Settings State
   let aiApiKey = $state(getAiApiKey());
   let aiModel = $state(getAiModel());
+  let aiPrePrompt = $state(getAiCustomPrePrompt());
+  let aiUsageStats = $state(getAiUsageStats());
   let showApiKeyText = $state(false);
   let isTestingAi = $state(false);
   let aiTestStatus = $state(null);
@@ -73,7 +79,26 @@
   async function handleSaveAiSettings() {
     saveAiApiKey(aiApiKey);
     saveAiModel(aiModel);
+    saveAiCustomPrePrompt(aiPrePrompt);
+    aiUsageStats = getAiUsageStats();
     notify(t('settings.saved') || 'تم حفظ إعدادات الذكاء الاصطناعي بنجاح', 'ok');
+  }
+
+  function handleSavePrePrompt() {
+    saveAiCustomPrePrompt(aiPrePrompt);
+    notify('تم حفظ التوجيه المسبق للمساعد الذكي بنجاح', 'ok');
+  }
+
+  function handleSetSamplePrePrompt() {
+    aiPrePrompt = DEFAULT_PREPROMPT;
+    saveAiCustomPrePrompt(aiPrePrompt);
+    notify('تم تطبيق التوجيه النموذجي المقترح', 'ok');
+  }
+
+  function handleClearPrePrompt() {
+    aiPrePrompt = '';
+    saveAiCustomPrePrompt('');
+    notify('تم إفراغ التوجيه المسبق', 'ok');
   }
 
   function handleResetAiKey() {
@@ -464,6 +489,64 @@
             </div>
           {/if}
 
+          <!-- Custom Pre-Prompt / System Directives -->
+          <div class="section-title mt" style="margin-top:16px;">{ui.lang === 'ar' ? 'التوجيه المسبق للمساعد الذكي (Pre-Prompt)' : 'Custom AI Pre-Prompt Directives'}</div>
+          <p class="muted" style="font-size:12px; margin:2px 0 8px 0;">
+            {ui.lang === 'ar'
+              ? 'تعليمات دائمة يتم دمجها تلقائياً مع كل استفسار لتوجيه المساعد بطريقتك المفضلة (مثل تلخيص الفيديو مع أمثلة عملية ونصائح إضافية).'
+              : 'Custom persistent instructions prepended to every AI query (e.g. summarize videos with practical examples and extra tips).'}
+          </p>
+          <textarea
+            bind:value={aiPrePrompt}
+            rows="3"
+            placeholder="مثال: لخص هذا الفيديو واعطني اهم النقاط والأمثلة التي ذكرت وارشاد او نصيحة او معلومة اضافية من عندك..."
+            style="width:100%; font-size:12.5px; line-height:1.5; padding:8px 10px; border-radius:6px; box-sizing:border-box;"
+          ></textarea>
+          <div class="hstack" style="gap:8px; margin-top:6px; flex-wrap:wrap;">
+            <button type="button" class="primary small hstack" onclick={handleSavePrePrompt}>
+              <Icon name="check" size={13} />
+              <span>{ui.lang === 'ar' ? 'حفظ التوجيه' : 'Save Pre-Prompt'}</span>
+            </button>
+            <button type="button" class="secondary small hstack" onclick={handleSetSamplePrePrompt}>
+              <Icon name="sparkles" size={13} />
+              <span>{ui.lang === 'ar' ? 'تطبيق توجيه نموذجي' : 'Apply Sample'}</span>
+            </button>
+            {#if aiPrePrompt}
+              <button type="button" class="small hstack" onclick={handleClearPrePrompt}>
+                <Icon name="x" size={13} />
+                <span>{ui.lang === 'ar' ? 'إفراغ' : 'Clear'}</span>
+              </button>
+            {/if}
+          </div>
+
+          <!-- API Usage & Token Consumption Quota Meter -->
+          <div class="section-title mt" style="margin-top:16px;">{ui.lang === 'ar' ? 'استهلاك الحصة والرموز (API Quota & Token Meter)' : 'API Quota & Token Meter'}</div>
+          <div class="card" style="margin-top:6px; padding:12px 14px; background:var(--surface-2); border-radius:8px; border:1px solid var(--border);">
+            <div class="hstack" style="justify-content:space-between; margin-bottom:8px;">
+              <span style="font-weight:600; font-size:12.5px;">{ui.lang === 'ar' ? 'الاستهلاك اليومي للاستعلامات' : 'Daily Requests Usage'}</span>
+              <span class="badge" style="font-size:11px; font-weight:700;">{aiUsageStats.queriesToday} / {aiUsageStats.limitRpd} طلب اليوم</span>
+            </div>
+            
+            <div style="background:var(--surface); height:8px; border-radius:999px; overflow:hidden; border:1px solid var(--border); margin-bottom:10px;">
+              <div style="background:var(--accent); height:100%; width:{Math.min(100, Math.round((aiUsageStats.queriesToday / aiUsageStats.limitRpd) * 100))}%; transition: width 0.3s ease;"></div>
+            </div>
+
+            <div class="hstack" style="justify-content:space-between; font-size:11.5px; color:var(--muted); flex-wrap:wrap; gap:8px;">
+              <div>
+                <strong>المتبقي اليوم:</strong> {Math.max(0, aiUsageStats.limitRpd - aiUsageStats.queriesToday)} طلب متاح
+              </div>
+              <div>
+                <strong>الرموز التقديرية:</strong> ~{aiUsageStats.estimatedTokensToday.toLocaleString()} توكن
+              </div>
+              <div>
+                <strong>إجمالي الطلبات:</strong> {aiUsageStats.totalQueries}
+              </div>
+              <div>
+                <strong>حد السرعة:</strong> {aiUsageStats.limitRpm} طلب/دقيقة (1M TPM)
+              </div>
+            </div>
+          </div>
+
           <div class="card" style="margin-top:14px; padding:12px; background:var(--surface-2); border-radius:8px; font-size:12px; line-height:1.6; color:var(--muted);">
             <div style="font-weight:700; color:var(--text); margin-bottom:4px;">{ui.lang === 'ar' ? 'كيفية الحصول على مفتاح مجاني؟' : 'How to get a free API Key?'}</div>
             {ui.lang === 'ar'
@@ -622,6 +705,17 @@
             oninput={(e) => setImageQuality(e.currentTarget.value)}
           />
           <span class="quality-value">{imageQuality}%</span>
+        </div>
+        <div class="hstack" style="gap:6px; margin-top:6px;">
+          <button type="button" class="small {imageQuality == 60 ? 'primary' : 'secondary'}" onclick={() => setImageQuality(60)}>
+            {ui.lang === 'ar' ? 'اقتصادي (خفيف)' : 'Eco (60%)'}
+          </button>
+          <button type="button" class="small {imageQuality == 80 ? 'primary' : 'secondary'}" onclick={() => setImageQuality(80)}>
+            {ui.lang === 'ar' ? 'متوازن (موصى به)' : 'Medium / Balanced (80%)'}
+          </button>
+          <button type="button" class="small {imageQuality == 100 ? 'primary' : 'secondary'}" onclick={() => setImageQuality(100)}>
+            {ui.lang === 'ar' ? 'عالي الدقة (HD)' : 'High / HD (100%)'}
+          </button>
         </div>
 
         <div class="section-title mt">{t('settings.srs')}</div>

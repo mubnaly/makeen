@@ -11,6 +11,69 @@ import { getCachedGoogleCalendarEvents } from './googleCalendar.js';
 const API_KEY_STORAGE = 'makeen.ai.api_key';
 const MODEL_STORAGE = 'makeen.ai.model';
 const CHAT_HISTORY_STORAGE = 'makeen.ai.chat_history.v1';
+const PREPROMPT_STORAGE = 'makeen.ai.custom_preprompt';
+const STATS_STORAGE = 'makeen.ai.usage_stats.v1';
+
+export const DEFAULT_PREPROMPT = 'لخص هذا المحتوى أو الفيديو وأعطني أهم النقاط الرئيسية والأمثلة العملية التي ذُكرت، مع إرشادات أو نصائح أو معلومات ومعارف إضافية مفيدة من عندك (مثل كتب مقترحة أو مقالات مرتبطة بالموضوع).';
+
+export function getAiCustomPrePrompt() {
+  if (typeof localStorage === 'undefined') return '';
+  return localStorage.getItem(PREPROMPT_STORAGE) || '';
+}
+
+export function saveAiCustomPrePrompt(promptText) {
+  if (typeof localStorage === 'undefined') return;
+  localStorage.setItem(PREPROMPT_STORAGE, (promptText || '').trim());
+}
+
+export function getAiUsageStats() {
+  if (typeof localStorage === 'undefined') {
+    return { queriesToday: 0, totalQueries: 0, estimatedTokensToday: 0, totalTokens: 0, limitRpd: 1500, limitRpm: 15 };
+  }
+  try {
+    const raw = localStorage.getItem(STATS_STORAGE);
+    const today = new Date().toISOString().slice(0, 10);
+    const stats = raw ? JSON.parse(raw) : {};
+    if (stats.lastDate !== today) {
+      stats.queriesToday = 0;
+      stats.estimatedTokensToday = 0;
+      stats.lastDate = today;
+    }
+    return {
+      queriesToday: stats.queriesToday || 0,
+      totalQueries: stats.totalQueries || 0,
+      estimatedTokensToday: stats.estimatedTokensToday || 0,
+      totalTokens: stats.totalTokens || 0,
+      lastDate: today,
+      limitRpm: 15,
+      limitRpd: 1500,
+      limitTpm: 1000000
+    };
+  } catch {
+    return { queriesToday: 0, totalQueries: 0, estimatedTokensToday: 0, totalTokens: 0, limitRpd: 1500, limitRpm: 15 };
+  }
+}
+
+export function recordAiUsage(promptTokens = 150, responseTokens = 300) {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const raw = localStorage.getItem(STATS_STORAGE);
+    const stats = raw ? JSON.parse(raw) : {};
+    if (stats.lastDate !== today) {
+      stats.queriesToday = 0;
+      stats.estimatedTokensToday = 0;
+      stats.lastDate = today;
+    }
+    const addedTokens = (promptTokens || 100) + (responseTokens || 200);
+    stats.queriesToday = (stats.queriesToday || 0) + 1;
+    stats.totalQueries = (stats.totalQueries || 0) + 1;
+    stats.estimatedTokensToday = (stats.estimatedTokensToday || 0) + addedTokens;
+    stats.totalTokens = (stats.totalTokens || 0) + addedTokens;
+    stats.lastDate = today;
+    localStorage.setItem(STATS_STORAGE, JSON.stringify(stats));
+  } catch {}
+}
 
 // Default Gemini API key provided by the user (encoded to prevent git push secret scanning blocks)
 const _DEFAULT_B64 = 'QVEuQWI4Uk42SUdPNUs2V3VlN29xbkVJRXdRVm4wMmJhNWMtMmw3bU4yeXF6MEQ0dDhxdWc=';
@@ -181,9 +244,20 @@ ${viewContext.activeNote ? `- الملاحظة المفتوحة حالياً: "$
 `;
   }
 
+  const customPrePrompt = getAiCustomPrePrompt();
+  let userPrePromptSection = '';
+  if (customPrePrompt && customPrePrompt.trim()) {
+    userPrePromptSection = `
+توجيهات وبرومبت مخصص دائم من المستخدم (User Custom Pre-Prompt):
+"${customPrePrompt.trim()}"
+احرص دائماً على تطبيق هذه التوجيهات المخصصة ومراعاتها في جميع إجاباتك وتلخيصاتك.
+`;
+  }
+
   return `أنت "مساعد مَكِين الذكي" (Makeen AI Assistant)، الرفيق والمدير الذكي الشامل لنظام الدراسة والإنتاجية "مَكِين" (Makeen Study OS).
 لديك وصول كامل ومباشر لكل بيانات المستخدم داخل التطبيق (كتب PDF، فيديوهات وشروحات، ملاحظات ماركداون، بطاقات تكرار متباعد، مهام وجدول المخطط، التذكيرات، وتقويم Google).
 ${activeViewSection}
+${userPrePromptSection}
 البيانات الحالية للتطبيق في هذه اللحظة (Live Context):
 \`\`\`json
 ${contextJson}
@@ -306,6 +380,9 @@ export async function sendAiQuery(userPrompt, history = [], viewContext = null) 
 
       // Parse actions embedded in [ACTION:type:json]
       const { cleanText, actions } = parseBotActions(rawText);
+
+      // Record API Token usage
+      recordAiUsage(Math.max(50, Math.round(userPrompt.length / 3)), Math.max(50, Math.round(cleanText.length / 3)));
 
       return {
         text: cleanText,

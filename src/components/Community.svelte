@@ -40,6 +40,7 @@
   let searchQuery = $state('');
   let activeFilter = $state('all'); // 'all' | 'playlist' | 'pdf' | 'cards' | 'notes' | 'video'
   let activeSort = $state('popular'); // 'popular' | 'rating' | 'newest'
+  let pricingFilter = $state('all'); // 'all' | 'free' | 'paid'
 
   // Dedicated Course / Playlist Details View State
   let selectedShareDetails = $state(null);
@@ -156,6 +157,8 @@
       if (activeFilter === 'my_shares') {
         return isShareOwner(item, currentUser);
       }
+      if (pricingFilter === 'free' && item.isPaid) return false;
+      if (pricingFilter === 'paid' && !item.isPaid) return false;
       if (activeFilter !== 'all' && item.type !== activeFilter) return false;
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
@@ -696,6 +699,33 @@
         >
           <Icon name="clock" size={13} />
           <span>{t('community.sortNewest')}</span>
+        </button>
+      </div>
+
+      <!-- Free vs Paid Pricing Filter -->
+      <div class="pricing-filter-group hstack">
+        <button
+          type="button"
+          class="price-filter-pill {pricingFilter === 'all' ? 'active' : ''}"
+          onclick={() => (pricingFilter = 'all')}
+        >
+          {ui.lang === 'ar' ? 'الكل' : 'All'}
+        </button>
+        <button
+          type="button"
+          class="price-filter-pill {pricingFilter === 'free' ? 'active' : ''}"
+          onclick={() => (pricingFilter = 'free')}
+        >
+          <span class="dot-free"></span>
+          <span>{ui.lang === 'ar' ? 'مجاني فقط' : 'Free'}</span>
+        </button>
+        <button
+          type="button"
+          class="price-filter-pill {pricingFilter === 'paid' ? 'active' : ''}"
+          onclick={() => (pricingFilter = 'paid')}
+        >
+          <span class="dot-paid"></span>
+          <span>{ui.lang === 'ar' ? 'مدفوع فقط' : 'Paid'}</span>
         </button>
       </div>
     </div>
@@ -1960,11 +1990,62 @@
     font-size: 11px;
   }
 
-  /* Grid of Shares */
+  .pricing-filter-group {
+    gap: 3px;
+    background: var(--surface-2);
+    padding: 3px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+  }
+  .price-filter-pill {
+    border: none;
+    background: transparent;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 11.5px;
+    color: var(--text-muted);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    transition: all 0.15s ease;
+  }
+  .price-filter-pill.active {
+    background: var(--surface);
+    color: var(--text);
+    font-weight: 600;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+  }
+  .dot-free {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #10b981;
+  }
+  .dot-paid {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #f59e0b;
+  }
+
+  /* Grid of Shares: exactly 3 cards per row on desktop, 2 on tablet, 1 on mobile */
   .shares-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 420px));
-    gap: 18px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
+  }
+  @media (max-width: 960px) {
+    .shares-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+  }
+  @media (max-width: 600px) {
+    .shares-grid {
+      grid-template-columns: 1fr;
+      gap: 10px;
+    }
   }
 
   .share-card {
@@ -2034,22 +2115,26 @@
   }
 
   .share-card-body {
-    padding: 14px;
+    padding: 10px 12px;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 6px;
     flex: 1;
   }
   .share-title {
     margin: 0;
-    font-size: 15px;
+    font-size: 13.5px;
     font-weight: 700;
-    line-height: 1.4;
+    line-height: 1.35;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
   }
   .share-description {
     margin: 0;
-    font-size: 12.5px;
-    line-height: 1.5;
+    font-size: 11.5px;
+    line-height: 1.4;
     display: -webkit-box;
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;

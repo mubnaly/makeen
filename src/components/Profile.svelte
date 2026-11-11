@@ -40,25 +40,121 @@
     loadShares();
   });
 
+  let selectedRangeDays = $state(112);
+
+  const appAgeDays = $derived.by(() => {
+    let earliest = Date.now();
+    try {
+      const stored = localStorage.getItem('makeen.app_first_launch');
+      if (stored) earliest = Math.min(earliest, Number(stored));
+      else localStorage.setItem('makeen.app_first_launch', String(Date.now()));
+      if (currentUser?.createdAt) earliest = Math.min(earliest, Number(currentUser.createdAt));
+      const daysKeys = Object.keys(stats.days || {});
+      for (const k of daysKeys) {
+        const time = new Date(k).getTime();
+        if (time && !isNaN(time)) earliest = Math.min(earliest, time);
+      }
+    } catch {}
+    return Math.max(1, Math.ceil((Date.now() - earliest) / (1000 * 60 * 60 * 24)));
+  });
+
+  const availableRanges = $derived.by(() => {
+    const list = [
+      { days: 7, label: ui.lang === 'ar' ? '7 أيام' : '7 days' }
+    ];
+    if (appAgeDays >= 8) {
+      list.push({ days: 30, label: ui.lang === 'ar' ? 'آخر شهر' : 'Last month' });
+    }
+    if (appAgeDays >= 45) {
+      list.push({ days: 90, label: ui.lang === 'ar' ? 'آخر 3 أشهر' : 'Last 3 months' });
+    }
+    if (appAgeDays >= 120) {
+      list.push({ days: 180, label: ui.lang === 'ar' ? 'آخر 6 أشهر' : 'Last 6 months' });
+    }
+    if (appAgeDays >= 250) {
+      list.push({ days: 365, label: ui.lang === 'ar' ? 'آخر سنة' : 'Last year' });
+    }
+    if (!list.some(r => r.days >= appAgeDays) && appAgeDays > 7) {
+      list.push({ days: Math.ceil(appAgeDays / 7) * 7, label: ui.lang === 'ar' ? `المدة الحالية (${appAgeDays} يوم)` : `Current (${appAgeDays}d)` });
+    }
+    return list;
+  });
+
   const activityDays = $derived.by(() => {
     const arr = [];
     const today = new Date();
     const daysMap = stats.days || {};
-    // 16 weeks = 112 days
-    for (let i = 111; i >= 0; i--) {
+    const totalDays = Math.max(7, selectedRangeDays);
+    const numWeeks = Math.ceil(totalDays / 7);
+    const alignedCount = numWeeks * 7;
+
+    for (let i = alignedCount - 1; i >= 0; i--) {
       const d = new Date(today);
       d.setDate(d.getDate() - i);
       const key = d.toISOString().slice(0, 10);
-      const dayData = daysMap[key];
-      const sec = Number(dayData?.studySec || dayData?.totalSec || 0);
+      const dayData = daysMap[key] || {};
+      
+      const videoSec = Number(dayData.videoSec || 0);
+      const readingSec = Number(dayData.readingSec || 0);
+      const reviewSec = Number(dayData.reviewSec || 0);
+      const pomoSec = Number(dayData.pomodoros || 0) * 1500;
+      const genericStudySec = Number(dayData.studySec || 0);
+      const sec = videoSec + readingSec + reviewSec + pomoSec + genericStudySec;
+      
+      const totalHours = (sec / 3600);
       let level = 0;
-      if (sec > 7200) level = 4;
-      else if (sec > 3600) level = 3;
-      else if (sec > 1200) level = 2;
-      else if (sec > 0) level = 1;
-      arr.push({ date: key, sec, level });
+      if (totalHours >= 5) level = 4;
+      else if (totalHours >= 2.5) level = 3;
+      else if (totalHours >= 1) level = 2;
+      else if (totalHours > 0) level = 1;
+
+      const dayNames = ui.lang === 'ar'
+        ? ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت']
+        : ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+      const hoursStr = sec > 0
+        ? (totalHours >= 1 ? `${totalHours.toFixed(1)} ${ui.lang === 'ar' ? 'ساعة' : 'hours'}` : `${Math.round(sec / 60)} ${ui.lang === 'ar' ? 'دقيقة' : 'mins'}`)
+        : (ui.lang === 'ar' ? 'لا يوجد دراسة' : 'No study');
+
+      const breakdown = sec > 0
+        ? `فيديو: ${Math.round(videoSec/60)}د، قراءة: ${Math.round(readingSec/60)}د، تركيز: ${Math.round(pomoSec/60)}د`
+        : '';
+
+      arr.push({
+        date: key,
+        sec,
+        totalHours,
+        level,
+        dayName: dayNames[d.getDay()],
+        breakdown,
+        hoursStr,
+        month: d.getMonth(),
+        dayOfMonth: d.getDate()
+      });
     }
     return arr;
+  });
+
+  const monthMarkers = $derived.by(() => {
+    const markers = [];
+    const monthNamesAr = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
+    const monthNamesEn = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const names = ui.lang === 'ar' ? monthNamesAr : monthNamesEn;
+
+    let lastMonth = -1;
+    const numCols = Math.floor(activityDays.length / 7);
+    for (let c = 0; c < numCols; c++) {
+      const firstDayOfWeek = activityDays[c * 7];
+      if (firstDayOfWeek && firstDayOfWeek.month !== lastMonth) {
+        markers.push({
+          col: c,
+          offsetPx: c * 16,
+          label: names[firstDayOfWeek.month]
+        });
+        lastMonth = firstDayOfWeek.month;
+      }
+    }
+    return markers;
   });
 
   const totalCommunityVisits = $derived(userShares.reduce((acc, s) => acc + (s.visits || 0), 0));
@@ -353,28 +449,73 @@
       </div>
     </div>
 
-    <!-- GitHub Activity Heat Grid (16 Weeks x 7 Days) -->
+    <!-- GitHub Activity Heat Grid with Dual Axes & Duration-based colors -->
     <div class="activity-graph-container card" style="background:var(--surface-2); padding:14px; border-radius:8px; margin-bottom:20px;">
-      <div class="hstack" style="justify-content:space-between; margin-bottom:8px; font-size:12px;">
-        <span class="muted">{ui.lang === 'ar' ? 'سجل النشاط اليومي للدراسة والمساهمة (16 أسبوعاً)' : '16-Week Daily Study & Contribution Activity'}</span>
-        <div class="hstack" style="gap:4px; align-items:center;">
+      <div class="hstack" style="justify-content:space-between; margin-bottom:12px; font-size:12px; flex-wrap:wrap; gap:8px;">
+        <div class="hstack" style="gap:6px; flex-wrap:wrap; align-items:center;">
+          <strong style="font-size:13px; color:var(--text);">{ui.lang === 'ar' ? 'سجل النشاط اليومي للدراسة' : 'Daily Study Activity Heatmap'}</strong>
+          <span class="muted" style="font-size:11.5px;">({ui.lang === 'ar' ? 'حسب ساعات الدراسة والإنجاز' : 'by study hours'})</span>
+          <div class="hstack" style="gap:4px; margin-right:8px; margin-left:8px;">
+            {#each availableRanges as r}
+              <button
+                type="button"
+                class="small {selectedRangeDays === r.days ? 'primary' : 'secondary'}"
+                style="padding: 2px 8px; font-size: 11px; border-radius: 4px;"
+                onclick={() => selectedRangeDays = r.days}
+              >
+                {r.label}
+              </button>
+            {/each}
+          </div>
+        </div>
+
+        <div class="hstack" style="gap:5px; align-items:center;">
           <span class="muted" style="font-size:11px;">{ui.lang === 'ar' ? 'أقل' : 'Less'}</span>
-          <span class="heat-box level-0"></span>
-          <span class="heat-box level-1"></span>
-          <span class="heat-box level-2"></span>
-          <span class="heat-box level-3"></span>
-          <span class="heat-box level-4"></span>
+          <span class="heat-box level-0" title="0 ساعة"></span>
+          <span class="heat-box level-1" title="أقل من ساعة"></span>
+          <span class="heat-box level-2" title="1 - 2.5 ساعة"></span>
+          <span class="heat-box level-3" title="2.5 - 5 ساعات"></span>
+          <span class="heat-box level-4" title="5+ ساعات"></span>
           <span class="muted" style="font-size:11px;">{ui.lang === 'ar' ? 'أكثر' : 'More'}</span>
         </div>
       </div>
 
-      <div class="activity-grid">
-        {#each activityDays as day}
-          <div
-            class="heat-square level-{day.level}"
-            title="{day.date}: {day.sec > 0 ? formatSec(day.sec) : (ui.lang === 'ar' ? 'لا نشاط' : 'No activity')}"
-          ></div>
-        {/each}
+      <!-- Heatmap with Horizontal Months & Vertical Weekdays -->
+      <div class="heatmap-scroll-area">
+        <div class="heatmap-layout-wrapper">
+          <!-- Top Month Axis -->
+          <div class="heatmap-months-row">
+            <div class="weekday-header-spacer"></div>
+            <div class="months-track-inner">
+              {#each monthMarkers as m}
+                <span class="month-pill-label" style="inset-inline-start: {m.offsetPx}px;">{m.label}</span>
+              {/each}
+            </div>
+          </div>
+
+          <div class="heatmap-body-row">
+            <!-- Left/Right Weekday Axis -->
+            <div class="heatmap-weekdays-col">
+              <span>{ui.lang === 'ar' ? 'السبت' : 'Sat'}</span>
+              <span>{ui.lang === 'ar' ? 'الأحد' : 'Sun'}</span>
+              <span>{ui.lang === 'ar' ? 'الإثنين' : 'Mon'}</span>
+              <span>{ui.lang === 'ar' ? 'الثلاثاء' : 'Tue'}</span>
+              <span>{ui.lang === 'ar' ? 'الأربعاء' : 'Wed'}</span>
+              <span>{ui.lang === 'ar' ? 'الخميس' : 'Thu'}</span>
+              <span>{ui.lang === 'ar' ? 'الجمعة' : 'Fri'}</span>
+            </div>
+
+            <!-- Activity Grid of Squares -->
+            <div class="activity-grid">
+              {#each activityDays as day}
+                <div
+                  class="heat-square level-{day.level}"
+                  title="{day.date} ({day.dayName}): {day.hoursStr} {day.breakdown ? `• ${day.breakdown}` : ''}"
+                ></div>
+              {/each}
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -998,14 +1139,65 @@
   }
 
   /* GitHub-Style Activity Grid & Repositories */
+  .heatmap-scroll-area {
+    width: 100%;
+    overflow-x: auto;
+    padding-bottom: 8px;
+  }
+  .heatmap-layout-wrapper {
+    display: inline-flex;
+    flex-direction: column;
+    min-width: max-content;
+  }
+  .heatmap-months-row {
+    display: flex;
+    align-items: center;
+    height: 18px;
+    margin-bottom: 4px;
+  }
+  .weekday-header-spacer {
+    width: 38px;
+    flex-shrink: 0;
+  }
+  .months-track-inner {
+    position: relative;
+    height: 16px;
+    flex: 1;
+  }
+  .month-pill-label {
+    position: absolute;
+    top: 0;
+    font-size: 10.5px;
+    color: var(--muted);
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  .heatmap-body-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .heatmap-weekdays-col {
+    display: flex;
+    flex-direction: column;
+    width: 30px;
+    flex-shrink: 0;
+    font-size: 9.5px;
+    color: var(--muted);
+    gap: 4px;
+    text-align: end;
+  }
+  .heatmap-weekdays-col span {
+    height: 12px;
+    line-height: 12px;
+  }
   .activity-grid {
     display: grid;
     grid-template-rows: repeat(7, 12px);
     grid-auto-flow: column;
     grid-auto-columns: 12px;
     gap: 4px;
-    overflow-x: auto;
-    padding-bottom: 6px;
+    padding-bottom: 2px;
   }
   .heat-square {
     width: 12px;

@@ -1831,6 +1831,11 @@
         const img = new Image();
         img.crossOrigin = 'anonymous';
         img.onload = () => {
+          // YouTube returns a 120x90 grey placeholder when maxres/sd does not exist
+          if (img.naturalWidth <= 120) {
+            tryLoad(index + 1);
+            return;
+          }
           try {
             const canvas = document.createElement('canvas');
             const natW = img.naturalWidth || 1280;

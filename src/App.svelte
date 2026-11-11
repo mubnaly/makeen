@@ -153,6 +153,7 @@
   let selectedCaptures = $state([]);
   let exportLabels = $state(true);
   let exportingGallery = $state(false);
+  let previewCapture = $state(null);
   let importingVideo = $state(false);
   let reviewQueue = $state([]);
   let reviewIndex = $state(0);
@@ -1047,6 +1048,7 @@
       .some((value) => String(value || '').toLowerCase().includes(searchTerm)))
   );
   const recentPdfs = $derived(recentDocs.filter((d) => kindOf(d) === 'pdf'));
+  const recentVideos = $derived(recentDocs.filter((d) => kindOf(d) === 'video'));
 
   const libraryCounts = $derived({
     all: recentDocs.length,
@@ -1603,15 +1605,25 @@
 
       <PomodoroWidget compact={true} />
 
-      <!-- Makeen AI Assistant Button -->
+      <!-- Custom Reminder / Notification Bell Button -->
       <button
-        class="icon-btn ai-assistant-topbar-btn hstack"
+        class="icon-btn"
+        onclick={() => nav('Planner')}
+        title="التذكيرات والمخطط (المنبه والمواعيد)"
+        aria-label="التذكيرات والمخطط"
+      >
+        <Icon name="bell" size={17} />
+      </button>
+
+      <!-- Prominent Makeen AI Assistant Button in Topbar -->
+      <button
+        class="topbar-ai-btn hstack"
         onclick={() => (aiBotOpen = true)}
         title="مساعد مَكِين الذكي (Ctrl+J)"
         aria-label="مساعد مَكِين الذكي"
-        style="color: var(--accent); position: relative;"
       >
-        <Icon name="sparkles" size={17} />
+        <Icon name="sparkles" size={15} />
+        <span>مساعد مَكِين</span>
       </button>
 
       <button class="icon-btn" onclick={openHelp} title={t('topbar.help')} aria-label={t('topbar.help')} aria-haspopup="dialog">
@@ -1685,12 +1697,19 @@
         {/if}
 
         <!-- Today's tasks: what is due (or late) right now. -->
-        <div class="section-title mt">{t('today.tasks')}</div>
+        <div class="section-head mt">
+          <span class="section-title" style="margin:0">{t('today.tasks')} ({todayTasks.length})</span>
+          {#if todayTasks.length > 5}
+            <button class="secondary small" onclick={() => nav('Planner')}>
+              <span>عرض الكل في المخطط ({todayTasks.length})</span>
+            </button>
+          {/if}
+        </div>
         {#if todayTasks.length === 0}
           <div class="muted" style="font-size:13px">{t('today.noTasks')}</div>
         {:else}
           <div class="today-tasks">
-            {#each todayTasks as task (task.id)}
+            {#each todayTasks.slice(0, 5) as task (task.id)}
               <div class="row clickable" role="button" tabindex="0" onclick={() => nav('Planner')}
                 onkeydown={(e) => onActivate(e, () => nav('Planner'))}>
                 <span class="row-ico"><Icon name="check-square" size={16} /></span>
@@ -1703,21 +1722,33 @@
             {/each}
           </div>
         {/if}
-        <div class="hstack mt" style="margin-top:8px">
+        <div class="hstack mt" style="margin-top:8px; justify-content:space-between;">
           <button onclick={() => nav('Planner')}><Icon name="planner" size={15} /><span>{t('today.openPlanner')}</span></button>
+          {#if todayTasks.length > 5}
+            <button class="secondary small" onclick={() => nav('Planner')}>
+              <span>عرض كل المهام ({todayTasks.length})</span>
+            </button>
+          {/if}
         </div>
 
         {#if recentPdfs.length}
           <div class="section-head mt">
-            <span class="section-title" style="margin:0">{t('today.recent')}</span>
-            <div class="view-toggle" role="group" aria-label={t('common.gridView')}>
-              <button class={modeOf('today') === 'grid' ? 'active' : ''} onclick={() => setMode('today', 'grid')} title={t('common.gridView')} aria-label={t('common.gridView')} aria-pressed={modeOf('today') === 'grid'}><Icon name="grid" size={15} /></button>
-              <button class={modeOf('today') === 'list' ? 'active' : ''} onclick={() => setMode('today', 'list')} title={t('common.listView')} aria-label={t('common.listView')} aria-pressed={modeOf('today') === 'list'}><Icon name="list" size={15} /></button>
+            <span class="section-title" style="margin:0">{t('today.recent')} ({recentPdfs.length})</span>
+            <div class="hstack" style="gap:8px;">
+              {#if recentPdfs.length > 5}
+                <button class="secondary small" onclick={() => { libraryFilter = 'pdf'; nav('Library'); }}>
+                  <span>عرض الكل ({recentPdfs.length})</span>
+                </button>
+              {/if}
+              <div class="view-toggle" role="group" aria-label={t('common.gridView')}>
+                <button class={modeOf('today') === 'grid' ? 'active' : ''} onclick={() => setMode('today', 'grid')} title={t('common.gridView')} aria-label={t('common.gridView')} aria-pressed={modeOf('today') === 'grid'}><Icon name="grid" size={15} /></button>
+                <button class={modeOf('today') === 'list' ? 'active' : ''} onclick={() => setMode('today', 'list')} title={t('common.listView')} aria-label={t('common.listView')} aria-pressed={modeOf('today') === 'list'}><Icon name="list" size={15} /></button>
+              </div>
             </div>
           </div>
           {#if modeOf('today') === 'grid'}
             <div class="grid cols-3">
-              {#each recentPdfs.slice(0, 6) as d}
+              {#each recentPdfs.slice(0, 5) as d}
                 <div class="card clickable" role="button" tabindex="0" onclick={() => openDoc(d)}
                   onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && openDoc(d)}>
                   <div class="hstack"><span class="row-ico"><Icon name="reader" size={16} /></span><div class="title" style="min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">{d.title}</div></div>
@@ -1726,7 +1757,7 @@
               {/each}
             </div>
           {:else}
-            {#each recentPdfs.slice(0, 8) as d}
+            {#each recentPdfs.slice(0, 5) as d}
               <div class="row clickable" style="margin-bottom:8px" role="button" tabindex="0"
                 onclick={() => openDoc(d)} onkeydown={(e) => onActivate(e, () => openDoc(d))}>
                 <span class="row-ico"><Icon name="reader" size={16} /></span>
@@ -1739,6 +1770,33 @@
             {/each}
           {/if}
         {/if}
+
+        {#if recentVideos.length}
+          <div class="section-head mt" style="margin-top:16px;">
+            <span class="section-title" style="margin:0">فيديوهات ومحاضرات حديثة ({recentVideos.length})</span>
+            {#if recentVideos.length > 5}
+              <button class="secondary small" onclick={() => { libraryFilter = 'video'; nav('Library'); }}>
+                <span>عرض الكل ({recentVideos.length})</span>
+              </button>
+            {/if}
+          </div>
+          <div class="grid cols-3">
+            {#each recentVideos.slice(0, 5) as v}
+              <div class="card clickable" role="button" tabindex="0" onclick={() => openDoc(v)}
+                onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && openDoc(v)}>
+                <div class="hstack"><span class="row-ico"><Icon name="video" size={16} /></span><div class="title" style="min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">{v.title}</div></div>
+                <div class="meta muted" style="font-size:12px; margin-top:6px">{v.lastPosition ? `متابعة من ${Math.floor(v.lastPosition)} ثانية` : 'جاهز للمشاهدة'}</div>
+              </div>
+            {/each}
+          </div>
+        {/if}
+
+        <div class="section-head mt" style="margin-top:16px;">
+          <span class="section-title" style="margin:0">مشاركات المجتمع والأكاديمية</span>
+          <button class="secondary small" onclick={() => nav('Community')}>
+            <span>استكشاف المجتمع وقوائم المشاركة</span>
+          </button>
+        </div>
 
         <!-- Usage report: streak, activity and lifetime totals. A brand-new
              library has nothing to report yet, so the first screen stays focused
@@ -1972,16 +2030,32 @@
                 role="button" tabindex="0" aria-pressed={selectedCaptures.includes(c.id)}
                 onclick={() => toggleCaptureSelect(c.id)}
                 onkeydown={(e) => onActivate(e, () => toggleCaptureSelect(c.id))}>
-                <img src={c.image} alt={c.name} />
+                <!-- svelte-ignore a11y_click_events_have_key_events -->
+                <img
+                  src={c.image}
+                  alt={c.name}
+                  style="cursor: zoom-in;"
+                  onclick={(e) => { e.stopPropagation(); previewCapture = c; }}
+                  title="انقر لعرض الصورة بالحجم الكامل"
+                />
                 <div class="cap">
-                  <div class="title">{c.name}</div>
-                  <div class="meta">{c.source}{c.page ? ` · ${t('common.pageShort')}${c.page}` : c.timecode ? ` · ${c.timecode}` : ''}</div>
-                  <div class="hstack" style="margin-top:6px">
-                    <button onclick={async (e) => { e.stopPropagation(); await createCardFromCapture(c); notify(t('toast.cardCreated'), 'ok'); }}>
-                      <Icon name="flashcards" size={14} /><span>{t('gallery.card')}</span>
+                  <div class="title" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 12.5px;" title={c.name}>{c.name}</div>
+                  <div class="meta" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11px;">
+                    {#if c.source && c.source !== c.name}
+                      {c.source}{c.page ? ` · ${t('common.pageShort')}${c.page}` : c.timecode ? ` · ${c.timecode}` : ''}
+                    {:else}
+                      {c.page ? `${t('common.pageShort')}${c.page}` : c.timecode ? `${c.timecode}` : ''}
+                    {/if}
+                  </div>
+                  <div class="hstack" style="margin-top:6px; gap:4px;">
+                    <button class="small" onclick={async (e) => { e.stopPropagation(); await createCardFromCapture(c); notify(t('toast.cardCreated'), 'ok'); }} title={t('gallery.card')}>
+                      <Icon name="flashcards" size={13} /><span>{t('gallery.card')}</span>
                     </button>
-                    <button onclick={(e) => { e.stopPropagation(); deleteCapture(c); }}>
-                      <Icon name="trash" size={14} /><span>{t('common.delete')}</span>
+                    <button class="small" onclick={(e) => { e.stopPropagation(); previewCapture = c; }} title="معاينة كاملة">
+                      <Icon name="eye" size={13} />
+                    </button>
+                    <button class="small danger" onclick={(e) => { e.stopPropagation(); deleteCapture(c); }} title={t('common.delete')}>
+                      <Icon name="trash" size={13} />
                     </button>
                   </div>
                 </div>
@@ -1995,16 +2069,33 @@
                 role="button" tabindex="0" aria-pressed={selectedCaptures.includes(c.id)}
                 onclick={() => toggleCaptureSelect(c.id)}
                 onkeydown={(e) => onActivate(e, () => toggleCaptureSelect(c.id))}>
-                <img class="row-thumb" src={c.image} alt={c.name} />
-                <div class="grow">
-                  <div class="title">{c.name}</div>
-                  <div class="meta">{c.source}{c.page ? ` · ${t('common.pageShort')}${c.page}` : c.timecode ? ` · ${c.timecode}` : ''}</div>
+                <!-- svelte-ignore a11y_click_events_have_key_events -->
+                <img
+                  class="row-thumb"
+                  src={c.image}
+                  alt={c.name}
+                  style="cursor: zoom-in;"
+                  onclick={(e) => { e.stopPropagation(); previewCapture = c; }}
+                  title="انقر لعرض الصورة بالحجم الكامل"
+                />
+                <div class="grow" style="min-width:0; overflow:hidden;">
+                  <div class="title" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title={c.name}>{c.name}</div>
+                  <div class="meta" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11px;">
+                    {#if c.source && c.source !== c.name}
+                      {c.source}{c.page ? ` · ${t('common.pageShort')}${c.page}` : c.timecode ? ` · ${c.timecode}` : ''}
+                    {:else}
+                      {c.page ? `${t('common.pageShort')}${c.page}` : c.timecode ? `${c.timecode}` : ''}
+                    {/if}
+                  </div>
                 </div>
-                <button onclick={async (e) => { e.stopPropagation(); await createCardFromCapture(c); notify(t('toast.cardCreated'), 'ok'); }}>
+                <button class="small" onclick={async (e) => { e.stopPropagation(); await createCardFromCapture(c); notify(t('toast.cardCreated'), 'ok'); }}>
                   <Icon name="flashcards" size={14} /><span>{t('gallery.card')}</span>
                 </button>
-                <button onclick={(e) => { e.stopPropagation(); deleteCapture(c); }}>
-                  <Icon name="trash" size={14} /><span>{t('common.delete')}</span>
+                <button class="small" onclick={(e) => { e.stopPropagation(); previewCapture = c; }} title="معاينة">
+                  <Icon name="eye" size={14} />
+                </button>
+                <button class="small danger" onclick={(e) => { e.stopPropagation(); deleteCapture(c); }}>
+                  <Icon name="trash" size={14} />
                 </button>
               </div>
             {/each}
@@ -2436,20 +2527,6 @@
   <HelpDialog onclose={() => (helpOpen = false)} onshowguide={showQuickStart} />
 {/if}
 
-<!-- Global AI Assistant Floating Action Button (Always Accessible Everywhere) -->
-<button
-  type="button"
-  class="global-ai-fab hstack"
-  onclick={() => (aiBotOpen = true)}
-  title="مساعد مَكِين الذكي (Ctrl+J)"
-  aria-label="مساعد مَكِين الذكي"
->
-  <div class="fab-icon-glow">
-    <Icon name="sparkles" size={18} />
-  </div>
-  <span class="fab-label">مساعد مَكِين</span>
-</button>
-
 {#if aiBotOpen}
   <MakeenBotModal
     open={aiBotOpen}
@@ -2470,6 +2547,36 @@
     onclose={() => (activeReminderAlert = null)}
     onOpenResource={openResource}
   />
+{/if}
+
+{#if previewCapture}
+  <div class="modal-backdrop" onclick={() => (previewCapture = null)} role="presentation" style="z-index:9999; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,0.85); backdrop-filter:blur(6px);">
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <div class="card" onclick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" style="max-width:92vw; max-height:92vh; width:fit-content; padding:14px; display:flex; flex-direction:column; gap:10px; background:var(--surface);">
+      <div class="hstack" style="justify-content:space-between; gap:12px;">
+        <strong class="truncate" style="max-width:70vw; font-size:14px;">{previewCapture.name}</strong>
+        <button class="icon-btn" onclick={() => (previewCapture = null)} aria-label="إغلاق">
+          <Icon name="x" size={16} />
+        </button>
+      </div>
+      <div style="flex:1; overflow:auto; display:flex; align-items:center; justify-content:center; min-height:200px;">
+        <img src={previewCapture.image} alt={previewCapture.name} style="max-width:100%; max-height:76vh; object-fit:contain; border-radius:6px; box-shadow:0 4px 18px rgba(0,0,0,0.3);" />
+      </div>
+      <div class="hstack" style="justify-content:space-between; font-size:12px; color:var(--muted); flex-wrap:wrap; gap:8px;">
+        <span>{previewCapture.timecode ? `التوقيت: ${previewCapture.timecode}` : (previewCapture.page ? `صفحة ${previewCapture.page}` : '')}</span>
+        <div class="hstack" style="gap:8px;">
+          <a href={previewCapture.image} download="{previewCapture.name || 'capture'}.png" class="button small secondary hstack" style="gap:5px; text-decoration:none; padding:4px 10px;">
+            <Icon name="download" size={14} />
+            <span>تحميل الصورة</span>
+          </a>
+          <button class="small primary hstack" style="gap:5px;" onclick={async () => { await createCardFromCapture(previewCapture); notify(t('toast.cardCreated'), 'ok'); previewCapture = null; }}>
+            <Icon name="flashcards" size={14} />
+            <span>تحويل لبطاقة استذكار</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
 {/if}
 
 <!-- Announced to screen readers: saves, exports and failures are otherwise

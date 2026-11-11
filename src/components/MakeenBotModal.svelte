@@ -7,6 +7,7 @@
     sendAiQuery, executeBotAction, loadChatHistory, saveChatHistory, clearChatHistory,
     getAiApiKey, saveAiApiKey, getAiModel, saveAiModel, AVAILABLE_MODELS, gatherAppContext
   } from '../lib/aiBot.js';
+  import { createNote, updateNote } from '../lib/markdownStore.js';
   import { t as tr, ui } from '../lib/lang.svelte.js';
 
   let {
@@ -223,6 +224,57 @@
     }
   }
 
+  let savedNoteMsgIds = $state(new Set());
+  let copiedMsgIds = $state(new Set());
+
+  function handleSaveAsNote(msg) {
+    if (!msg || !msg.text) return;
+    try {
+      if (activeNote && activeNote.id) {
+        const appended = activeNote.content ? `${activeNote.content}\n\n---\n### إجابة مساعد مَكِين:\n${msg.text}` : msg.text;
+        updateNote(activeNote.id, { content: appended });
+        activeNote.content = appended;
+      } else {
+        const title = activeVideo
+          ? `ملخص ذكي: ${activeVideo.title || activeVideo.name || 'فيديو'}`
+          : activeDoc
+            ? `ملخص ذكي: ${activeDoc.title || activeDoc.filename || 'مستند'}`
+            : `ملاحظة ذكية (${new Date().toLocaleDateString('ar-EG')})`;
+        createNote({
+          title,
+          content: msg.text,
+          materialId: activeVideo?.id || activeDoc?.id || null,
+          materialType: activeVideo ? 'video' : activeDoc ? 'pdf' : 'standalone'
+        });
+      }
+      const updated = new Set(savedNoteMsgIds);
+      updated.add(msg.id);
+      savedNoteMsgIds = updated;
+      notify('تم حفظ الرد كملاحظة دراسية بنجاح', 'ok');
+    } catch (e) {
+      console.error(e);
+      notify('تعذر حفظ الملاحظة', 'err');
+    }
+  }
+
+  async function handleCopyText(msg) {
+    if (!msg || !msg.text) return;
+    try {
+      await navigator.clipboard.writeText(msg.text);
+      const updated = new Set(copiedMsgIds);
+      updated.add(msg.id);
+      copiedMsgIds = updated;
+      notify('تم نسخ النص إلى الحافظة', 'ok');
+      setTimeout(() => {
+        const next = new Set(copiedMsgIds);
+        next.delete(msg.id);
+        copiedMsgIds = next;
+      }, 2000);
+    } catch (e) {
+      notify('تعذر نسخ النص', 'err');
+    }
+  }
+
   function handleClear() {
     if (!confirm('هل تريد مسح سجل المحادثة؟')) return;
     clearChatHistory();
@@ -372,6 +424,32 @@
                     </div>
                   {/if}
                 {/each}
+              </div>
+            {/if}
+            <!-- Model Quick Actions: Save Note & Copy -->
+            {#if msg.role === 'model'}
+              <div class="msg-footer-toolbar hstack" style="gap: 8px; margin-top: 8px; padding-top: 6px; border-top: 1px dashed var(--border); font-size: 11px;">
+                <button
+                  type="button"
+                  class="small hstack"
+                  style="gap: 5px; padding: 3px 8px; font-size: 11px; background: var(--surface-2); border: 1px solid var(--border);"
+                  onclick={() => handleSaveAsNote(msg)}
+                  title="حفظ هذا الشرح أو التلخيص كملاحظة مرتبطة في مكتبتي"
+                >
+                  <Icon name={savedNoteMsgIds.has(msg.id) ? 'check' : 'file-text'} size={12} style={savedNoteMsgIds.has(msg.id) ? 'color: #10b981;' : ''} />
+                  <span>{savedNoteMsgIds.has(msg.id) ? 'تم الحفظ كملاحظة' : 'حفظ كملاحظة'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  class="small hstack"
+                  style="gap: 5px; padding: 3px 8px; font-size: 11px; background: var(--surface-2); border: 1px solid var(--border);"
+                  onclick={() => handleCopyText(msg)}
+                  title="نسخ النص"
+                >
+                  <Icon name={copiedMsgIds.has(msg.id) ? 'check' : 'copy'} size={12} style={copiedMsgIds.has(msg.id) ? 'color: #10b981;' : ''} />
+                  <span>{copiedMsgIds.has(msg.id) ? 'تم النسخ' : 'نسخ'}</span>
+                </button>
               </div>
             {/if}
           </div>
