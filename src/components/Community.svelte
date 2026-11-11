@@ -26,7 +26,7 @@
     getShareReviews
   } from '../lib/sessionStore.js';
   import { getCurrentUser } from '../lib/auth.js';
-  import { fetchPlaylistScrape } from '../lib/youtube.js';
+  import { fetchPlaylistScrape, fetchYouTubeVideoMetadata } from '../lib/youtube.js';
 
   let {
     notify = () => {},
@@ -246,6 +246,10 @@
     receiptImageBase64 = '';
     buyerNote = '';
     isPaymentModalOpen = true;
+    setTimeout(() => {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      document.querySelector('.view')?.scrollTo({ top: 0, behavior: 'smooth' });
+    }, 20);
   }
 
   async function handleSendReceipt() {
@@ -320,6 +324,10 @@
     isScrapingPlaylist = false;
     newShareThumbnail = '';
     isShareModalOpen = true;
+    setTimeout(() => {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      document.querySelector('.view')?.scrollTo({ top: 0, behavior: 'smooth' });
+    }, 20);
   }
 
   function openEditShare(share) {
@@ -349,6 +357,10 @@
     newPathCourseTitle = '';
     newPathCourseUrl = '';
     isShareModalOpen = true;
+    setTimeout(() => {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      document.querySelector('.view')?.scrollTo({ top: 0, behavior: 'smooth' });
+    }, 20);
   }
 
   async function handleDeleteShare(share) {
@@ -365,10 +377,21 @@
     }
   }
 
-  function addPlaylistItem() {
+  async function addPlaylistItem() {
     const url = newVideoUrlInput.trim();
     if (!url) return;
+
+    // Detect if user pasted a playlist URL into this single video input
+    if (url.includes('list=') || url.includes('/playlist')) {
+      playlistScrapeUrl = url;
+      newVideoUrlInput = '';
+      newVideoTitleInput = '';
+      await handleScrapePlaylist(url);
+      return;
+    }
+
     const title = newVideoTitleInput.trim() || `درس ${newShareItems.length + 1}`;
+    const itemIndex = newShareItems.length;
     newShareItems = [
       ...newShareItems,
       {
@@ -379,6 +402,19 @@
     ];
     newVideoUrlInput = '';
     newVideoTitleInput = '';
+
+    // If user didn't enter a custom title, fetch the real YouTube video title automatically
+    if (title.startsWith('درس ')) {
+      fetchYouTubeVideoMetadata(url).then((meta) => {
+        if (meta && meta.title) {
+          newShareItems = newShareItems.map((it, idx) =>
+            idx === itemIndex && it.title.startsWith('درس ')
+              ? { ...it, title: meta.title, thumbnail: meta.thumbnail || it.thumbnail }
+              : it
+          );
+        }
+      }).catch(() => {});
+    }
   }
 
   function removePlaylistItem(idx) {
@@ -401,7 +437,7 @@
     );
   }
 
-  function convertUrlsToItems() {
+  async function convertUrlsToItems() {
     const rawUrls = newShareUrls.split('\n').map((u) => u.trim()).filter(Boolean);
     if (!rawUrls.length) return;
     const existingUrls = new Set(newShareItems.map((it) => it.url));
@@ -409,17 +445,33 @@
     rawUrls.forEach((u) => {
       if (!existingUrls.has(u)) {
         added.push({
-          title: `${newShareTitle.trim() || 'فيديو'} - درس ${newShareItems.length + added.length + 1}`,
+          title: `فيديو ${newShareItems.length + added.length + 1}`,
           url: u,
           isFreePreview: (newShareItems.length + added.length) === 0 || !newShareIsPaid
         });
       }
     });
+    const startIndex = newShareItems.length;
     newShareItems = [...newShareItems, ...added];
+    newShareUrls = '';
+
+    // Automatically resolve titles for all pasted URLs in the background
+    added.forEach((item, i) => {
+      const idx = startIndex + i;
+      fetchYouTubeVideoMetadata(item.url).then((meta) => {
+        if (meta && meta.title) {
+          newShareItems = newShareItems.map((it, curIdx) =>
+            curIdx === idx && it.title.startsWith('فيديو ')
+              ? { ...it, title: meta.title, thumbnail: meta.thumbnail || it.thumbnail }
+              : it
+          );
+        }
+      }).catch(() => {});
+    });
   }
 
-  async function handleScrapePlaylist() {
-    const rawUrl = playlistScrapeUrl.trim();
+  async function handleScrapePlaylist(forcedUrl) {
+    const rawUrl = (typeof forcedUrl === 'string' && forcedUrl) ? forcedUrl.trim() : playlistScrapeUrl.trim();
     if (!rawUrl) {
       notify('يرجى إدخال رابط قائمة تشغيل يوتيوب صالحة', 'error');
       return;
@@ -448,6 +500,7 @@
             title: v.title || `فيديو ${newShareItems.length + newItems.length + 1}`,
             url: v.url,
             thumbnail: v.thumbnail || '',
+            duration: v.duration || 0,
             isFreePreview: (newShareItems.length + newItems.length) === 0 || !newShareIsPaid
           });
         }
@@ -460,7 +513,7 @@
         notify('جميع الفيديوهات المستخرجة مضافة بالفعل إلى القائمة', 'ok');
       }
     } catch (err) {
-      notify(String(err?.message || err), 'error');
+      notify('حدث خطأ أثناء الاستخراج: ' + String(err?.message || err), 'error');
     } finally {
       isScrapingPlaylist = false;
     }
@@ -1745,6 +1798,7 @@
     max-width: 1100px;
     margin: 0 auto;
     padding-bottom: 50px;
+    transform: none !important;
   }
 
   .community-header {

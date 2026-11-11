@@ -14,11 +14,20 @@
     makeRule, validateRule, occursOn, occurrencesInRange,
     todayIso, addDays, dayOfWeek, parseDate
   } from '../lib/recurrence.js';
+  import {
+    listCustomReminders, addCustomReminder, deleteCustomReminder, updateCustomReminder,
+    toggleCustomReminder, getRemainingTimeText, ADVANCE_NOTICE_OPTIONS, REPEAT_OPTIONS
+  } from '../lib/customReminders.js';
+  import { AVAILABLE_SOUNDS, playNotificationTone } from '../lib/sound.js';
+  import {
+    getCachedGoogleCalendarEvents, syncGoogleCalendarFeed, getGoogleCalendarFeedUrl,
+    saveGoogleCalendarFeedUrl, openInGoogleCalendar, downloadTasksIcs
+  } from '../lib/googleCalendar.js';
   // `t` is a task variable in this file's markup, so the translator is `tr`.
   import { t as tr, ui } from '../lib/lang.svelte.js';
   import { describeRuleText, formatDate, formatMonth, weekdayShort } from '../lib/i18n.js';
 
-  let { notify, docs = [], onOpenResource } = $props();
+  let { notify, docs = [], onOpenResource, onOpenAiBot } = $props();
 
   const PRIORITIES = ['low', 'normal', 'high'];
   const PRIORITY_LABEL = { low: 'planner.priorityLow', normal: 'planner.priorityNormal', high: 'planner.priorityHigh' };
@@ -26,11 +35,14 @@
     { id: 'month', label: 'planner.viewMonth' },
     { id: 'week', label: 'planner.viewWeek' },
     { id: 'day', label: 'planner.viewDay' },
-    { id: 'list', label: 'planner.viewList' }
+    { id: 'list', label: 'planner.viewList' },
+    { id: 'reminders', label: 'planner.customReminders' }
   ];
   const HOURS = Array.from({ length: 24 }, (_, i) => i);
 
   let tasks = $state([]);
+  let customReminders = $state([]);
+  let gcalEvents = $state([]);
   let view = $state('week'); // plan §6.8: week grid is the desktop default (day agenda on mobile)
   let anchor = $state(todayIso()); // focused date for month/week/day views
   let editing = $state(null); // task draft or null
@@ -39,6 +51,13 @@
   let linkSelect = $state();
   let linkPage = $state();
   let checkInput = $state();
+
+  // Custom Reminders & Google Calendar State
+  let reminderModalOpen = $state(false);
+  let reminderDraft = $state(null);
+  let gcalModalOpen = $state(false);
+  let gcalFeedUrl = $state(getGoogleCalendarFeedUrl());
+  let isSyncingGcal = $state(false);
 
   // Month grid runs Sunday-first (matches dayOfWeek 0 = Sunday); the header row
   // follows the app language through Intl.
@@ -59,12 +78,36 @@
   const openTasks = $derived(tasks.filter((task) => !isDoneOn(task, todayIso())));
   const overdueTasks = $derived(tasks.filter((task) => !task.recurrence && task.status !== 'done' && task.dueDate && task.dueDate < todayIso()));
 
-  onMount(async () => {
+  async function refresh() {
     tasks = await listTasks();
+    customReminders = listCustomReminders();
+    gcalEvents = getCachedGoogleCalendarEvents();
+  }
+
+  onMount(async () => {
+    await refresh();
     remindersOn = localStorage.getItem('studyos.reminders') === '1';
     if (window.matchMedia('(max-width: 720px)').matches) view = 'day';
     startReminderLoop();
-    return () => stopReminderLoop();
+
+    const onRemindersUpdated = () => { customReminders = listCustomReminders(); };
+    const onGcalUpdated = () => { gcalEvents = getCachedGoogleCalendarEvents(); };
+
+    window.addEventListener('makeen:reminders-updated', onRemindersUpdated);
+    window.addEventListener('makeen:gcal-updated', onGcalUpdated);
+
+    // Auto sync Google Calendar if feed URL exists
+    if (gcalFeedUrl) {
+      syncGoogleCalendarFeed().then((res) => {
+        if (res.ok) gcalEvents = getCachedGoogleCalendarEvents();
+      });
+    }
+
+    return () => {
+      stopReminderLoop();
+      window.removeEventListener('makeen:reminders-updated', onRemindersUpdated);
+      window.removeEventListener('makeen:gcal-updated', onGcalUpdated);
+    };
   });
 
   // --- occurrence model ------------------------------------------------------
@@ -81,19 +124,91 @@
     return task.status === 'done';
   }
   function tasksForDay(iso) {
-    return tasks
+    const local = tasks
       .filter((task) => taskOccursOn(task, iso))
       .sort((a, b) => (a.startTime || 'zz').localeCompare(b.startTime || 'zz'));
+    const gcal = gcalEvents
+      .filter((ev) => ev.dueDate === iso)
+      .sort((a, b) => (a.startTime || 'zz').localeCompare(b.startTime || 'zz'));
+    return [...local, ...gcal];
   }
   function doneTodayCount(iso) {
     return tasksForDay(iso).filter((task) => isDoneOn(task, iso)).length;
   }
   const ruleText = (rule) => describeRuleText(ui.lang, rule, tr);
 
-  // --- persistence -----------------------------------------------------------
+  // --- custom reminders actions ---
+  function openNewReminder() {
+    const now = new Date();
+    reminderDraft = {
+      id: crypto.randomUUID(),
+      title: '',
+      notes: '',
+      date: anchor || todayIso(),
+      time: `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`,
+      advanceMinutes: 0,
+      repeat: 'none',
+      sound: 'soft-chime',
+      linkedResource: null
+    };
+    reminderModalOpen = true;
+  }
 
-  async function refresh() {
-    tasks = await listTasks();
+  function saveReminderDraft() {
+    if (!reminderDraft.title.trim()) {
+      notify('يرجى إدخال عنوان التذكير', 'error');
+      return;
+    }
+    addCustomReminder(reminderDraft);
+    customReminders = listCustomReminders();
+    reminderModalOpen = false;
+    reminderDraft = null;
+    notify('تم حفظ التذكير المخصص بنجاح', 'ok');
+  }
+
+  function handleToggleReminder(id) {
+    toggleCustomReminder(id);
+    customReminders = listCustomReminders();
+  }
+
+  function handleDeleteReminder(id) {
+    if (!confirm('هل تريد حذف هذا التذكير المخصص؟')) return;
+    deleteCustomReminder(id);
+    customReminders = listCustomReminders();
+    notify('تم حذف التذكير', 'ok');
+  }
+
+  function testSound(soundId) {
+    playNotificationTone(soundId);
+  }
+
+  // --- google calendar actions ---
+  async function handleSyncGcal() {
+    if (!gcalFeedUrl.trim()) {
+      notify('يرجى إدخال رابط iCal الخاص بتقويم Google', 'error');
+      return;
+    }
+    isSyncingGcal = true;
+    saveGoogleCalendarFeedUrl(gcalFeedUrl.trim());
+    try {
+      const res = await syncGoogleCalendarFeed(gcalFeedUrl.trim());
+      if (res.ok) {
+        gcalEvents = getCachedGoogleCalendarEvents();
+        notify(`تمت مزامنة ${res.count} حدث بنجاح من تقويم Google`, 'ok');
+        gcalModalOpen = false;
+      } else {
+        notify('تعذر مزامنة التقويم. يرجى التأكد من رابط iCal العام أو السري', 'error');
+      }
+    } catch (e) {
+      notify(`فشلت المزامنة: ${e.message}`, 'error');
+    } finally {
+      isSyncingGcal = false;
+    }
+  }
+
+  function handleExportIcs() {
+    downloadTasksIcs(tasks);
+    notify('تم تنزيل ملف التقويم (.ics) بنجاح', 'ok');
   }
   async function saveTask(draft) {
     if (!draft.title.trim()) { notify(tr('toast.titleRequired'), 'error'); return; }
@@ -287,16 +402,62 @@
         {view === 'month' ? monthLabel : view === 'week' ? tr('planner.weekOf', { date: weekLabel }) : dayLabel}
       </span>
     </div>
-    <div class="hstack">
+    <div class="hstack" style="gap:6px; flex-wrap:wrap;">
       {#each VIEWS as def}
-        <button class={view === def.id ? 'active' : ''} onclick={() => (view = def.id)}>{tr(def.label)}</button>
+        <button class={view === def.id ? 'active' : ''} onclick={() => (view = def.id)}>
+          {#if def.id === 'reminders'}
+            <Icon name="bell" size={13} />
+          {/if}
+          <span>{tr(def.label)}</span>
+        </button>
       {/each}
+
+      <div class="header-divider" style="width: 1px; height: 18px; background: var(--border); margin: 0 4px;"></div>
+
+      <!-- Google Calendar Sync Button -->
+      <button
+        type="button"
+        class="small hstack"
+        onclick={() => (gcalModalOpen = true)}
+        title="مزامنة وتكامل تقويم Google"
+        style="border-color: #4285f4; color: #4285f4;"
+      >
+        <Icon name="calendar" size={14} />
+        <span>تقويم Google</span>
+        {#if gcalEvents.length > 0}
+          <span class="pill-count" style="background: rgba(66, 133, 244, 0.15); color: #4285f4; padding: 1px 6px; border-radius: 999px; font-size: 11px;">
+            {gcalEvents.length}
+          </span>
+        {/if}
+      </button>
+
+      <!-- Makeen AI Assistant Button -->
+      {#if onOpenAiBot}
+        <button
+          type="button"
+          class="small hstack"
+          onclick={onOpenAiBot}
+          title="مساعد مَكِين الذكي لجدولة المهام والقراءة"
+          style="border-color: #8b5cf6; color: #8b5cf6;"
+        >
+          <Icon name="sparkles" size={14} />
+          <span>المساعد الذكي</span>
+        </button>
+      {/if}
+
       <label class="hstack" style="gap:4px; font-size:13px" title={tr('planner.remindersTitle')}>
         <input type="checkbox" checked={remindersOn} onchange={toggleReminders} /> {tr('planner.reminders')}
       </label>
-      <button class="primary" onclick={() => (editing = newDraft())}>
-        <Icon name="plus" size={15} /><span>{tr('planner.newTask')}</span>
-      </button>
+
+      {#if view === 'reminders'}
+        <button class="primary small hstack" onclick={openNewReminder}>
+          <Icon name="plus" size={14} /><span>تذكير مخصص +</span>
+        </button>
+      {:else}
+        <button class="primary small hstack" onclick={() => (editing = newDraft())}>
+          <Icon name="plus" size={14} /><span>{tr('planner.newTask')}</span>
+        </button>
+      {/if}
     </div>
   </div>
 
@@ -346,12 +507,29 @@
         </div>
         {#each weekDays as iso}
           <div class="week-col" ondragover={(e) => e.preventDefault()} ondrop={(e) => onDropDay(e, iso)}>
-            {#each HOURS as h}<div class="hour-line"></div>{/each}
+            {#each HOURS as h}
+              <!-- svelte-ignore a11y_click_events_have_key_events -->
+              <div
+                class="hour-line clickable-hour"
+                role="button"
+                tabindex="0"
+                title={`${dayLabels[weekDays.indexOf(iso)]} الساعة ${String(h).padStart(2, '0')}:00 — انقر لإضافة موعد أو مهمة`}
+                onclick={() => {
+                  editing = newDraft(iso);
+                  editing.startTime = `${String(h).padStart(2, '0')}:00`;
+                  editing.durationMinutes = 60;
+                }}
+              ></div>
+            {/each}
             {#each tasksForDay(iso).filter((task) => task.startTime) as task}
-              <div class="time-block {isDoneOn(task, iso) ? 'done' : ''}" style="top:{blockTop(task)}px; height:{blockHeight(task)}px; border-inline-start-color:{priorityDot(task.priority)}"
-                draggable="true" ondragstart={(e) => onDragStart(e, task)} onclick={() => editTask(task)}
-                title={`${task.title} · ${task.startTime}`}>
-                <div class="tb-title">{task.title}</div>
+              <div class="time-block {isDoneOn(task, iso) ? 'done' : ''} {task.isGCal ? 'gcal-block' : ''}" style="top:{blockTop(task)}px; height:{blockHeight(task)}px; border-inline-start-color:{task.isGCal ? '#4285f4' : priorityDot(task.priority)}"
+                draggable={!task.isGCal} ondragstart={(e) => onDragStart(e, task)}
+                onclick={() => { if (task.isGCal) openInGoogleCalendar(task); else editTask(task); }}
+                title={`${task.title} · ${task.startTime}${task.isGCal ? ' (Google Calendar)' : ''}`}>
+                <div class="tb-title hstack" style="gap:4px;">
+                  {#if task.isGCal}<Icon name="calendar" size={11} />{/if}
+                  <span>{task.title}</span>
+                </div>
                 <div class="tb-time">{task.startTime} · {task.durationMinutes || 30}{tr('common.minutesShort')}</div>
               </div>
             {/each}
@@ -406,6 +584,132 @@
         </div>
       {/each}
     </div>
+
+    {:else if view === 'reminders'}
+      <!-- Custom Reminders View -->
+      <div class="reminders-view-container">
+        <div class="reminders-header-card hstack" style="justify-content:space-between; margin-bottom:12px; padding:12px 16px; background:var(--surface); border:1px solid var(--border); border-radius:10px; flex-wrap:wrap; gap:8px;">
+          <div>
+            <div style="font-weight:700; font-size:14px;" class="hstack">
+              <Icon name="bell" size={16} />
+              <span>التذكيرات المخصصة (Custom Reminders)</span>
+            </div>
+            <div class="muted" style="font-size:12px; margin-top:2px;">
+              تنبيهات صوتية وإشعارات مرئية على الهاتف وسطح المكتب والمتصفح في الوقت المحدد بدقة
+            </div>
+          </div>
+          <button class="primary small hstack" onclick={openNewReminder}>
+            <Icon name="plus" size={14} />
+            <span>إضافة تذكير مخصص</span>
+          </button>
+        </div>
+
+        {#if customReminders.length === 0}
+          <div class="empty" style="padding:40px 20px; text-align:center;">
+            <Icon name="bell" size={32} />
+            <div style="margin-top:8px; font-weight:600;">لا توجد تذكيرات مخصصة حالياً</div>
+            <div class="muted" style="font-size:12.5px; margin-top:4px;">
+              أضف تذكيراً لأوقات المذاكرة، المحاضرات، قراءة الكتب، أو مراجعة البطاقات مع نغمات صوتية واضحة
+            </div>
+            <button class="primary small hstack" onclick={openNewReminder} style="margin:16px auto 0;">
+              <Icon name="plus" size={14} />
+              <span>إنشاء أول تذكير الآن</span>
+            </button>
+          </div>
+        {:else}
+          <div class="reminders-list">
+            {#each customReminders as rem (rem.id)}
+              <div class="reminder-card {rem.enabled ? '' : 'disabled-reminder'}">
+                <div class="hstack" style="align-items:flex-start; gap:12px; width:100%;">
+                  <input
+                    type="checkbox"
+                    checked={rem.enabled}
+                    onchange={() => handleToggleReminder(rem.id)}
+                    title={rem.enabled ? 'تعطيل التنبيه' : 'تفعيل التنبيه'}
+                    style="margin-top:4px; width:18px; height:18px;"
+                  />
+
+                  <div class="grow">
+                    <div class="hstack" style="justify-content:space-between; gap:8px; flex-wrap:wrap;">
+                      <div class="reminder-title" style="font-weight:700; font-size:14px; {rem.enabled ? '' : 'text-decoration:line-through; opacity:0.6;'}">
+                        {rem.title}
+                      </div>
+
+                      <div class="hstack" style="gap:6px;">
+                        <span class="badge {rem.remainingMinutes <= 0 && rem.enabled ? 'due-badge' : ''}" style="font-size:11px;">
+                          <Icon name="clock" size={11} />
+                          <span>{getRemainingTimeText(rem)}</span>
+                        </span>
+
+                        <span class="badge" style="font-size:11px;">
+                          <Icon name="repeat" size={11} />
+                          <span>{REPEAT_OPTIONS.find((r) => r.id === rem.repeat)?.label || 'مرة واحدة'}</span>
+                        </span>
+                      </div>
+                    </div>
+
+                    {#if rem.notes}
+                      <div class="muted" style="font-size:12px; margin-top:4px;">{rem.notes}</div>
+                    {/if}
+
+                    <div class="row-meta" style="margin-top:8px;">
+                      <span class="badge" style="font-size:11px;">
+                        <Icon name="calendar" size={11} />
+                        <span>{rem.date}</span>
+                      </span>
+
+                      <span class="badge" style="font-size:11px;">
+                        <Icon name="clock" size={11} />
+                        <span>{rem.time}</span>
+                      </span>
+
+                      {#if rem.advanceMinutes > 0}
+                        <span class="badge" style="font-size:11px;">
+                          <span>تنبيه مسبق: {rem.advanceMinutes} دقيقة</span>
+                        </span>
+                      {/if}
+
+                      <button
+                        type="button"
+                        class="badge link-chip hstack"
+                        onclick={() => testSound(rem.sound)}
+                        title="تجربة نغمة التنبيه"
+                        style="font-size:11px; cursor:pointer;"
+                      >
+                        <Icon name="play" size={10} />
+                        <span>{AVAILABLE_SOUNDS.find((s) => s.id === rem.sound)?.name || 'نغمة'}</span>
+                      </button>
+
+                      {#if rem.linkedResource}
+                        <button
+                          class="badge link-chip hstack"
+                          onclick={() => onOpenResource?.(rem.linkedResource)}
+                          title="فتح العنصر المرتبط"
+                          style="font-size:11px;"
+                        >
+                          <Icon name="reader" size={11} />
+                          <span>{rem.linkedResource.title || 'الملف المرتبط'}</span>
+                        </button>
+                      {/if}
+                    </div>
+                  </div>
+
+                  <div class="hstack" style="gap:4px;">
+                    <button
+                      type="button"
+                      class="icon-btn danger small"
+                      onclick={() => handleDeleteReminder(rem.id)}
+                      title="حذف التذكير"
+                    >
+                      <Icon name="trash" size={14} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            {/each}
+          </div>
+        {/if}
+      </div>
 
     {:else}
       <!-- List view -->
@@ -529,9 +833,217 @@
 
       <div class="modal-actions">
         {#if editing.createdAt}<button class="danger" onclick={() => removeTask(editing)}>{tr('common.delete')}</button>{/if}
+        <button
+          type="button"
+          class="secondary hstack"
+          onclick={() => openInGoogleCalendar(editing)}
+          title="إضافة هذه المهمة مباشرة إلى تقويم Google"
+          style="gap: 5px; color: #4285f4; border-color: #4285f4;"
+        >
+          <Icon name="calendar" size={13} />
+          <span>إضافة إلى Google Calendar</span>
+        </button>
         <span style="flex:1"></span>
         <button onclick={() => (editing = null)}>{tr('common.cancel')}</button>
         <button class="primary" onclick={() => saveTask(editing)}>{tr('common.save')}</button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+<!-- Custom Reminder Creation / Edit Modal Dialog -->
+{#if reminderModalOpen && reminderDraft}
+  <div class="modal-backdrop" onclick={() => (reminderModalOpen = false)} onkeydown={(e) => e.key === 'Escape' && (reminderModalOpen = false)} role="presentation">
+    <div class="modal" onclick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="تعديل أو إنشاء تذكير مخصص">
+      <div class="hstack" style="justify-content:space-between; margin-bottom:12px;">
+        <h3 style="margin:0;" class="hstack">
+          <Icon name="bell" size={18} />
+          <span>إضافة تذكير مخصص (Custom Reminder)</span>
+        </h3>
+        <button class="icon-btn" onclick={() => (reminderModalOpen = false)} aria-label="إغلاق">
+          <Icon name="x" size={16} />
+        </button>
+      </div>
+
+      <label class="field">
+        <span>عنوان التذكير</span>
+        <input type="text" bind:value={reminderDraft.title} placeholder="مثال: جلسة قراءة كتاب البرمجة، مراجعة الرياضيات، صلاة العصر" />
+      </label>
+
+      <label class="field" style="margin-top:8px;">
+        <span>ملاحظات إضافية</span>
+        <textarea rows="2" bind:value={reminderDraft.notes} placeholder="تفاصيل إضافية عن ما يجب فعله..."></textarea>
+      </label>
+
+      <div class="field-row">
+        <label class="field">
+          <span>التاريخ</span>
+          <input type="date" bind:value={reminderDraft.date} />
+        </label>
+        <label class="field">
+          <span>الوقت بدقة</span>
+          <input type="time" bind:value={reminderDraft.time} />
+        </label>
+      </div>
+
+      <div class="field-row">
+        <label class="field">
+          <span>وقت التنبيه المسبق</span>
+          <select bind:value={reminderDraft.advanceMinutes}>
+            {#each ADVANCE_NOTICE_OPTIONS as opt}
+              <option value={opt.value}>{opt.label}</option>
+            {/each}
+          </select>
+        </label>
+
+        <label class="field">
+          <span>تكرار التنبيه</span>
+          <select bind:value={reminderDraft.repeat}>
+            {#each REPEAT_OPTIONS as rep}
+              <option value={rep.id}>{rep.label}</option>
+            {/each}
+          </select>
+        </label>
+      </div>
+
+      <div class="field-row" style="align-items:flex-end;">
+        <label class="field" style="flex:1;">
+          <span>نغمة التنبيه الصوتية</span>
+          <select bind:value={reminderDraft.sound}>
+            {#each AVAILABLE_SOUNDS as snd}
+              <option value={snd.id}>{snd.name}</option>
+            {/each}
+          </select>
+        </label>
+        <button
+          type="button"
+          class="secondary hstack"
+          onclick={() => testSound(reminderDraft.sound)}
+          title="تجربة النغمة المختارة"
+          style="height:36px; padding:0 12px;"
+        >
+          <Icon name="play" size={13} />
+          <span>تجربة الصوت</span>
+        </button>
+      </div>
+
+      <label class="field" style="margin-top:8px;">
+        <span>ربط بملف من المكتبة (اختياري)</span>
+        <select
+          value={reminderDraft.linkedResource?.id || ''}
+          onchange={(e) => {
+            const val = e.currentTarget.value;
+            if (!val) {
+              reminderDraft.linkedResource = null;
+            } else {
+              const d = docs.find((item) => item.id === val);
+              if (d) reminderDraft.linkedResource = { id: d.id, title: d.title, kind: 'pdf' };
+            }
+          }}
+        >
+          <option value="">بدون ملف مرتبط</option>
+          {#each docs as doc}
+            <option value={doc.id}>{doc.title}</option>
+          {/each}
+        </select>
+      </label>
+
+      <div class="modal-actions" style="margin-top:16px;">
+        <button type="button" onclick={() => (reminderModalOpen = false)}>إلغاء</button>
+        <span style="flex:1"></span>
+        <button type="button" class="primary hstack" onclick={saveReminderDraft}>
+          <Icon name="check" size={14} />
+          <span>حفظ التذكير</span>
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+<!-- Google Calendar Sync & Export Modal Dialog -->
+{#if gcalModalOpen}
+  <div class="modal-backdrop" onclick={() => (gcalModalOpen = false)} onkeydown={(e) => e.key === 'Escape' && (gcalModalOpen = false)} role="presentation">
+    <div class="modal" onclick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="مزامنة وتكامل تقويم Google">
+      <div class="hstack" style="justify-content:space-between; margin-bottom:12px;">
+        <h3 style="margin:0; color:#4285f4;" class="hstack">
+          <Icon name="calendar" size={18} />
+          <span>تكامل تقويم Google (Google Calendar Sync)</span>
+        </h3>
+        <button class="icon-btn" onclick={() => (gcalModalOpen = false)} aria-label="إغلاق">
+          <Icon name="x" size={16} />
+        </button>
+      </div>
+
+      <p class="muted" style="font-size:12.5px; line-height:1.6; margin-top:0;">
+        يمكنك استعراض ومزامنة مواعيدك وأحداثك من Google Calendar مباشرة على شبكة ومخطط مَكِين، بالإضافة لتصدير مهامك كملف تقويم عالمي.
+      </p>
+
+      <div class="card" style="padding:12px; margin-bottom:14px; background:var(--surface-2); border-radius:8px;">
+        <div style="font-weight:700; font-size:13px; margin-bottom:6px;">خطوات الحصول على رابط تقويمك (iCal Feed):</div>
+        <ol style="margin:0; padding-inline-start:18px; font-size:12px; color:var(--muted); line-height:1.6;">
+          <li>افتح Google Calendar على المتصفح وانتقل إلى <b>الإعدادات (Settings)</b>.</li>
+          <li>من القائمة الجانبية، اختر التقويم الخاص بك، ثم انزل إلى <b>تكامل التقويم (Integrate calendar)</b>.</li>
+          <li>انسخ <b>عنوان سري بتنسيق iCal (Secret address in iCal format)</b> والصقه بالأسفل.</li>
+        </ol>
+      </div>
+
+      <label class="field">
+        <span>رابط iCal الخاص بتقويم Google (.ics)</span>
+        <input
+          type="url"
+          bind:value={gcalFeedUrl}
+          placeholder="https://calendar.google.com/calendar/ical/.../basic.ics"
+          style="direction:ltr; text-align:left;"
+        />
+      </label>
+
+      <div class="hstack" style="gap:8px; margin-top:12px; flex-wrap:wrap;">
+        <button
+          type="button"
+          class="primary hstack"
+          onclick={handleSyncGcal}
+          disabled={isSyncingGcal || !gcalFeedUrl.trim()}
+          style="background:#4285f4; border-color:#4285f4;"
+        >
+          {#if isSyncingGcal}
+            <Icon name="rotate-right" size={14} class="spin" />
+            <span>جارِ المزامنة...</span>
+          {:else}
+            <Icon name="rotate-right" size={14} />
+            <span>مزامنة الأحداث الآن</span>
+          {/if}
+        </button>
+
+        <button
+          type="button"
+          class="secondary hstack"
+          onclick={handleExportIcs}
+          title="تصدير مهام مَكِين لاستيرادها في أي تطبيق تقويم"
+        >
+          <Icon name="download" size={14} />
+          <span>تصدير المهام (.ics)</span>
+        </button>
+      </div>
+
+      {#if gcalEvents.length > 0}
+        <div class="hstack" style="margin-top:14px; padding:8px 12px; background:rgba(66, 133, 244, 0.08); border:1px solid rgba(66, 133, 244, 0.25); border-radius:6px; justify-content:space-between;">
+          <span style="font-size:12.5px; color:#4285f4; font-weight:600;">
+            تمت مزامنة {gcalEvents.length} حدث من تقويم Google بنجاح
+          </span>
+          <button
+            type="button"
+            class="icon-btn small"
+            onclick={() => { gcalEvents = []; saveGoogleCalendarFeedUrl(''); gcalFeedUrl = ''; notify('تم إلغاء مزامنة التقويم', 'ok'); }}
+            title="إلغاء المزامنة ومسح الأحداث"
+          >
+            <Icon name="trash" size={13} />
+          </button>
+        </div>
+      {/if}
+
+      <div class="modal-actions" style="margin-top:18px;">
+        <span style="flex:1"></span>
+        <button type="button" onclick={() => (gcalModalOpen = false)}>إغلاق</button>
       </div>
     </div>
   </div>
@@ -583,6 +1095,35 @@
   .field-row { display: flex; gap: 10px; margin: 8px 0; flex-wrap: wrap; }
   .rec-card { border: 1px solid var(--border); border-radius: 8px; padding: 10px; margin: 6px 0; display: flex; flex-direction: column; gap: 8px; }
   .hint { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .clickable-hour { cursor: pointer; transition: background 0.15s ease; }
+  .clickable-hour:hover { background: rgba(59, 130, 246, 0.1); }
+  .gcal-block { background: rgba(66, 133, 244, 0.15) !important; color: #1a73e8 !important; }
+  .reminder-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-bottom: 8px;
+    transition: all 0.2s ease;
+  }
+  .reminder-card:hover {
+    border-color: var(--accent);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  }
+  .disabled-reminder {
+    opacity: 0.6;
+    background: var(--surface-2);
+  }
+  .due-badge {
+    background: var(--danger) !important;
+    color: #fff !important;
+    animation: pulse 1.5s infinite;
+  }
+  @keyframes pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.6; }
+    100% { opacity: 1; }
+  }
   .modal-actions { display: flex; gap: 8px; margin-top: 16px; }
   button.danger { color: var(--danger); border-color: var(--danger); }
 </style>

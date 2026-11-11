@@ -26,6 +26,9 @@
   import Community from './components/Community.svelte';
   import ScreenRecorder from './components/ScreenRecorder.svelte';
   import PomodoroWidget from './components/PomodoroWidget.svelte';
+  import MakeenBotModal from './components/MakeenBotModal.svelte';
+  import ReminderAlertModal from './components/ReminderAlertModal.svelte';
+  import { checkDueCustomReminders, fireCustomReminderNotification } from './lib/customReminders.js';
   import { getCurrentUser } from './lib/auth.js';
   import { createSidecarStore, fileBridge, listCaptures, listCards, putCapture, putCard, deleteCaptureById, deleteCardById, clearCaptures, clearCards, clearTasks, migrateLocalCollections, listTasks } from './lib/storage.js';
   import { savePdfBytes, deleteFileBytes, loadPdfAutosaveSettings, savePdfAutosaveSettings } from './lib/storage.js';
@@ -128,6 +131,8 @@
     video: null
   });
   let bgVideoController = $state(null);
+  let aiBotOpen = $state(false);
+  let activeReminderAlert = $state(null);
 
   function handleBgPlaybackStateChange(state) {
     bgVideoState = { ...bgVideoState, ...state };
@@ -333,8 +338,26 @@
     };
     window.addEventListener('studyos:library-changed', handleLibChange);
 
+    // Custom Reminders evaluation loop (checks every 10 seconds)
+    const reminderCheckInterval = setInterval(() => {
+      const due = checkDueCustomReminders();
+      if (due.length > 0) {
+        due.forEach((rem) => {
+          fireCustomReminderNotification(rem);
+          activeReminderAlert = rem;
+        });
+      }
+    }, 10000);
+
+    const onTriggerAlert = (e) => {
+      if (e.detail) activeReminderAlert = e.detail;
+    };
+    window.addEventListener('makeen:trigger-reminder-alert', onTriggerAlert);
+
     return () => {
       stopDueReminderLoop();
+      clearInterval(reminderCheckInterval);
+      window.removeEventListener('makeen:trigger-reminder-alert', onTriggerAlert);
       unsubscribeOpenPdf?.();
       unsubscribeTauriPdf?.();
       window.removeEventListener('studyos:library-changed', handleLibChange);
@@ -468,6 +491,11 @@
     if ((event.ctrlKey || event.metaKey) && !event.altKey && (event.key === 'o' || event.key === 'O')) {
       event.preventDefault();
       pickPdf();
+      return;
+    }
+    if ((event.ctrlKey || event.metaKey) && (event.key === 'j' || event.key === 'J')) {
+      event.preventDefault();
+      aiBotOpen = !aiBotOpen;
       return;
     }
     if (isTypingTarget(event.target)) {
@@ -1575,6 +1603,17 @@
 
       <PomodoroWidget compact={true} />
 
+      <!-- Makeen AI Assistant Button -->
+      <button
+        class="icon-btn ai-assistant-topbar-btn hstack"
+        onclick={() => (aiBotOpen = true)}
+        title="مساعد مَكِين الذكي (Ctrl+J)"
+        aria-label="مساعد مَكِين الذكي"
+        style="color: var(--accent); position: relative;"
+      >
+        <Icon name="sparkles" size={17} />
+      </button>
+
       <button class="icon-btn" onclick={openHelp} title={t('topbar.help')} aria-label={t('topbar.help')} aria-haspopup="dialog">
         <Icon name="help" size={18} />
       </button>
@@ -1904,7 +1943,7 @@
         </div>
 
       {:else if view === 'Planner'}
-        <Planner {notify} docs={pdfDocs} onOpenResource={openResource} />
+        <Planner {notify} docs={pdfDocs} onOpenResource={openResource} onOpenAiBot={() => (aiBotOpen = true)} />
 
       {:else if view === 'Gallery'}
         <div class="section-head">
@@ -2395,6 +2434,23 @@
 
 {#if helpOpen}
   <HelpDialog onclose={() => (helpOpen = false)} onshowguide={showQuickStart} />
+{/if}
+
+{#if aiBotOpen}
+  <MakeenBotModal
+    open={aiBotOpen}
+    onclose={() => (aiBotOpen = false)}
+    {notify}
+    onOpenResource={openResource}
+  />
+{/if}
+
+{#if activeReminderAlert}
+  <ReminderAlertModal
+    reminder={activeReminderAlert}
+    onclose={() => (activeReminderAlert = null)}
+    onOpenResource={openResource}
+  />
 {/if}
 
 <!-- Announced to screen readers: saves, exports and failures are otherwise

@@ -431,7 +431,29 @@ export async function fetchPlaylistScrape(playlistUrl) {
     }
   }
 
-  // 4. Local Vite media server / Backend endpoint
+  // 4. Public High-Speed CORS Proxies for Direct HTML Parsing
+  const corsProxies = [
+    (u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
+    (u) => `https://corsproxy.io/?url=${encodeURIComponent(u)}`,
+    (u) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`
+  ];
+  for (const proxyFn of corsProxies) {
+    try {
+      const pUrl = proxyFn(cleanUrl);
+      const res = await fetch(pUrl, {
+        signal: AbortSignal.timeout ? AbortSignal.timeout(7000) : undefined
+      });
+      if (res.ok) {
+        const html = await res.text();
+        const parsed = parseYoutubePlaylistHtml(html);
+        if (parsed && parsed.ok && Array.isArray(parsed.videos) && parsed.videos.length > 0) {
+          return parsed;
+        }
+      }
+    } catch {}
+  }
+
+  // 5. Local Vite media server / Backend endpoint
   try {
     const res = await fetch(`/api/playlist?url=${encodeURIComponent(cleanUrl)}`);
     if (res.ok) {
@@ -442,7 +464,7 @@ export async function fetchPlaylistScrape(playlistUrl) {
     }
   } catch {}
 
-  // 5. Direct HTML extraction fallback
+  // 6. Direct HTML extraction fallback
   try {
     const res = await fetch(cleanUrl);
     if (res.ok) {
