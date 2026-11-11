@@ -95,3 +95,45 @@ export async function apiRecordShareVisit(shareId) {
     });
   } catch {}
 }
+
+export async function apiSyncUserData({ userId, library = [], tasks = [], notes = [] }) {
+  const baseUrl = getApiBaseUrl();
+  const res = await fetch(`${baseUrl}/user/sync`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId, library, tasks, notes }),
+    signal: AbortSignal.timeout ? AbortSignal.timeout(15000) : undefined
+  });
+  if (!res.ok) throw new Error(`API error: ${res.status}`);
+  return await res.json();
+}
+
+export async function apiFetchUserData(userId) {
+  const baseUrl = getApiBaseUrl();
+  const res = await fetch(`${baseUrl}/user/sync?userId=${encodeURIComponent(userId)}`, {
+    signal: AbortSignal.timeout ? AbortSignal.timeout(10000) : undefined
+  });
+  if (!res.ok) throw new Error(`API error: ${res.status}`);
+  return await res.json();
+}
+
+export async function apiSaveUserBackup({ userId, backupType = 'full', data, deviceInfo = '' }) {
+  const baseUrl = getApiBaseUrl();
+  const res = await fetch(`${baseUrl}/user/backup`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId, backupType, data, deviceInfo }),
+    signal: AbortSignal.timeout ? AbortSignal.timeout(20000) : undefined
+  });
+  if (!res.ok) throw new Error(`API error: ${res.status}`);
+  return await res.json();
+}
+
+export async function apiFetchUserBackup(userId) {
+  const baseUrl = getApiBaseUrl();
+  const res = await fetch(`${baseUrl}/user/backup?userId=${encodeURIComponent(userId)}`, {
+    signal: AbortSignal.timeout ? AbortSignal.timeout(10000) : undefined
+  });
+  if (!res.ok) throw new Error(`API error: ${res.status}`);
+  return await res.json();
+}

@@ -82,3 +82,72 @@ CREATE TABLE IF NOT EXISTS reviews (
 );
 
 CREATE INDEX IF NOT EXISTS idx_reviews_share_id ON reviews(share_id);
+
+-- 5. User Personal Library (PDFs metadata JSON, Videos, Playlists, Reading Progress)
+CREATE TABLE IF NOT EXISTS user_library (
+  id VARCHAR(128) PRIMARY KEY, -- Composite or uuid (e.g. user_id:doc_id)
+  user_id VARCHAR(64) NOT NULL,
+  doc_id VARCHAR(64) NOT NULL,
+  kind VARCHAR(32) NOT NULL DEFAULT 'pdf', -- 'pdf' | 'video' | 'audio'
+  title VARCHAR(255) NOT NULL,
+  filename VARCHAR(255),
+  url TEXT,
+  last_page INT DEFAULT 1,
+  total_pages INT DEFAULT 0,
+  last_seconds NUMERIC(10,2) DEFAULT 0,
+  duration NUMERIC(10,2) DEFAULT 0,
+  bookmarks_json JSONB DEFAULT '[]'::jsonb,
+  notes_json JSONB DEFAULT '[]'::jsonb,
+  highlights_json JSONB DEFAULT '[]'::jsonb,
+  metadata_json JSONB DEFAULT '{}'::jsonb,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  CONSTRAINT uq_user_doc UNIQUE (user_id, doc_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_library_user_id ON user_library(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_library_kind ON user_library(kind);
+
+-- 6. User Planner Tasks & Scheduled Events
+CREATE TABLE IF NOT EXISTS user_planner_tasks (
+  id VARCHAR(64) PRIMARY KEY,
+  user_id VARCHAR(64) NOT NULL,
+  title VARCHAR(255) NOT NULL,
+  due_date VARCHAR(32), -- YYYY-MM-DD
+  start_time VARCHAR(16), -- HH:mm
+  duration_minutes INT DEFAULT 60,
+  status VARCHAR(32) DEFAULT 'todo', -- 'todo' | 'done' | 'in_progress'
+  priority VARCHAR(16) DEFAULT 'medium',
+  links_json JSONB DEFAULT '[]'::jsonb,
+  notes TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_planner_user_id ON user_planner_tasks(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_planner_due_date ON user_planner_tasks(due_date);
+
+-- 7. User Markdown Notes
+CREATE TABLE IF NOT EXISTS user_notes (
+  id VARCHAR(64) PRIMARY KEY,
+  user_id VARCHAR(64) NOT NULL,
+  title VARCHAR(255) NOT NULL,
+  folder_id VARCHAR(64),
+  content TEXT DEFAULT '',
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_notes_user_id ON user_notes(user_id);
+
+-- 8. Cloud Backups (Full snapshot of user data for 1-click restore)
+CREATE TABLE IF NOT EXISTS user_backups (
+  id VARCHAR(64) PRIMARY KEY,
+  user_id VARCHAR(64) NOT NULL,
+  backup_type VARCHAR(32) DEFAULT 'full', -- 'full' | 'library' | 'planner'
+  data_json JSONB NOT NULL,
+  device_info VARCHAR(128),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_backups_user_id ON user_backups(user_id);

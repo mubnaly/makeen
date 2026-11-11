@@ -308,6 +308,189 @@ app.post('/api/community/:id/reviews', async (req, res) => {
   }
 });
 
+// 9. User Library & Data Cloud Sync
+app.post('/api/user/sync', async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const { userId, library: libItems = [], tasks = [], notes = [] } = req.body;
+    if (!userId) return res.status(400).json({ ok: false, error: 'userId is required' });
+
+    await client.query('BEGIN');
+
+    // Upsert library items
+    for (const item of libItems) {
+      if (!item.id && !item.docId) continue;
+      const docId = String(item.docId || item.id);
+      const rowId = `${userId}:${docId}`;
+      const query = `
+        INSERT INTO user_library (
+          id, user_id, doc_id, kind, title, filename, url, last_page,
+          total_pages, last_seconds, duration, bookmarks_json, notes_json,
+          highlights_json, metadata_json, updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW())
+        ON CONFLICT (user_id, doc_id) DO UPDATE SET
+          title = EXCLUDED.title,
+          url = EXCLUDED.url,
+          last_page = EXCLUDED.last_page,
+          total_pages = EXCLUDED.total_pages,
+          last_seconds = EXCLUDED.last_seconds,
+          duration = EXCLUDED.duration,
+          bookmarks_json = EXCLUDED.bookmarks_json,
+          notes_json = EXCLUDED.notes_json,
+          highlights_json = EXCLUDED.highlights_json,
+          metadata_json = EXCLUDED.metadata_json,
+          updated_at = NOW();
+      `;
+      await client.query(query, [
+        rowId, userId, docId, item.kind || 'pdf', item.title || item.filename || 'Untitled',
+        item.filename || '', item.url || '', item.lastPage || item.currentPage || 1,
+        item.totalPages || 0, item.lastSeconds || 0, item.duration || 0,
+        JSON.stringify(item.bookmarks || []), JSON.stringify(item.notes || []),
+        JSON.stringify(item.highlights || []), JSON.stringify(item.metadata || {})
+      ]);
+    }
+
+    // Upsert planner tasks
+    for (const t of tasks) {
+      if (!t.id) continue;
+      const query = `
+        INSERT INTO user_planner_tasks (
+          id, user_id, title, due_date, start_time, duration_minutes, status, priority, links_json, notes, updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
+        ON CONFLICT (id) DO UPDATE SET
+          title = EXCLUDED.title,
+          due_date = EXCLUDED.due_date,
+          start_time = EXCLUDED.start_time,
+          duration_minutes = EXCLUDED.duration_minutes,
+          status = EXCLUDED.status,
+          priority = EXCLUDED.priority,
+          links_json = EXCLUDED.links_json,
+          notes = EXCLUDED.notes,
+          updated_at = NOW();
+      `;
+      await client.query(query, [
+        String(t.id), userId, t.title || 'Untitled Task', t.dueDate || '',
+        t.startTime || '', t.durationMinutes || 60, t.status || 'todo',
+        t.priority || 'medium', JSON.stringify(t.links || []), t.notes || ''
+      ]);
+    }
+
+    // Upsert markdown notes
+    for (const n of notes) {
+      if (!n.id) continue;
+      const query = `
+        INSERT INTO user_notes (id, user_id, title, folder_id, content, updated_at)
+        VALUES ($1, $2, $3, $4, $5, NOW())
+        ON CONFLICT (id) DO UPDATE SET
+          title = EXCLUDED.title,
+          folder_id = EXCLUDED.folder_id,
+          content = EXCLUDED.content,
+          updated_at = NOW();
+      `;
+      await client.query(query, [String(n.id), userId, n.title || 'Untitled Note', n.folderId || null, n.content || '']);
+    }
+
+    await client.query('COMMIT');
+    res.json({ ok: true, synced: { library: libItems.length, tasks: tasks.length, notes: notes.length } });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Failed to sync user data:', err);
+    res.status(500).json({ ok: false, error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+app.get('/api/user/sync', async (req, res) => {
+  try {
+    const { userId } = req.query;
+    if (!userId) return res.status(400).json({ ok: false, error: 'userId is required' });
+
+    const libRes = await pool.query('SELECT * FROM user_library WHERE user_id = $1 ORDER BY updated_at DESC', [userId]);
+    const tasksRes = await pool.query('SELECT * FROM user_planner_tasks WHERE user_id = $1 ORDER BY due_date ASC', [userId]);
+    const notesRes = await pool.query('SELECT * FROM user_notes WHERE user_id = $1 ORDER BY updated_at DESC', [userId]);
+
+    res.json({
+      ok: true,
+      library: libRes.rows.map((r) => ({
+        id: r.doc_id,
+        kind: r.kind,
+        title: r.title,
+        filename: r.filename,
+        url: r.url,
+        lastPage: r.last_page,
+        totalPages: r.total_pages,
+        lastSeconds: Number(r.last_seconds),
+        duration: Number(r.duration),
+        bookmarks: r.bookmarks_json,
+        notes: r.notes_json,
+        highlights: r.highlights_json,
+        metadata: r.metadata_json,
+        updatedAt: r.updated_at
+      })),
+      tasks: tasksRes.rows.map((r) => ({
+        id: r.id,
+        title: r.title,
+        dueDate: r.due_date,
+        startTime: r.start_time,
+        durationMinutes: r.duration_minutes,
+        status: r.status,
+        priority: r.priority,
+        links: r.links_json,
+        notes: r.notes,
+        updatedAt: r.updated_at
+      })),
+      notes: notesRes.rows.map((r) => ({
+        id: r.id,
+        title: r.title,
+        folderId: r.folder_id,
+        content: r.content,
+        updatedAt: r.updated_at
+      }))
+    });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// 10. User Cloud Backup Snapshots
+app.post('/api/user/backup', async (req, res) => {
+  try {
+    const { userId, backupType = 'full', data, deviceInfo = '' } = req.body;
+    if (!userId || !data) return res.status(400).json({ ok: false, error: 'userId and data are required' });
+
+    const id = `bkp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    await pool.query(
+      'INSERT INTO user_backups (id, user_id, backup_type, data_json, device_info, created_at) VALUES ($1, $2, $3, $4, $5, NOW())',
+      [id, userId, backupType, JSON.stringify(data), deviceInfo]
+    );
+
+    res.json({ ok: true, backupId: id, createdAt: new Date() });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.get('/api/user/backup', async (req, res) => {
+  try {
+    const { userId } = req.query;
+    if (!userId) return res.status(400).json({ ok: false, error: 'userId is required' });
+
+    const result = await pool.query(
+      'SELECT id, backup_type, data_json, device_info, created_at FROM user_backups WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1',
+      [userId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.json({ ok: false, message: 'No backups found for user' });
+    }
+
+    res.json({ ok: true, backup: result.rows[0] });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Makeen PostgreSQL API Server running on port ${PORT}`);
 });
