@@ -218,9 +218,11 @@
 
     // 2. Draw Nodes
     for (const n of nodes) {
+      if (!n) continue;
+      const nTitle = n.title || 'Untitled';
       const isSelected = n.id === selectedNodeId;
       const isHovered = hoveredNode && n.id === hoveredNode.id;
-      const isMatch = q ? n.title.toLowerCase().includes(q) : true;
+      const isMatch = q ? nTitle.toLowerCase().includes(q) : true;
       const baseColor = getNodeColor(n.materialType);
 
       ctx.save();
@@ -244,7 +246,7 @@
       ctx.stroke();
 
       // Node Label
-      const labelText = n.title.length > 20 ? n.title.slice(0, 18) + '…' : n.title;
+      const labelText = nTitle.length > 20 ? nTitle.slice(0, 18) + '…' : nTitle;
       ctx.font = isSelected ? 'bold 12px "Segoe UI", Tahoma, sans-serif' : '11px "Segoe UI", Tahoma, sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';

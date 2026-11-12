@@ -3,7 +3,7 @@
   import Icon from './Icon.svelte';
   import MarkdownEditor from './MarkdownEditor.svelte';
   import MarkdownBrainGraph from './MarkdownBrainGraph.svelte';
-  import { t } from '../lib/lang.svelte.js';
+  import { t, ui } from '../lib/lang.svelte.js';
   import {
     listFolders,
     listAllNotes,
@@ -374,7 +374,12 @@
             }}
             role="button"
             tabindex="0"
-            onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && (activeNoteId = note.id)}
+            onkeydown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                activeNoteId = note.id;
+                mobileView = 'editor';
+              }
+            }}
           >
             <Icon name="file-text" size={13} />
             <span class="leaf-title">{note.title || 'Untitled Note'}</span>
@@ -479,7 +484,10 @@
         <button
           type="button"
           class="view-tab-btn {viewMode === 'editor' ? 'active' : ''}"
-          onclick={() => (viewMode = 'editor')}
+          onclick={() => {
+            viewMode = 'editor';
+            mobileView = 'editor';
+          }}
         >
           <Icon name="file-text" size={13} />
           <span>{t('notes.viewEditor') || 'Editor'}</span>
@@ -487,7 +495,10 @@
         <button
           type="button"
           class="view-tab-btn {viewMode === 'graph' ? 'active' : ''}"
-          onclick={() => (viewMode = 'graph')}
+          onclick={() => {
+            viewMode = 'graph';
+            mobileView = 'editor';
+          }}
         >
           <Icon name="brain" size={13} />
           <span>{t('notes.viewGraph') || 'Brain Graph'}</span>
@@ -527,77 +538,142 @@
       <!-- Quick Navigation Category: All Notes -->
       <div
         class="tree-root-item {selectedFolderId === '__ALL__' ? 'selected' : ''}"
-        onclick={() => (selectedFolderId = '__ALL__')}
+        onclick={() => (selectedFolderId = selectedFolderId === '__ALL__' ? null : '__ALL__')}
       >
         <Icon name="list" size={14} />
         <span>{t('notes.allNotes') || 'All Notes'}</span>
         <span class="item-count">({notes.length})</span>
       </div>
 
-      <!-- Root Folder Items -->
-      <div class="section-divider">
-        <span>{t('notes.folders') || 'Folders & Notes'}</span>
-      </div>
-
-      {#each getFolderChildren(null) as rootFolder (rootFolder.id)}
-        {@render folderNode(rootFolder, 0)}
-      {/each}
-
-      <!-- Loose Root Notes (not inside any folder) -->
-      <div
-        class="section-divider root-drop-zone {dragOverTargetId === '__ROOT__' ? 'drag-over' : ''}"
-        style="margin-top:12px; cursor:default; border-radius:6px; padding:4px 6px; transition: background 0.15s ease;"
-        ondragover={(e) => handleDragOverFolder(e, null)}
-        ondragleave={handleDragLeaveFolder}
-        ondrop={(e) => handleDropOnFolder(e, null)}
-        role="region"
-        aria-label={t('notes.rootNotes') || 'Root Notes'}
-      >
-        <span>{t('notes.rootNotes') || 'Root Notes'} ({getFolderNotes(null).length})</span>
-      </div>
-      {#if getFolderNotes(null).length > 0}
-        {#each getFolderNotes(null) as rootNote (rootNote.id)}
-          <div
-            class="note-tree-leaf {activeNoteId === rootNote.id ? 'active' : ''}"
-            style="--depth:0"
-            draggable="true"
-            ondragstart={(e) => handleDragStartNote(e, rootNote)}
-            onclick={() => {
-              activeNoteId = rootNote.id;
-              mobileView = 'editor';
-            }}
-            role="button"
-            tabindex="0"
-            onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && (activeNoteId = rootNote.id)}
-          >
-            <Icon name="file-text" size={13} />
-            <span class="leaf-title">{rootNote.title || 'Untitled Note'}</span>
-            <div class="leaf-actions hstack" style="gap:2px;">
-              <button
-                type="button"
-                class="leaf-action-btn"
-                onclick={(e) => {
-                  e.stopPropagation();
-                  openMoveModal(rootNote);
-                }}
-                title={t('notes.moveToFolder') || 'نقل لمجلد آخر'}
-              >
-                <Icon name="folder" size={11} />
-              </button>
-              <button
-                type="button"
-                class="leaf-delete"
-                onclick={(e) => {
-                  e.stopPropagation();
-                  handleDeleteNote(rootNote.id);
-                }}
-                title={t('common.delete')}
-              >
-                <Icon name="trash" size={11} />
-              </button>
-            </div>
+      {#if searchQuery.trim() || selectedFolderId === '__ALL__'}
+        <!-- Search Results or All Notes flat list -->
+        <div class="section-divider">
+          <span>{searchQuery.trim() ? (ui.lang === 'ar' ? `نتائج البحث (${filteredNotes.length})` : `Search Results (${filteredNotes.length})`) : (t('notes.allNotes') || 'All Notes')}</span>
+        </div>
+        {#if filteredNotes.length === 0}
+          <div class="muted" style="padding:12px; font-size:12px; text-align:center;">
+            {ui.lang === 'ar' ? 'لا توجد ملاحظات' : 'No notes found'}
           </div>
+        {:else}
+          {#each filteredNotes as fnote (fnote.id)}
+            <div
+              class="note-tree-leaf {activeNoteId === fnote.id ? 'active' : ''}"
+              style="--depth:0"
+              draggable="true"
+              ondragstart={(e) => handleDragStartNote(e, fnote)}
+              onclick={() => {
+                activeNoteId = fnote.id;
+                mobileView = 'editor';
+              }}
+              role="button"
+              tabindex="0"
+              onkeydown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  activeNoteId = fnote.id;
+                  mobileView = 'editor';
+                }
+              }}
+            >
+              <Icon name="file-text" size={13} />
+              <span class="leaf-title">{fnote.title || 'Untitled Note'}</span>
+              <div class="leaf-actions hstack" style="gap:2px;">
+                <button
+                  type="button"
+                  class="leaf-action-btn"
+                  onclick={(e) => {
+                    e.stopPropagation();
+                    openMoveModal(fnote);
+                  }}
+                  title={t('notes.moveToFolder') || 'نقل لمجلد آخر'}
+                >
+                  <Icon name="folder" size={11} />
+                </button>
+                <button
+                  type="button"
+                  class="leaf-delete"
+                  onclick={(e) => {
+                    e.stopPropagation();
+                    handleDeleteNote(fnote.id);
+                  }}
+                  title={t('common.delete')}
+                >
+                  <Icon name="trash" size={11} />
+                </button>
+              </div>
+            </div>
+          {/each}
+        {/if}
+      {:else}
+        <!-- Root Folder Items -->
+        <div class="section-divider">
+          <span>{t('notes.folders') || 'Folders & Notes'}</span>
+        </div>
+
+        {#each getFolderChildren(null) as rootFolder (rootFolder.id)}
+          {@render folderNode(rootFolder, 0)}
         {/each}
+
+        <!-- Loose Root Notes (not inside any folder) -->
+        <div
+          class="section-divider root-drop-zone {dragOverTargetId === '__ROOT__' ? 'drag-over' : ''}"
+          style="margin-top:12px; cursor:default; border-radius:6px; padding:4px 6px; transition: background 0.15s ease;"
+          ondragover={(e) => handleDragOverFolder(e, null)}
+          ondragleave={handleDragLeaveFolder}
+          ondrop={(e) => handleDropOnFolder(e, null)}
+          role="region"
+          aria-label={t('notes.rootNotes') || 'Root Notes'}
+        >
+          <span>{t('notes.rootNotes') || 'Root Notes'} ({getFolderNotes(null).length})</span>
+        </div>
+        {#if getFolderNotes(null).length > 0}
+          {#each getFolderNotes(null) as rootNote (rootNote.id)}
+            <div
+              class="note-tree-leaf {activeNoteId === rootNote.id ? 'active' : ''}"
+              style="--depth:0"
+              draggable="true"
+              ondragstart={(e) => handleDragStartNote(e, rootNote)}
+              onclick={() => {
+                activeNoteId = rootNote.id;
+                mobileView = 'editor';
+              }}
+              role="button"
+              tabindex="0"
+              onkeydown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  activeNoteId = rootNote.id;
+                  mobileView = 'editor';
+                }
+              }}
+            >
+              <Icon name="file-text" size={13} />
+              <span class="leaf-title">{rootNote.title || 'Untitled Note'}</span>
+              <div class="leaf-actions hstack" style="gap:2px;">
+                <button
+                  type="button"
+                  class="leaf-action-btn"
+                  onclick={(e) => {
+                    e.stopPropagation();
+                    openMoveModal(rootNote);
+                  }}
+                  title={t('notes.moveToFolder') || 'نقل لمجلد آخر'}
+                >
+                  <Icon name="folder" size={11} />
+                </button>
+                <button
+                  type="button"
+                  class="leaf-delete"
+                  onclick={(e) => {
+                    e.stopPropagation();
+                    handleDeleteNote(rootNote.id);
+                  }}
+                  title={t('common.delete')}
+                >
+                  <Icon name="trash" size={11} />
+                </button>
+              </div>
+            </div>
+          {/each}
+        {/if}
       {/if}
     </div>
   </aside>
@@ -606,7 +682,7 @@
   <main class="notes-main-pane">
     <div class="mobile-back-bar">
       <button type="button" class="back-to-tree-btn hstack" onclick={() => (mobileView = 'tree')}>
-        <Icon name="chevron-left" size={15} />
+        <Icon name={ui.dir === 'rtl' ? 'chevron-right' : 'chevron-left'} size={15} />
         <span>{t('notes.backToTree') || 'العودة للمجلدات والملاحظات'}</span>
       </button>
     </div>

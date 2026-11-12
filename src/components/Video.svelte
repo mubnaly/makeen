@@ -2412,6 +2412,14 @@
           <Icon name="list" size={15} /><span>{t('video.tabPlaylists')}</span>
           {#if playlists.length}<span class="tab-badge">{playlists.length}</span>{/if}
         </button>
+        <button class={sidebarTab === 'editor' ? 'active' : ''} onclick={() => (sidebarTab = 'editor')} title={t('video.drawerEditor')}>
+          <Icon name="file-text" size={15} /><span>{t('video.drawerEditor')}</span>
+          {#if videoNotes.length}<span class="tab-badge">{videoNotes.length}</span>{/if}
+        </button>
+        <button class={sidebarTab === 'captures' ? 'active' : ''} onclick={() => (sidebarTab = 'captures')} title={t('video.drawerCaptures')}>
+          <Icon name="camera" size={15} /><span>{t('video.drawerCaptures')}</span>
+          {#if videoCaptures.length}<span class="tab-badge">{videoCaptures.length}</span>{/if}
+        </button>
         <button class={sidebarTab === 'chapters' ? 'active' : ''} onclick={() => (sidebarTab = 'chapters')} title={t('video.chapters')}>
           <Icon name="columns" size={15} /><span>{t('video.chapters')}</span>
           {#if chapters.length}<span class="tab-badge">{chapters.length}</span>{/if}
@@ -2420,16 +2428,8 @@
           <Icon name="bookmark" size={15} /><span>{t('video.drawerBookmarks')}</span>
           {#if bookmarks.length}<span class="tab-badge">{bookmarks.length}</span>{/if}
         </button>
-        <button class={sidebarTab === 'captures' ? 'active' : ''} onclick={() => (sidebarTab = 'captures')} title={t('video.drawerCaptures')}>
-          <Icon name="camera" size={15} /><span>{t('video.drawerCaptures')}</span>
-          {#if videoCaptures.length}<span class="tab-badge">{videoCaptures.length}</span>{/if}
-        </button>
         <button class={sidebarTab === 'transcript' ? 'active' : ''} onclick={() => (sidebarTab = 'transcript')} title={t('video.drawerSubtitles')}>
           <Icon name="scroll" size={15} /><span>{t('video.drawerSubtitles')}</span>
-        </button>
-        <button class={sidebarTab === 'editor' ? 'active' : ''} onclick={() => (sidebarTab = 'editor')} title={t('video.drawerEditor')}>
-          <Icon name="file-text" size={15} /><span>{t('video.drawerEditor')}</span>
-          {#if videoNotes.length}<span class="tab-badge">{videoNotes.length}</span>{/if}
         </button>
       </div>
 

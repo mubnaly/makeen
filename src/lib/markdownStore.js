@@ -386,22 +386,25 @@ export function getNoteLinks(noteId) {
   if (!note) return [];
 
   const linkedIds = new Set(Array.isArray(note.links) ? note.links : []);
+  const noteTitleNorm = (note.title || '').trim().toLowerCase();
 
   // Resolve wikilinks in content
   const wikilinkTitles = parseWikilinks(note.content);
   for (const title of wikilinkTitles) {
-    const match = state.notes.find((n) => n.id !== noteId && n.title.toLowerCase() === title.toLowerCase());
+    const tNorm = (title || '').trim().toLowerCase();
+    if (!tNorm) continue;
+    const match = state.notes.find((n) => n.id !== noteId && (n.title || '').trim().toLowerCase() === tNorm);
     if (match) linkedIds.add(match.id);
   }
 
   // Include incoming backlinks
   for (const other of state.notes) {
-    if (other.id === noteId) continue;
+    if (!other || other.id === noteId) continue;
     if (Array.isArray(other.links) && other.links.includes(noteId)) {
       linkedIds.add(other.id);
-    } else {
+    } else if (noteTitleNorm) {
       const otherWikilinks = parseWikilinks(other.content);
-      if (otherWikilinks.some((t) => t.toLowerCase() === note.title.toLowerCase())) {
+      if (otherWikilinks.some((t) => (t || '').trim().toLowerCase() === noteTitleNorm)) {
         linkedIds.add(other.id);
       }
     }
@@ -418,7 +421,9 @@ export function getKnowledgeGraphData() {
 
   const titleMap = new Map();
   for (const n of notes) {
-    if (n.title) titleMap.set(n.title.toLowerCase(), n.id);
+    if (n?.title) {
+      titleMap.set(String(n.title).trim().toLowerCase(), n.id);
+    }
   }
 
   const edgeSet = new Set();
@@ -437,6 +442,7 @@ export function getKnowledgeGraphData() {
   }
 
   for (const note of notes) {
+    if (!note) continue;
     if (Array.isArray(note.links)) {
       for (const targetId of note.links) {
         if (notes.some((n) => n.id === targetId)) {
@@ -446,7 +452,8 @@ export function getKnowledgeGraphData() {
     }
     const wikilinks = parseWikilinks(note.content);
     for (const title of wikilinks) {
-      const targetId = titleMap.get(title.toLowerCase());
+      const tNorm = (title || '').trim().toLowerCase();
+      const targetId = tNorm ? titleMap.get(tNorm) : null;
       if (targetId && targetId !== note.id) {
         addEdge(note.id, targetId);
       }

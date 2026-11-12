@@ -97,17 +97,24 @@
   });
 
   function loadActiveNote(n) {
+    if (!n) return;
     activeNote = n;
     title = n.title || '';
     content = n.content || '';
-    if (n?.id) {
-      currentLinks = getNoteLinks(n.id);
+    try {
+      if (n?.id) {
+        currentLinks = getNoteLinks(n.id) || [];
+      } else {
+        currentLinks = [];
+      }
+    } catch {
+      currentLinks = [];
     }
     if (n.direction) {
       textDirection = n.direction;
       textAlign = n.direction === 'rtl' ? 'right' : 'left';
     } else {
-      const hasArabic = /[\u0600-\u06FF]/.test(title + ' ' + content);
+      const hasArabic = /[\u0600-\u06FF]/.test((title || '') + ' ' + (content || ''));
       textDirection = hasArabic ? 'rtl' : (dir() === 'rtl' ? 'rtl' : 'ltr');
       textAlign = textDirection === 'rtl' ? 'right' : 'left';
     }
