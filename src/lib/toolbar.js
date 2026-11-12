@@ -107,3 +107,14 @@ export function barOrderMap(order) {
   list.forEach((id, index) => { map[id] = index; });
   return map;
 }
+
+export function toggleBarItemDisabled(disabledList = [], id) {
+  const set = new Set(Array.isArray(disabledList) ? disabledList : []);
+  if (set.has(id)) set.delete(id);
+  else set.add(id);
+  return Array.from(set);
+}
+
+export function isBarItemDisabled(disabledList = [], id) {
+  return Array.isArray(disabledList) && disabledList.includes(id);
+}

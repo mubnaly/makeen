@@ -10,7 +10,7 @@
   import { t, ui } from '../lib/lang.svelte.js';
   import { readPdfBytes } from '../lib/storage.js';
   import { SPEEDS, clampSeek, formatTimecode, frameCaptureRecord } from '../lib/media.js';
-  import { canvasCapture, loadImageQuality } from '../lib/imageQuality.js';
+  import { canvasCapture, loadImageQuality, loadScreenshotResolution, computeTargetDimensions } from '../lib/imageQuality.js';
   import { setBookmarks, setPlaybackPosition, upsertDocument, getDocument, listPlaylists, upsertPlaylist, removePlaylist, addVideoToPlaylist, removeVideoFromPlaylist, moveVideoInPlaylist } from '../lib/library.js';
   import { listProjects } from '../lib/projects.js';
   import { sheetToXlsx } from '../lib/xlsx.js';
@@ -1767,11 +1767,17 @@
           }
         }
       } else if (videoEl && videoEl.videoWidth) {
-        const scale = Math.min(1, 1280 / videoEl.videoWidth);
+        const targetDims = computeTargetDimensions(
+          videoEl.videoWidth,
+          videoEl.videoHeight,
+          loadScreenshotResolution()
+        );
         const canvas = document.createElement('canvas');
-        canvas.width = Math.round(videoEl.videoWidth * scale);
-        canvas.height = Math.round(videoEl.videoHeight * scale);
+        canvas.width = targetDims.width;
+        canvas.height = targetDims.height;
         const ctx = canvas.getContext('2d');
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
         ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
         dataUrl = canvasCapture(canvas, loadImageQuality());
       }
@@ -1840,16 +1846,13 @@
             const canvas = document.createElement('canvas');
             const natW = img.naturalWidth || 1280;
             const natH = img.naturalHeight || 720;
-            const aspect = natW / (natH || 1);
-            // Upscale low-res thumbnails to crisp 1280x720 minimum
-            const targetW = Math.max(1280, natW);
-            const targetH = Math.round(targetW / aspect);
-            canvas.width = targetW;
-            canvas.height = targetH;
+            const targetDims = computeTargetDimensions(natW, natH, loadScreenshotResolution());
+            canvas.width = targetDims.width;
+            canvas.height = targetDims.height;
             const ctx = canvas.getContext('2d');
             ctx.imageSmoothingEnabled = true;
             ctx.imageSmoothingQuality = 'high';
-            ctx.drawImage(img, 0, 0, targetW, targetH);
+            ctx.drawImage(img, 0, 0, targetDims.width, targetDims.height);
             resolve(canvas.toDataURL('image/png'));
           } catch {
             resolve(createPlaceholderFrame(video?.title || 'YouTube Frame'));

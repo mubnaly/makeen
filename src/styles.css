@@ -273,9 +273,29 @@ input[type='text'], input[type='number'], select, textarea {
   padding: 6px 8px;
 }
 select option {
-  background: var(--surface-2, var(--surface));
-  color: var(--text);
-  padding: 6px 10px;
+  background-color: var(--surface-2, #1e1e24);
+  color: var(--text, #ffffff);
+  padding: 8px 12px;
+}
+:root[data-theme-mode='dark'] select option,
+:root[data-theme='dark'] select option,
+:root[data-theme='oled'] select option,
+:root[data-theme='midnight'] select option,
+:root[data-theme='forest'] select option,
+:root[data-theme='plum'] select option,
+:root[data-theme='graphite'] select option {
+  background-color: #1e1e24;
+  color: #f5f5f7;
+}
+:root[data-theme-mode='light'] select option,
+:root[data-theme='light'] select option,
+:root[data-theme='clean-white'] select option,
+:root[data-theme='sand'] select option,
+:root[data-theme='mint'] select option,
+:root[data-theme='sky'] select option,
+:root[data-theme='rose'] select option {
+  background-color: #ffffff;
+  color: #111827;
 }
 input:focus, select:focus, textarea:focus, button:focus-visible {
   outline: 2px solid var(--accent);
@@ -388,7 +408,7 @@ html, body {
   border-bottom: 1px solid var(--border);
   background: var(--surface);
 }
-.topbar .search { flex: 1; max-width: 580px; display: flex; align-items: center; gap: 8px; }
+.topbar .search { flex: 1; min-width: 280px; max-width: 640px; display: flex; align-items: center; gap: 8px; }
 .topbar .search .search-ico { color: var(--muted); display: grid; place-items: center; }
 .topbar .search input { width: 100%; }
 .view { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 20px; min-height: 0; }
@@ -1810,6 +1830,47 @@ button:active:not([disabled]) { transform: translateY(1px); }
 }
 .toolbar-settings-head h3 { margin: 0; font-size: 16px; }
 .toolbar-settings-head p { margin: 3px 0 0; font-size: 12px; max-width: 70ch; }
+.toolbar-settings-tabs {
+  display: flex; gap: 6px; padding: 0 16px;
+  background: var(--surface-2); border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+}
+.toolbar-settings-tabs .tab-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 10px 14px; border: none; background: transparent;
+  color: var(--muted); font-size: 13px; font-weight: 500;
+  border-bottom: 2px solid transparent; cursor: pointer; white-space: nowrap;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+.toolbar-settings-tabs .tab-btn:hover { color: var(--text); }
+.toolbar-settings-tabs .tab-btn.active {
+  color: var(--accent); border-bottom-color: var(--accent); font-weight: 600;
+}
+.toolbar-defaults-panel, .toolbar-autosave-panel {
+  padding: 20px 24px; overflow-y: auto; max-height: 70vh;
+  display: flex; flex-direction: column; gap: 16px;
+}
+.defaults-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px; margin-top: 8px;
+}
+.default-tool-card {
+  padding: 14px; background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: 10px; display: flex; flex-direction: column; gap: 10px;
+}
+.live-size-preview {
+  height: 38px; display: flex; align-items: center; justify-content: center;
+  background: var(--surface); border: 1px dashed var(--border);
+  border-radius: 6px; padding: 4px; overflow: hidden;
+}
+.order-row.disabled {
+  opacity: 0.55;
+  background: var(--surface);
+}
+.order-row.disabled .order-name {
+  text-decoration: line-through;
+  color: var(--muted);
+}
 .toolbar-settings-cols {
   display: grid; grid-template-columns: 1.15fr 0.85fr;
   min-height: 0; overflow: hidden;

@@ -28,7 +28,7 @@
   import PomodoroWidget from './components/PomodoroWidget.svelte';
   import MakeenBotModal from './components/MakeenBotModal.svelte';
   import ReminderAlertModal from './components/ReminderAlertModal.svelte';
-  import { checkDueCustomReminders, fireCustomReminderNotification } from './lib/customReminders.js';
+  import { checkDueCustomReminders, fireCustomReminderNotification, addCustomReminder, ADVANCE_NOTICE_OPTIONS } from './lib/customReminders.js';
   import { getCurrentUser } from './lib/auth.js';
   import { createSidecarStore, fileBridge, listCaptures, listCards, putCapture, putCard, deleteCaptureById, deleteCardById, clearCaptures, clearCards, clearTasks, migrateLocalCollections, listTasks } from './lib/storage.js';
   import { savePdfBytes, deleteFileBytes, loadPdfAutosaveSettings, savePdfAutosaveSettings } from './lib/storage.js';
@@ -154,6 +154,42 @@
   let exportLabels = $state(true);
   let exportingGallery = $state(false);
   let previewCapture = $state(null);
+  let quickReminderModalOpen = $state(false);
+  let quickReminderTitle = $state('');
+  let quickReminderDate = $state(todayIso());
+  let quickReminderTime = $state('10:00');
+  let quickReminderAdvance = $state(0);
+  let quickReminderSound = $state('bell');
+
+  function openQuickReminderModal() {
+    quickReminderTitle = '';
+    quickReminderDate = todayIso();
+    const now = new Date();
+    now.setMinutes(now.getMinutes() + 15);
+    const hh = String(now.getHours()).padStart(2, '0');
+    const mm = String(now.getMinutes()).padStart(2, '0');
+    quickReminderTime = `${hh}:${mm}`;
+    quickReminderAdvance = 0;
+    quickReminderSound = 'bell';
+    quickReminderModalOpen = true;
+  }
+
+  function handleSaveQuickReminder() {
+    if (!quickReminderTitle.trim()) {
+      notify(ui.lang === 'ar' ? 'يرجى كتابة عنوان التنبيه' : 'Please enter reminder title', 'error');
+      return;
+    }
+    addCustomReminder({
+      title: quickReminderTitle.trim(),
+      date: quickReminderDate || todayIso(),
+      time: quickReminderTime || '10:00',
+      advanceMinutes: Number(quickReminderAdvance) || 0,
+      sound: quickReminderSound || 'bell',
+      repeat: 'none'
+    });
+    quickReminderModalOpen = false;
+    notify(ui.lang === 'ar' ? 'تم ضبط التنبيه والمواعيد بنجاح' : 'Custom reminder scheduled', 'ok');
+  }
   let importingVideo = $state(false);
   let reviewQueue = $state([]);
   let reviewIndex = $state(0);
@@ -1605,17 +1641,17 @@
 
       <PomodoroWidget compact={true} />
 
-      <!-- Custom Reminder / Notification Bell Button -->
+      <!-- Custom Reminder / Notification Bell Button (Quick Add) -->
       <button
         class="icon-btn"
-        onclick={() => nav('Planner')}
-        title="التذكيرات والمخطط (المنبه والمواعيد)"
-        aria-label="التذكيرات والمخطط"
+        onclick={openQuickReminderModal}
+        title="إضافة تذكير ومنبه مخصص (Custom Notification)"
+        aria-label="إضافة تذكير ومنبه مخصص"
       >
         <Icon name="bell" size={17} />
       </button>
 
-      <!-- Prominent Makeen AI Assistant Button in Topbar -->
+      <!-- Prominent Makeen AI Assistant Button in Topbar (The only brand-accent colored button) -->
       <button
         class="topbar-ai-btn hstack"
         onclick={() => (aiBotOpen = true)}
@@ -1629,13 +1665,13 @@
       <button class="icon-btn" onclick={openHelp} title={t('topbar.help')} aria-label={t('topbar.help')} aria-haspopup="dialog">
         <Icon name="help" size={18} />
       </button>
-      <button class="primary import-btn" onclick={pickPdf} title={`${t('topbar.importPdf')} (Ctrl+O)`}>
+      <button class="import-btn" onclick={pickPdf} title={`${t('topbar.importPdf')} (Ctrl+O)`}>
         <Icon name="upload" size={15} /><span>{t('topbar.importPdf')}</span>
       </button>
       <button class="import-btn" onclick={pickVideo} title={t('topbar.importMedia') || 'استيراد فيديو أو صوت'}>
         <Icon name="video" size={15} /><span>{importingVideo ? t('video.importing') : (t('topbar.importMedia') || t('topbar.importVideo'))}</span>
       </button>
-      <button class="import-btn recorder-btn" onclick={() => (recorderOpen = true)} title={t('recorder.recordScreen')} style="border-color:#e74c3c;">
+      <button class="import-btn recorder-btn" onclick={() => (recorderOpen = true)} title={t('recorder.recordScreen')}>
         <Icon name="camera" size={15} /><span>{t('recorder.recordScreen')}</span>
       </button>
       <button class="more-drawer-btn" onclick={() => (mobileDrawerOpen = !mobileDrawerOpen)} title={t('nav.other')} aria-label={t('nav.other')}>
@@ -2039,12 +2075,14 @@
                   title="انقر لعرض الصورة بالحجم الكامل"
                 />
                 <div class="cap">
-                  <div class="title" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 12.5px;" title={c.name}>{c.name}</div>
-                  <div class="meta" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11px;">
-                    {#if c.source && c.source !== c.name}
-                      {c.source}{c.page ? ` · ${t('common.pageShort')}${c.page}` : c.timecode ? ` · ${c.timecode}` : ''}
-                    {:else}
-                      {c.page ? `${t('common.pageShort')}${c.page}` : c.timecode ? `${c.timecode}` : ''}
+                  <div class="title" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11.5px; font-weight: 600;" title={c.source || c.name}>
+                    {c.source || c.name.replace(/\s*·\s*\d+:\d+(:\d+)?$/, '')}
+                  </div>
+                  <div class="meta" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11px; color: var(--muted); margin-top: 2px;">
+                    {#if c.timecode}
+                      <span class="mono" style="font-weight: 500;">{c.timecode}</span>
+                    {:else if c.page}
+                      <span>{t('common.pageShort')}{c.page}</span>
                     {/if}
                   </div>
                   <div class="hstack" style="margin-top:6px; gap:4px;">
@@ -2079,12 +2117,14 @@
                   title="انقر لعرض الصورة بالحجم الكامل"
                 />
                 <div class="grow" style="min-width:0; overflow:hidden;">
-                  <div class="title" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title={c.name}>{c.name}</div>
-                  <div class="meta" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11px;">
-                    {#if c.source && c.source !== c.name}
-                      {c.source}{c.page ? ` · ${t('common.pageShort')}${c.page}` : c.timecode ? ` · ${c.timecode}` : ''}
-                    {:else}
-                      {c.page ? `${t('common.pageShort')}${c.page}` : c.timecode ? `${c.timecode}` : ''}
+                  <div class="title" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 12px; font-weight: 600;" title={c.source || c.name}>
+                    {c.source || c.name.replace(/\s*·\s*\d+:\d+(:\d+)?$/, '')}
+                  </div>
+                  <div class="meta" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11px; color: var(--muted); margin-top: 2px;">
+                    {#if c.timecode}
+                      <span class="mono" style="font-weight: 500;">{c.timecode}</span>
+                    {:else if c.page}
+                      <span>{t('common.pageShort')}{c.page}</span>
                     {/if}
                   </div>
                 </div>
@@ -2572,6 +2612,76 @@
           <button class="small primary hstack" style="gap:5px;" onclick={async () => { await createCardFromCapture(previewCapture); notify(t('toast.cardCreated'), 'ok'); previewCapture = null; }}>
             <Icon name="flashcards" size={14} />
             <span>تحويل لبطاقة استذكار</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+{/if}
+
+{#if quickReminderModalOpen}
+  <div class="modal-backdrop" onclick={() => (quickReminderModalOpen = false)} role="presentation" style="z-index:9999; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,0.65); backdrop-filter:blur(4px);">
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <div class="card" onclick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" style="width:min(440px, 92vw); padding:18px; border-radius:12px; background:var(--surface); border:1px solid var(--border); box-shadow:var(--shadow-glass);">
+      <div class="hstack" style="justify-content:space-between; margin-bottom:12px;">
+        <div class="hstack" style="gap:8px;">
+          <Icon name="bell" size={18} style="color:var(--accent);" />
+          <strong style="font-size:15px;">{ui.lang === 'ar' ? 'إضافة تذكير / منبه مخصص' : 'Add Custom Reminder'}</strong>
+        </div>
+        <button class="icon-btn" onclick={() => (quickReminderModalOpen = false)} aria-label="إغلاق">
+          <Icon name="x" size={16} />
+        </button>
+      </div>
+
+      <div style="display:flex; flex-direction:column; gap:12px;">
+        <div>
+          <label for="quick-reminder-title" class="field-label" style="font-size:12px; font-weight:600; display:block; margin-bottom:4px;">{ui.lang === 'ar' ? 'عنوان التنبيه أو المهمة' : 'Reminder Title'}</label>
+          <input id="quick-reminder-title" type="text" bind:value={quickReminderTitle} placeholder={ui.lang === 'ar' ? 'مثال: مراجعة محاضرة الرياضيات أو قراءة 20 صفحة' : 'e.g. Study session or reading 20 pages'} style="width:100%; box-sizing:border-box;" />
+        </div>
+
+        <div class="hstack" style="gap:10px;">
+          <div style="flex:1;">
+            <label for="quick-reminder-date" class="field-label" style="font-size:12px; font-weight:600; display:block; margin-bottom:4px;">{ui.lang === 'ar' ? 'التاريخ' : 'Date'}</label>
+            <input id="quick-reminder-date" type="date" bind:value={quickReminderDate} style="width:100%; box-sizing:border-box;" />
+          </div>
+          <div style="flex:1;">
+            <label for="quick-reminder-time" class="field-label" style="font-size:12px; font-weight:600; display:block; margin-bottom:4px;">{ui.lang === 'ar' ? 'الوقت' : 'Time'}</label>
+            <input id="quick-reminder-time" type="time" bind:value={quickReminderTime} style="width:100%; box-sizing:border-box;" />
+          </div>
+        </div>
+
+        <div class="hstack" style="gap:10px;">
+          <div style="flex:1;">
+            <label for="quick-reminder-adv" class="field-label" style="font-size:12px; font-weight:600; display:block; margin-bottom:4px;">{ui.lang === 'ar' ? 'التنبيه المسبق' : 'Advance Alert'}</label>
+            <select id="quick-reminder-adv" bind:value={quickReminderAdvance} style="width:100%;">
+              {#each ADVANCE_NOTICE_OPTIONS as opt}
+                <option value={opt.value}>{ui.lang === 'ar' ? opt.labelAr : opt.labelEn}</option>
+              {/each}
+            </select>
+          </div>
+          <div style="flex:1;">
+            <label for="quick-reminder-sound" class="field-label" style="font-size:12px; font-weight:600; display:block; margin-bottom:4px;">{ui.lang === 'ar' ? 'نغمة الصوت' : 'Sound Tone'}</label>
+            <select id="quick-reminder-sound" bind:value={quickReminderSound} onchange={(e) => playNotificationTone(e.currentTarget.value)} style="width:100%;">
+              {#each AVAILABLE_SOUNDS as s}
+                <option value={s.id}>{ui.lang === 'ar' ? s.nameAr : s.nameEn}</option>
+              {/each}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div class="hstack" style="justify-content:space-between; margin-top:16px;">
+        <button type="button" class="secondary small hstack" onclick={() => { quickReminderModalOpen = false; nav('Planner'); }}>
+          <Icon name="planner" size={13} />
+          <span>{ui.lang === 'ar' ? 'فتح المخطط بالكامل' : 'Open Planner'}</span>
+        </button>
+        <div class="hstack" style="gap:8px;">
+          <button type="button" class="secondary small" onclick={() => (quickReminderModalOpen = false)}>
+            {ui.lang === 'ar' ? 'إلغاء' : 'Cancel'}
+          </button>
+          <button type="button" class="primary small hstack" onclick={handleSaveQuickReminder}>
+            <Icon name="check" size={13} />
+            <span>{ui.lang === 'ar' ? 'حفظ وضبط التنبيه' : 'Save Reminder'}</span>
           </button>
         </div>
       </div>

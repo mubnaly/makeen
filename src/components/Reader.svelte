@@ -9,7 +9,7 @@
   import { createTransform, displaySize } from '../lib/geometry.js';
   import { renderAnnotations, hitTest } from '../lib/annotations.js';
   import { buildSidecar, serializeSidecar } from '../lib/sidecar.js';
-  import { readPdfBytes, loadPdfAutosaveSettings } from '../lib/storage.js';
+  import { readPdfBytes, loadPdfAutosaveSettings, savePdfAutosaveSettings } from '../lib/storage.js';
   import { annotatedCopyPdf, excerptsPdf, imagesToPdf, deliverBytes } from '../lib/export.js';
   import { labelPng } from '../lib/labels.js';
   import { canvasCapture } from '../lib/imageQuality.js';
@@ -25,11 +25,12 @@
   } from '../lib/readerLayout.js';
   import {
     DEFAULT_BAR_ITEMS, defaultBarOrder, normalizeBarOrder, moveBarOrder,
-    insertAfterBarItem, removeBarItem, barOrderMap, BAR_ITEM_IDS
+    insertAfterBarItem, removeBarItem, barOrderMap, BAR_ITEM_IDS,
+    toggleBarItemDisabled, isBarItemDisabled
   } from '../lib/toolbar.js';
   // The page transform in this file is also called `t`, so the translator is
   // imported as `tr`.
-  import { t as tr } from '../lib/lang.svelte.js';
+  import { t as tr, ui } from '../lib/lang.svelte.js';
   import { formatTimecode } from '../lib/media.js';
   import PomodoroWidget from './PomodoroWidget.svelte';
   import MarkdownEditor from './MarkdownEditor.svelte';
@@ -233,26 +234,66 @@
   const orderMap = $derived(barOrderMap(toolbarConfig.order));
   const customPresets = $derived(toolbarConfig.custom || []);
   let presetForm = $state(null);
-  // Kept separate from presetForm: closing the form must not null the object
-  // while its bound inputs are still mounted, or Svelte reads `.name` on null
-  // during teardown and throws.
   let presetOpen = $state(false);
+
+  let activeCustomPresetId = $state(null);
+  let editingPresetId = $state(null);
+  let settingsTab = $state('toolbar'); // 'toolbar' | 'defaults' | 'autosave'
+
+  let autosaveConfig = $state(loadPdfAutosaveSettings());
+  let toolDefaults = $state({
+    markerPx: toolbarConfig.defaults?.markerPx || 25,
+    shapePx: toolbarConfig.defaults?.shapePx || 5,
+    penPx: toolbarConfig.defaults?.penPx || 5,
+    textPx: toolbarConfig.defaults?.textPx || 16,
+    shape: toolbarConfig.defaults?.shape || 'rectangle'
+  });
+
+  let mainMarkerPx = $state(toolbarConfig.defaults?.markerPx || 25);
+  let mainShapePx = $state(toolbarConfig.defaults?.shapePx || 5);
+  let mainPenPx = $state(toolbarConfig.defaults?.penPx || 5);
+  let mainShape = $state(toolbarConfig.defaults?.shape || 'rectangle');
 
   function clamp(n, lo, hi) { return n < lo ? lo : n > hi ? hi : n; }
 
+  function isItemHidden(id) {
+    return isBarItemDisabled(toolbarConfig.disabled, id);
+  }
+
   function addBarOrder(styleId) {
+    if (isItemHidden(styleId)) {
+      return `display:none; order:${orderMap[styleId] ?? 999}`;
+    }
     return `order:${orderMap[styleId] ?? 999}`;
   }
 
   function loadToolbarConfig() {
-    const fallback = { order: defaultBarOrder(), custom: [] };
+    const fallback = {
+      order: defaultBarOrder(),
+      custom: [],
+      disabled: [],
+      defaults: { markerPx: 25, shapePx: 5, penPx: 5, textPx: 16, shape: 'rectangle' }
+    };
     try {
       const raw = JSON.parse(globalThis.localStorage?.getItem(PREFS.toolbar) || 'null');
       if (!raw) return fallback;
       const custom = Array.isArray(raw.custom)
         ? raw.custom.filter((p) => p && typeof p.id === 'string' && ['shape', 'marker', 'pen'].includes(p.tool))
         : [];
-      return { order: normalizeBarOrder(raw.order, custom.map((p) => p.id)), custom };
+      const disabled = Array.isArray(raw.disabled) ? raw.disabled : [];
+      const defaults = {
+        markerPx: Number(raw.defaults?.markerPx) || 25,
+        shapePx: Number(raw.defaults?.shapePx) || 5,
+        penPx: Number(raw.defaults?.penPx) || 5,
+        textPx: Number(raw.defaults?.textPx) || 16,
+        shape: raw.defaults?.shape || 'rectangle'
+      };
+      return {
+        order: normalizeBarOrder(raw.order, custom.map((p) => p.id)),
+        custom,
+        disabled,
+        defaults
+      };
     } catch {
       return fallback;
     }
@@ -755,10 +796,35 @@
   function stepSize(dir) {
     const { min, max, step } = sizeBounds;
     const next = clamp(sizePx + dir * step, min, max);
-    if (tool === 'marker') markerPx = next;
-    else if (tool === 'shape' || tool === 'shapeFill') shapePx = next;
-    else if (tool === 'hand') handPx = next;
-    else penPx = next;
+    applySizeChange(next);
+  }
+
+  function applySizeChange(next) {
+    if (activeCustomPresetId) {
+      const list = [...toolbarConfig.custom];
+      const idx = list.findIndex((p) => p.id === activeCustomPresetId);
+      if (idx >= 0) {
+        list[idx] = { ...list[idx], size: next };
+        saveToolbarConfig({ ...toolbarConfig, custom: list });
+      }
+      if (tool === 'marker') markerPx = next;
+      else if (tool === 'shape' || tool === 'shapeFill') shapePx = next;
+      else if (tool === 'hand') handPx = next;
+      else penPx = next;
+    } else {
+      if (tool === 'marker') {
+        markerPx = next;
+        mainMarkerPx = next;
+      } else if (tool === 'shape' || tool === 'shapeFill') {
+        shapePx = next;
+        mainShapePx = next;
+      } else if (tool === 'hand') {
+        handPx = next;
+      } else {
+        penPx = next;
+        mainPenPx = next;
+      }
+    }
   }
 
   async function setZoom(v) {
@@ -839,12 +905,26 @@
   }
 
   function setTool(nextTool) {
+    activeCustomPresetId = null;
     tool = nextTool;
     draft = null;
     capturing = false;
     captureRect = null;
     textRequest = null;
     if (panning) endPan();
+
+    const defs = toolbarConfig.defaults || {};
+    if (nextTool === 'marker') {
+      markerPx = mainMarkerPx || defs.markerPx || 25;
+      color = '#F4D03F';
+    } else if (nextTool === 'shape' || nextTool === 'shapeFill') {
+      shape = mainShape || defs.shape || 'rectangle';
+      shapePx = mainShapePx || defs.shapePx || 5;
+      color = '#EB5757';
+    } else if (nextTool === 'pen') {
+      penPx = mainPenPx || defs.penPx || 5;
+      color = '#EB5757';
+    }
   }
 
   // --- pointer dispatch ------------------------------------------------------
@@ -1035,7 +1115,7 @@
     const y = clamp(p.ly, 48, Math.max(48, t.displayHeight - h - 2));
     textRequest = {
       key: crypto.randomUUID(), page: p.page, id: null, text: '',
-      lx: x, ly: y, w, h, fontSize: 18, color: '#111827', direction: 'auto'
+      lx: x, ly: y, w, h, fontSize: toolbarConfig.defaults?.textPx || 18, color: '#111827', direction: 'auto'
     };
   }
 
@@ -1441,6 +1521,61 @@
     saveToolbarConfig({ ...toolbarConfig, order: moveBarOrder(toolbarConfig.order, id, delta) });
   }
 
+  function toggleBarItem(id) {
+    const list = toggleBarItemDisabled(toolbarConfig.disabled || [], id);
+    saveToolbarConfig({ ...toolbarConfig, disabled: list });
+  }
+
+  function editCustomPreset(id) {
+    const p = toolbarConfig.custom.find((item) => item.id === id);
+    if (!p) return;
+    editingPresetId = id;
+    presetOpen = true;
+    presetForm = {
+      afterId: id,
+      tool: p.tool || 'shape',
+      shape: p.shape || 'rectangle',
+      size: p.size || (p.tool === 'marker' ? 25 : 5),
+      color: p.color || (p.tool === 'marker' ? '#F4D03F' : '#EB5757'),
+      fillColor: p.fillColor || '#2F80ED',
+      fillOpacity: p.fillOpacity ?? 0.1,
+      name: p.name || ''
+    };
+  }
+
+  function savePresetForm() {
+    if (!presetForm) return;
+    const form = presetForm;
+    if (editingPresetId) {
+      const list = toolbarConfig.custom.map((p) => {
+        if (p.id !== editingPresetId) return p;
+        return {
+          ...p,
+          name: form.name.trim() || `${shapeLabel(form.shape)} ${form.size}`,
+          tool: form.tool,
+          shape: form.tool === 'shape' ? form.shape : '',
+          size: Math.max(1, Number(form.size) || (form.tool === 'marker' ? 25 : 5)),
+          color: form.color,
+          fillColor: form.tool === 'shape' ? form.fillColor : '',
+          fillOpacity: form.tool === 'shape' ? Number(form.fillOpacity) || 0 : 0
+        };
+      });
+      saveToolbarConfig({
+        ...toolbarConfig,
+        custom: list
+      });
+      if (activeCustomPresetId === editingPresetId) {
+        const updated = list.find((p) => p.id === editingPresetId);
+        if (updated) applyPreset(updated);
+      }
+      editingPresetId = null;
+      presetOpen = false;
+      notify?.(ui.lang === 'ar' ? 'تم تحديث الزر المخصص بنجاح' : 'Custom button updated', 'ok');
+    } else {
+      addPreset();
+    }
+  }
+
   function addPreset() {
     if (!presetForm) return;
     const form = presetForm;
@@ -1456,35 +1591,59 @@
       fillOpacity: form.tool === 'shape' ? Number(form.fillOpacity) || 0 : 0
     };
     saveToolbarConfig({
+      ...toolbarConfig,
       order: insertAfterBarItem(toolbarConfig.order, form.afterId, id),
       custom: [...toolbarConfig.custom, preset]
     });
     presetOpen = false;
+    editingPresetId = null;
+    notify?.(ui.lang === 'ar' ? 'تمت إضافة الزر المخصص إلى الشريط' : 'Custom button added to toolbar', 'ok');
   }
 
   function removePreset(id) {
+    if (activeCustomPresetId === id) activeCustomPresetId = null;
+    if (editingPresetId === id) editingPresetId = null;
     saveToolbarConfig({
+      ...toolbarConfig,
       order: removeBarItem(toolbarConfig.order, id),
-      custom: toolbarConfig.custom.filter((p) => p.id !== id)
+      custom: toolbarConfig.custom.filter((p) => p.id !== id),
+      disabled: (toolbarConfig.disabled || []).filter((d) => d !== id)
     });
+    notify?.(ui.lang === 'ar' ? 'تم حذف الزر المخصص' : 'Custom button removed', 'ok');
   }
 
   function resetToolbar() {
-    saveToolbarConfig({ order: defaultBarOrder(), custom: [] });
+    if (!confirm(ui.lang === 'ar' ? 'هل تريد استعادة الترتيب والأزرار الافتراضية؟' : 'Reset toolbar to default?')) return;
+    saveToolbarConfig({
+      order: defaultBarOrder(),
+      custom: [],
+      disabled: [],
+      defaults: { markerPx: 25, shapePx: 5, penPx: 5, textPx: 16, shape: 'rectangle' }
+    });
     presetOpen = false;
+    editingPresetId = null;
+    activeCustomPresetId = null;
+    mainMarkerPx = 25;
+    mainShapePx = 5;
+    mainPenPx = 5;
+    mainShape = 'rectangle';
+    toolDefaults = { markerPx: 25, shapePx: 5, penPx: 5, textPx: 16, shape: 'rectangle' };
+    notify?.(ui.lang === 'ar' ? 'تمت استعادة إعدادات شريط الأدوات الافتراضية' : 'Toolbar reset to default', 'ok');
   }
 
   function closeToolbarSettings() {
     presetOpen = false;
+    editingPresetId = null;
     toolbarSettingsOpen = false;
   }
 
   function openPreset(afterId, baseTool = 'shape') {
+    editingPresetId = null;
     presetOpen = true;
     presetForm = {
       afterId, tool: baseTool,
       shape: 'rectangle',
-      size: baseTool === 'marker' ? 25 : 10,
+      size: baseTool === 'marker' ? (toolbarConfig.defaults?.markerPx || 25) : (toolbarConfig.defaults?.shapePx || 5),
       color: baseTool === 'marker' ? '#F4D03F' : '#EB5757',
       fillColor: '#2F80ED',
       fillOpacity: 0.1,
@@ -1493,6 +1652,13 @@
   }
 
   function applyPreset(preset) {
+    activeCustomPresetId = preset.id;
+    draft = null;
+    capturing = false;
+    captureRect = null;
+    textRequest = null;
+    if (panning) endPan();
+
     if (preset.tool === 'shape') {
       tool = 'shape';
       shape = SHAPES.includes(preset.shape) ? preset.shape : 'rectangle';
@@ -1512,6 +1678,35 @@
       fillColor = '';
     }
     barMenu = '';
+  }
+
+  function handleSaveToolDefaults() {
+    saveToolbarConfig({
+      ...toolbarConfig,
+      defaults: { ...toolDefaults }
+    });
+    mainMarkerPx = toolDefaults.markerPx;
+    mainShapePx = toolDefaults.shapePx;
+    mainPenPx = toolDefaults.penPx;
+    mainShape = toolDefaults.shape;
+    mainTextPx = toolDefaults.textPx;
+    if (!activeCustomPresetId) {
+      if (tool === 'marker') markerPx = mainMarkerPx;
+      if (tool === 'shape' || tool === 'shapeFill') { shapePx = mainShapePx; shape = mainShape; }
+      if (tool === 'pen') penPx = mainPenPx;
+    }
+    notify?.(ui.lang === 'ar' ? 'تم حفظ الأحجام الافتراضية بنجاح' : 'Default tool sizes saved', 'ok');
+  }
+
+  function handleResetToolDefaults() {
+    toolDefaults = { markerPx: 25, shapePx: 5, penPx: 5, textPx: 16, shape: 'rectangle' };
+    handleSaveToolDefaults();
+  }
+
+  function handleSaveAutosave() {
+    savePdfAutosaveSettings(autosaveConfig);
+    setupAutosave();
+    notify?.(ui.lang === 'ar' ? 'تم حفظ وتطبيق إعدادات الحفظ التلقائي' : 'Autosave settings saved', 'ok');
   }
 
   function onToolbarDragStart(e, index) {
@@ -2147,87 +2342,298 @@
           <button onclick={closeToolbarSettings} title={tr('common.close')} aria-label={tr('common.close')}><Icon name="x" size={16} /></button>
         </div>
 
-        <div class="toolbar-settings-cols">
-          <div class="toolbar-order">
-            <div class="section-title">{tr('reader.toolbarOrder')}</div>
-            <p class="muted settings-hint">{tr('reader.toolbarOrderHint')}</p>
-            <div class="order-list">
-              {#each barOrder as id, i (id)}
-                <div class="order-row" draggable="true"
-                  ondragstart={(e) => onToolbarDragStart(e, i)}
-                  ondragover={(e) => e.preventDefault()}
-                  ondrop={(e) => onToolbarDrop(e, i)}
-                  class:custom={id.startsWith('custom:')}>
-                  <span class="drag-handle" aria-hidden="true"><Icon name="grip" size={14} /></span>
-                  <span class="order-name">{barLabel(id)}</span>
-                  {#if BAR_BY_ID[id]?.repeat || id.startsWith('custom:')}
-                    {#if id.startsWith('custom:')}
-                      <button class="order-btn" onclick={() => removePreset(id)} title={tr('common.remove')} aria-label={tr('common.remove')}><Icon name="trash" size={13} /></button>
-                    {:else}
-                      <button class="order-btn" onclick={() => openPreset(id, BAR_BY_ID[id].repeat)} title={tr('reader.repeatButton')} aria-label={tr('reader.repeatButton')}><Icon name="repeat" size={13} /></button>
-                    {/if}
-                  {/if}
-                  <button class="order-btn" onclick={() => moveBar(id, -1)} disabled={i === 0} title={tr('reader.moveUp')} aria-label={tr('reader.moveUp')}><Icon name="chevron-up" size={13} /></button>
-                  <button class="order-btn" onclick={() => moveBar(id, 1)} disabled={i === barOrder.length - 1} title={tr('reader.moveDown')} aria-label={tr('reader.moveDown')}><Icon name="chevron-down" size={13} /></button>
-                </div>
-              {/each}
-            </div>
-          </div>
+        <!-- Settings Sub-Navigation Tabs -->
+        <div class="toolbar-settings-tabs" role="tablist">
+          <button
+            type="button"
+            class="tab-btn {settingsTab === 'toolbar' ? 'active' : ''}"
+            onclick={() => (settingsTab = 'toolbar')}
+          >
+            <Icon name="grid" size={14} />
+            <span>{ui.lang === 'ar' ? 'أزرار وترتيب الشريط' : 'Toolbar Buttons & Order'}</span>
+          </button>
 
-          <div class="preset-builder">
-            <div class="section-title">{tr('reader.repeatButton')}</div>
-            <p class="muted settings-hint">{tr('reader.repeatHint')}</p>
-            {#if presetOpen && presetForm}
-              <div class="preset-form">
-                <label>{tr('reader.customTool')}
-                  <select bind:value={presetForm.tool}>
-                    <option value="shape">{tr('tool.shape')}</option>
-                    <option value="marker">{tr('tool.marker')}</option>
-                    <option value="pen">{tr('tool.pen')}</option>
-                  </select>
-                </label>
-                {#if presetForm.tool === 'shape'}
-                  <label>{tr('reader.customShape')}
-                    <select bind:value={presetForm.shape}>
-                      {#each SHAPES as s}<option value={s}>{shapeLabel(s)}</option>{/each}
+          <button
+            type="button"
+            class="tab-btn {settingsTab === 'defaults' ? 'active' : ''}"
+            onclick={() => (settingsTab = 'defaults')}
+          >
+            <Icon name="settings" size={14} />
+            <span>{ui.lang === 'ar' ? 'الأحجام الافتراضية للأدوات' : 'Default Tool Sizes'}</span>
+          </button>
+
+          <button
+            type="button"
+            class="tab-btn {settingsTab === 'autosave' ? 'active' : ''}"
+            onclick={() => (settingsTab = 'autosave')}
+          >
+            <Icon name="clock" size={14} />
+            <span>{ui.lang === 'ar' ? 'الحفظ التلقائي' : 'Auto-Save'}</span>
+          </button>
+        </div>
+
+        {#if settingsTab === 'toolbar'}
+          <div class="toolbar-settings-cols">
+            <div class="toolbar-order">
+              <div class="section-title">{tr('reader.toolbarOrder')} ({barOrder.length})</div>
+              <p class="muted settings-hint">{ui.lang === 'ar' ? 'يمكنك إعادة الترتيب، وإظهار أو إخفاء أي زر، وتعديل خصائص الأزرار المخصصة.' : tr('reader.toolbarOrderHint')}</p>
+              <div class="order-list">
+                {#each barOrder as id, i (id)}
+                  <div class="order-row" draggable="true"
+                    ondragstart={(e) => onToolbarDragStart(e, i)}
+                    ondragover={(e) => e.preventDefault()}
+                    ondrop={(e) => onToolbarDrop(e, i)}
+                    class:custom={id.startsWith('custom:')}
+                    class:disabled={isItemHidden(id)}>
+                    <span class="drag-handle" aria-hidden="true"><Icon name="grip" size={14} /></span>
+                    <button
+                      type="button"
+                      class="order-btn"
+                      onclick={() => toggleBarItem(id)}
+                      title={isItemHidden(id) ? (ui.lang === 'ar' ? 'إظهار الزر في الشريط' : 'Enable button') : (ui.lang === 'ar' ? 'إخفاء الزر من الشريط' : 'Disable button')}
+                      aria-label={isItemHidden(id) ? 'Enable button' : 'Disable button'}
+                    >
+                      <Icon name={isItemHidden(id) ? 'eye-slash' : 'eye'} size={13} style={isItemHidden(id) ? 'opacity:0.35;' : 'color:var(--accent);'} />
+                    </button>
+                    <span class="order-name">{barLabel(id)}</span>
+                    {#if id.startsWith('custom:')}
+                      <button type="button" class="order-btn" onclick={() => editCustomPreset(id)} title={ui.lang === 'ar' ? 'تعديل خصائص الزر' : 'Edit button'} aria-label="Edit"><Icon name="pencil" size={13} /></button>
+                      <button type="button" class="order-btn" onclick={() => removePreset(id)} title={tr('common.remove')} aria-label={tr('common.remove')}><Icon name="trash" size={13} /></button>
+                    {:else if BAR_BY_ID[id]?.repeat}
+                      <button type="button" class="order-btn" onclick={() => openPreset(id, BAR_BY_ID[id].repeat)} title={tr('reader.repeatButton')} aria-label={tr('reader.repeatButton')}><Icon name="repeat" size={13} /></button>
+                    {/if}
+                    <button type="button" class="order-btn" onclick={() => moveBar(id, -1)} disabled={i === 0} title={tr('reader.moveUp')} aria-label={tr('reader.moveUp')}><Icon name="chevron-up" size={13} /></button>
+                    <button type="button" class="order-btn" onclick={() => moveBar(id, 1)} disabled={i === barOrder.length - 1} title={tr('reader.moveDown')} aria-label={tr('reader.moveDown')}><Icon name="chevron-down" size={13} /></button>
+                  </div>
+                {/each}
+              </div>
+            </div>
+
+            <div class="preset-builder">
+              <div class="section-title">{editingPresetId ? (ui.lang === 'ar' ? 'تعديل الزر المخصص' : 'Edit Custom Button') : tr('reader.repeatButton')}</div>
+              <p class="muted settings-hint">
+                {editingPresetId
+                  ? (ui.lang === 'ar' ? 'تعديل الحجم واللون والشكل لهذا الزر بشكل مستقل تماماً.' : 'Customize size, color and shape independently for this button.')
+                  : (ui.lang === 'ar' ? 'إضافة زر أداة جديد بحجم ولون وشكل مستقل عن الأدوات الافتراضية.' : tr('reader.repeatHint'))}
+              </p>
+              {#if presetOpen && presetForm}
+                <div class="preset-form">
+                  <label>{tr('reader.customTool')}
+                    <select bind:value={presetForm.tool}>
+                      <option value="shape">{tr('tool.shape')}</option>
+                      <option value="marker">{tr('tool.marker')}</option>
+                      <option value="pen">{tr('tool.pen')}</option>
                     </select>
                   </label>
-                {/if}
-                <label>{tr('reader.customSize')}
-                  <input type="number" min="1" max="100" bind:value={presetForm.size} />
-                </label>
-                <label>{tr('reader.customColor')}
-                  <input type="color" bind:value={presetForm.color} />
-                </label>
-                {#if presetForm.tool === 'shape'}
-                  <label>{tr('reader.customFill')}
-                    <input type="color" bind:value={presetForm.fillColor} />
+                  {#if presetForm.tool === 'shape'}
+                    <label>{tr('reader.customShape')}
+                      <select bind:value={presetForm.shape}>
+                        {#each SHAPES as s}<option value={s}>{shapeLabel(s)}</option>{/each}
+                      </select>
+                    </label>
+                  {/if}
+                  <label>{tr('reader.customSize')}
+                    <input type="number" min="1" max="100" bind:value={presetForm.size} />
                   </label>
-                  <label>{tr('reader.customFillOpacity')}
-                    <input type="range" min="0" max="1" step="0.05" bind:value={presetForm.fillOpacity} />
-                    <span>{Math.round(presetForm.fillOpacity * 100)}%</span>
+                  <label>{tr('reader.customColor')}
+                    <input type="color" bind:value={presetForm.color} />
                   </label>
-                {/if}
-                <label>{tr('reader.customName')}
-                  <input type="text" bind:value={presetForm.name} placeholder={tr('reader.customNamePlaceholder')} />
-                </label>
-                <div class="hstack">
-                  <button class="primary" onclick={addPreset}>{tr('reader.addButton')}</button>
-                  <button onclick={() => (presetOpen = false)}>{tr('common.cancel')}</button>
+                  {#if presetForm.tool === 'shape'}
+                    <label>{tr('reader.customFill')}
+                      <input type="color" bind:value={presetForm.fillColor} />
+                    </label>
+                    <label>{tr('reader.customFillOpacity')}
+                      <input type="range" min="0" max="1" step="0.05" bind:value={presetForm.fillOpacity} />
+                      <span>{Math.round(presetForm.fillOpacity * 100)}%</span>
+                    </label>
+                  {/if}
+                  <label>{tr('reader.customName')}
+                    <input type="text" bind:value={presetForm.name} placeholder={tr('reader.customNamePlaceholder')} />
+                  </label>
+                  <div class="hstack" style="gap:8px;">
+                    <button type="button" class="primary hstack" onclick={savePresetForm}>
+                      <Icon name={editingPresetId ? 'check' : 'plus'} size={14} />
+                      <span>{editingPresetId ? (ui.lang === 'ar' ? 'حفظ التعديلات' : 'Save Changes') : tr('reader.addButton')}</span>
+                    </button>
+                    <button type="button" onclick={() => { presetOpen = false; editingPresetId = null; }}>{tr('common.cancel')}</button>
+                  </div>
                 </div>
+              {:else}
+                <div class="hstack" style="flex-wrap:wrap; gap:6px;">
+                  <button type="button" onclick={() => openPreset('tool-shape', 'shape')}><Icon name="plus" size={14} />{tr('reader.addButton')}</button>
+                  <button type="button" onclick={() => openPreset('tool-marker', 'marker')}><Icon name="marker" size={14} />{tr('tool.marker')}</button>
+                  <button type="button" onclick={() => openPreset('tool-pen', 'pen')}><Icon name="pen" size={14} />{tr('tool.pen')}</button>
+                </div>
+              {/if}
+              <div class="settings-reset">
+                <button type="button" onclick={resetToolbar}>{tr('reader.resetToolbar')}</button>
               </div>
-            {:else}
-              <div class="hstack">
-                <button onclick={() => openPreset('tool-shape', 'shape')}><Icon name="plus" size={14} />{tr('reader.addButton')}</button>
-                <button onclick={() => openPreset('tool-marker', 'marker')}><Icon name="marker" size={14} />{tr('tool.marker')}</button>
-                <button onclick={() => openPreset('tool-pen', 'pen')}><Icon name="pen" size={14} />{tr('tool.pen')}</button>
-              </div>
-            {/if}
-            <div class="settings-reset">
-              <button onclick={resetToolbar}>{tr('reader.resetToolbar')}</button>
             </div>
           </div>
-        </div>
+        {:else if settingsTab === 'defaults'}
+          <div class="toolbar-defaults-panel">
+            <div>
+              <div class="section-title" style="margin:0;">{ui.lang === 'ar' ? 'الأحجام والخيارات الافتراضية للأدوات الأساسية' : 'Default Tool Sizes & Shapes'}</div>
+              <p class="muted settings-hint" style="margin:4px 0 12px 0;">
+                {ui.lang === 'ar'
+                  ? 'هذه الأحجام تعمل بها الأدوات الأساسية عند فتح المستند، وتظل مستقلة تماماً عن أي أزرار مخصصة تنشئها.'
+                  : 'Default sizes used by the primary tools, completely independent from your custom preset buttons.'}
+              </p>
+            </div>
+
+            <div class="defaults-grid">
+              <!-- Highlighter Default -->
+              <div class="default-tool-card">
+                <div class="hstack" style="justify-content:space-between;">
+                  <strong class="hstack" style="gap:6px;">
+                    <Icon name="marker" size={16} />
+                    <span>{ui.lang === 'ar' ? 'قلم التظليل الافتراضي' : 'Default Highlighter'}</span>
+                  </strong>
+                  <span class="badge">{toolDefaults.markerPx}px</span>
+                </div>
+                <div class="hstack" style="gap:10px;">
+                  <input type="range" min="1" max="60" bind:value={toolDefaults.markerPx} style="flex:1;" />
+                  <input type="number" min="1" max="60" bind:value={toolDefaults.markerPx} style="width:64px;" />
+                </div>
+                <div class="live-size-preview" title="معاينة سمك قلم التظليل">
+                  <div style="width:75%; height:{Math.min(32, toolDefaults.markerPx)}px; background:#F4D03F; opacity:0.85; border-radius:2px;"></div>
+                </div>
+              </div>
+
+              <!-- Shapes Default -->
+              <div class="default-tool-card">
+                <div class="hstack" style="justify-content:space-between;">
+                  <strong class="hstack" style="gap:6px;">
+                    <Icon name="shape" size={16} />
+                    <span>{ui.lang === 'ar' ? 'الأشكال الافتراضية' : 'Default Shapes'}</span>
+                  </strong>
+                  <span class="badge">{toolDefaults.shapePx}px</span>
+                </div>
+                <div class="hstack" style="gap:10px;">
+                  <span style="font-size:12px; color:var(--muted); min-width:40px;">{ui.lang === 'ar' ? 'السمك:' : 'Stroke:'}</span>
+                  <input type="range" min="1" max="30" bind:value={toolDefaults.shapePx} style="flex:1;" />
+                  <input type="number" min="1" max="30" bind:value={toolDefaults.shapePx} style="width:64px;" />
+                </div>
+                <div class="hstack" style="gap:10px;">
+                  <span style="font-size:12px; color:var(--muted); min-width:40px;">{ui.lang === 'ar' ? 'الشكل:' : 'Shape:'}</span>
+                  <select bind:value={toolDefaults.shape} style="flex:1;">
+                    {#each SHAPES as s}
+                      <option value={s}>{shapeLabel(s)}</option>
+                    {/each}
+                  </select>
+                </div>
+                <div class="live-size-preview" title="معاينة إطار الشكل">
+                  <div style="width:60px; height:24px; border:{toolDefaults.shapePx}px solid #EB5757; border-radius:3px;"></div>
+                </div>
+              </div>
+
+              <!-- Pen Default -->
+              <div class="default-tool-card">
+                <div class="hstack" style="justify-content:space-between;">
+                  <strong class="hstack" style="gap:6px;">
+                    <Icon name="pen" size={16} />
+                    <span>{ui.lang === 'ar' ? 'القلم الحر الافتراضي' : 'Default Pen'}</span>
+                  </strong>
+                  <span class="badge">{toolDefaults.penPx}px</span>
+                </div>
+                <div class="hstack" style="gap:10px;">
+                  <input type="range" min="1" max="30" bind:value={toolDefaults.penPx} style="flex:1;" />
+                  <input type="number" min="1" max="30" bind:value={toolDefaults.penPx} style="width:64px;" />
+                </div>
+                <div class="live-size-preview" title="معاينة خط القلم">
+                  <div style="width:75%; height:{toolDefaults.penPx}px; background:#EB5757; border-radius:999px;"></div>
+                </div>
+              </div>
+
+              <!-- Text Font Size Default -->
+              <div class="default-tool-card">
+                <div class="hstack" style="justify-content:space-between;">
+                  <strong class="hstack" style="gap:6px;">
+                    <Icon name="file-text" size={16} />
+                    <span>{ui.lang === 'ar' ? 'حجم خط النصوص الافتراضي' : 'Default Text Font Size'}</span>
+                  </strong>
+                  <span class="badge">{toolDefaults.textPx}px</span>
+                </div>
+                <div class="hstack" style="gap:10px;">
+                  <input type="range" min="10" max="48" bind:value={toolDefaults.textPx} style="flex:1;" />
+                  <input type="number" min="10" max="48" bind:value={toolDefaults.textPx} style="width:64px;" />
+                </div>
+                <div class="live-size-preview" title="معاينة خط النص">
+                  <span style="font-size:{toolDefaults.textPx}px; font-weight:600; color:var(--text); line-height:1;">
+                    {ui.lang === 'ar' ? 'ملاحظة دراسية' : 'Study Note'}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div class="hstack" style="gap:10px; margin-top:14px; justify-content:flex-end;">
+              <button type="button" class="secondary small hstack" onclick={handleResetToolDefaults}>
+                <Icon name="rotate-left" size={13} />
+                <span>{ui.lang === 'ar' ? 'استعادة الافتراضيات الأصلية' : 'Reset to Defaults'}</span>
+              </button>
+              <button type="button" class="primary small hstack" onclick={handleSaveToolDefaults}>
+                <Icon name="check" size={13} />
+                <span>{ui.lang === 'ar' ? 'حفظ وتطبيق الأحجام' : 'Save Default Sizes'}</span>
+              </button>
+            </div>
+          </div>
+        {:else if settingsTab === 'autosave'}
+          <div class="toolbar-autosave-panel">
+            <div>
+              <div class="section-title" style="margin:0;">{ui.lang === 'ar' ? 'إعدادات الحفظ التلقائي لمستندات PDF' : 'PDF Document Auto-Save Settings'}</div>
+              <p class="muted settings-hint" style="margin:4px 0 12px 0;">
+                {ui.lang === 'ar'
+                  ? 'حفظ تظليلاتك ورسوماتك وملاحظاتك تلقائياً وبشكل دوري في الخلفية أثناء القراءة دون الحاجة للنقر على زر الحفظ يدوياً.'
+                  : 'Automatically saves annotations, shapes and notes periodically in background while reading without interruption.'}
+              </p>
+            </div>
+
+            <div class="card" style="padding:16px; background:var(--surface-2); border-radius:10px; border:1px solid var(--border); display:flex; flex-direction:column; gap:14px;">
+              <label class="hstack" style="gap:10px; cursor:pointer; font-weight:600; font-size:13.5px;">
+                <input type="checkbox" bind:checked={autosaveConfig.enabled} style="width:18px; height:18px;" />
+                <span>{ui.lang === 'ar' ? 'تفعيل الحفظ التلقائي في الخلفية' : 'Enable Background Auto-Save'}</span>
+              </label>
+
+              {#if autosaveConfig.enabled}
+                <div class="hstack" style="gap:12px; flex-wrap:wrap; padding-inline-start:28px;">
+                  <span style="font-size:13px; color:var(--text);">{ui.lang === 'ar' ? 'تكرار الحفظ التلقائي كل:' : 'Auto-Save Frequency:'}</span>
+                  <div class="hstack" style="gap:6px;">
+                    <input type="number" min="1" max="60" bind:value={autosaveConfig.interval} style="width:72px;" />
+                    <span class="muted" style="font-size:12.5px;">{ui.lang === 'ar' ? 'دقائق' : 'minutes'}</span>
+                  </div>
+
+                  <div class="hstack" style="gap:4px;">
+                    <button type="button" class="small {autosaveConfig.interval == 1 ? 'primary' : 'secondary'}" onclick={() => autosaveConfig.interval = 1}>
+                      {ui.lang === 'ar' ? 'كل دقيقة' : '1 min'}
+                    </button>
+                    <button type="button" class="small {autosaveConfig.interval == 5 ? 'primary' : 'secondary'}" onclick={() => autosaveConfig.interval = 5}>
+                      {ui.lang === 'ar' ? 'كل 5 دقائق' : '5 min'}
+                    </button>
+                    <button type="button" class="small {autosaveConfig.interval == 15 ? 'primary' : 'secondary'}" onclick={() => autosaveConfig.interval = 15}>
+                      {ui.lang === 'ar' ? 'كل 15 دقيقة' : '15 min'}
+                    </button>
+                  </div>
+                </div>
+              {/if}
+
+              <div class="card hstack" style="gap:8px; padding:10px 12px; background:var(--surface); border-radius:8px; font-size:12px; line-height:1.6; color:var(--muted);">
+                <Icon name="help" size={15} style="color:var(--accent); flex-shrink:0;" />
+                <span>
+                  {ui.lang === 'ar'
+                    ? 'عند تشغيل الحفظ التلقائي، ستظهر علامة "تم الحفظ" في شريط الأدوات بشكل صامت بدون مقاطعة دراستك أو إغلاق القوائم المفتوحة.'
+                    : 'When enabled, a subtle "Saved" indicator confirms periodic saves without interrupting reading or closing panels.'}
+                </span>
+              </div>
+            </div>
+
+            <div class="hstack" style="gap:10px; justify-content:flex-end;">
+              <button type="button" class="primary small hstack" onclick={handleSaveAutosave}>
+                <Icon name="check" size={13} />
+                <span>{ui.lang === 'ar' ? 'حفظ وتطبيق إعدادات الحفظ التلقائي' : 'Apply Auto-Save Settings'}</span>
+              </button>
+            </div>
+          </div>
+        {/if}
       </div>
     </div>
   {/if}

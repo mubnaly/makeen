@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   DEFAULT_BAR_ITEMS, BAR_ITEM_IDS, defaultBarOrder, normalizeBarOrder,
-  moveBarOrder, insertAfterBarItem, removeBarItem, barOrderMap
+  moveBarOrder, insertAfterBarItem, removeBarItem, barOrderMap,
+  toggleBarItemDisabled, isBarItemDisabled
 } from '../src/lib/toolbar.js';
 
 test('every toolbar item has a unique id and a label', () => {
@@ -51,4 +52,15 @@ test('remove drops one item and barOrderMap reflects order', () => {
   const map = barOrderMap(after);
   assert.equal(map.prev, 6);
   assert.equal(map.search > map.prev, true);
+});
+
+test('toggleBarItemDisabled and isBarItemDisabled manage hidden buttons correctly', () => {
+  let disabled = [];
+  assert.equal(isBarItemDisabled(disabled, 'tool-marker'), false);
+  disabled = toggleBarItemDisabled(disabled, 'tool-marker');
+  assert.equal(isBarItemDisabled(disabled, 'tool-marker'), true);
+  assert.deepEqual(disabled, ['tool-marker']);
+  disabled = toggleBarItemDisabled(disabled, 'tool-marker');
+  assert.equal(isBarItemDisabled(disabled, 'tool-marker'), false);
+  assert.deepEqual(disabled, []);
 });

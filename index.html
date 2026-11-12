@@ -21,8 +21,8 @@
           document.documentElement.lang = code;
           document.documentElement.dir = code === 'ar' ? 'rtl' : 'ltr';
           // Theme before first paint so switching palettes never flashes white.
-          var themes = ['light', 'sand', 'mint', 'sky', 'rose', 'dark', 'midnight', 'forest', 'plum', 'graphite'];
-          var dark = ['dark', 'midnight', 'forest', 'plum', 'graphite'];
+          var themes = ['light', 'clean-white', 'sand', 'mint', 'sky', 'rose', 'dark', 'oled', 'midnight', 'forest', 'plum', 'graphite'];
+          var dark = ['dark', 'oled', 'midnight', 'forest', 'plum', 'graphite'];
           var theme = localStorage.getItem('studyos.theme') || 'light';
           if (themes.indexOf(theme) === -1) theme = 'light';
           var mode = dark.indexOf(theme) >= 0 ? 'dark' : 'light';

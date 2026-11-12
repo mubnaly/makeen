@@ -2029,19 +2029,19 @@
     background: #f59e0b;
   }
 
-  /* Grid of Shares: exactly 3 cards per row on desktop, 2 on tablet, 1 on mobile */
+  /* Grid of Shares: 3 cards per row on desktop & laptop, 2 on tablet, 1 on mobile */
   .shares-grid {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 14px;
+    gap: 12px;
   }
-  @media (max-width: 960px) {
+  @media (max-width: 780px) and (min-width: 500px) {
     .shares-grid {
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 12px;
+      gap: 10px;
     }
   }
-  @media (max-width: 600px) {
+  @media (max-width: 499px) {
     .shares-grid {
       grid-template-columns: 1fr;
       gap: 10px;
@@ -2522,11 +2522,5 @@
   @keyframes fadeIn {
     from { opacity: 0; transform: translateY(4px); }
     to { opacity: 1; transform: translateY(0); }
-  }
-
-  @media (max-width: 640px) {
-    .shares-grid {
-      grid-template-columns: 1fr;
-    }
   }
 </style>

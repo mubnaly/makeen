@@ -18,6 +18,7 @@
   import { loadTrashRetentionDays, saveTrashRetentionDays, emptyAllTrash } from '../lib/trash.js';
   import { savePdfAutosaveSettings } from '../lib/storage.js';
   import { loadDefaultVideoQuality, saveDefaultVideoQuality, VIDEO_QUALITY_OPTIONS } from '../lib/videoSettings.js';
+  import { loadScreenshotResolution, saveScreenshotResolution, SCREENSHOT_RES_OPTIONS } from '../lib/imageQuality.js';
   import PomodoroSoundModal from './PomodoroSoundModal.svelte';
   import { getApiBaseUrl, setApiBaseUrl, checkBackendHealth } from '../lib/api.js';
   import {
@@ -57,6 +58,7 @@
   let prayerSettings = $state(loadPrayerSettings());
   let dailyTemplate = $state(getDailyTemplate());
   let videoQuality = $state(loadDefaultVideoQuality());
+  let screenshotRes = $state(loadScreenshotResolution());
   let restoreInputEl = $state();
   let isRestoring = $state(false);
   let pomoSoundOpen = $state(false);
@@ -718,6 +720,28 @@
           </button>
         </div>
 
+        <div class="section-title mt">{ui.lang === 'ar' ? 'دقة التقاط لقطات الفيديو (Resolution)' : 'Video Screenshot Capture Resolution'}</div>
+        <p class="muted" style="font-size:13px">
+          {ui.lang === 'ar'
+            ? 'تحديد أبعاد حفظ لقطات الفيديو (افتراضياً 360p متوسطة الدقة تلقائياً حتى لو كان الفيديو يعمل بدقة 144p أو 1440p).'
+            : 'Default capture dimensions for video screenshots (standard 360p medium quality by default even for 144p or 1440p videos).'}
+        </p>
+        <div class="hstack" style="gap:10px; flex-wrap:wrap;">
+          <Icon name="camera" size={16} />
+          <select
+            value={screenshotRes}
+            onchange={(e) => {
+              screenshotRes = saveScreenshotResolution(e.currentTarget.value);
+              notify(t('settings.saved') || 'Saved', 'ok');
+            }}
+            aria-label="Screenshot Resolution"
+          >
+            {#each SCREENSHOT_RES_OPTIONS as opt}
+              <option value={opt.id}>{ui.lang === 'ar' ? opt.labelAr : opt.labelEn}</option>
+            {/each}
+          </select>
+        </div>
+
         <div class="section-title mt">{t('settings.srs')}</div>
         <p class="muted" style="font-size:13px">{t('settings.srsHelp')}</p>
         {#each ['new', 'hard', 'good', 'easy'] as level}
@@ -759,6 +783,24 @@
           />
           <span>{t('settings.pdfAutosaveToggle')}</span>
         </label>
+        {#if pdfAutosave.enabled}
+          <div class="hstack" style="gap:8px; margin-top:8px;">
+            <span style="font-size:13px;">{ui.lang === 'ar' ? 'تكرار الحفظ التلقائي:' : 'Autosave Frequency:'}</span>
+            <input
+              type="number"
+              min="1"
+              max="60"
+              style="width:70px;"
+              value={pdfAutosave.interval || 15}
+              onchange={(e) => {
+                pdfAutosave.interval = Math.max(1, Number(e.currentTarget.value) || 15);
+                savePdfAutosaveSettings(pdfAutosave);
+                notify(t('settings.saved'), 'ok');
+              }}
+            />
+            <span class="muted" style="font-size:12px;">{ui.lang === 'ar' ? 'دقائق' : 'minutes'}</span>
+          </div>
+        {/if}
 
         <div class="section-title mt">{t('pomodoro.soundOptions')}</div>
         <p class="muted" style="font-size:13px">{t('pomodoro.soundSettings')}</p>
