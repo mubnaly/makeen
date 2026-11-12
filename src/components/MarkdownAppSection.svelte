@@ -12,6 +12,8 @@
     deleteFolder,
     createNote,
     deleteNote,
+    moveNoteToFolder,
+    moveFolder,
     searchNotes,
     getFolderBreadcrumbs,
     ensureDailyFolderAndNote
@@ -35,6 +37,78 @@
   let editingFolderName = $state('');
   let expandedFolderIds = $state(new Set());
   let mdFileInput = $state();
+
+  // Drag & Drop and Move Hierarchy State
+  let draggedItem = $state(null); // { type: 'note' | 'folder', id: string, name: string }
+  let dragOverTargetId = $state(null); // folder id or null for root
+  let moveModalNote = $state(null);
+
+  function handleDragStartNote(e, note) {
+    draggedItem = { type: 'note', id: note.id, name: note.title };
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', note.id);
+  }
+
+  function handleDragStartFolder(e, folder) {
+    if (folder.isProtected || folder.isDaily) return;
+    draggedItem = { type: 'folder', id: folder.id, name: folder.name };
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', folder.id);
+  }
+
+  function handleDragOverFolder(e, targetFolderId) {
+    if (!draggedItem) return;
+    if (draggedItem.type === 'folder' && draggedItem.id === targetFolderId) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    dragOverTargetId = targetFolderId;
+  }
+
+  function handleDragLeaveFolder() {
+    dragOverTargetId = null;
+  }
+
+  function handleDropOnFolder(e, targetFolderId) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!draggedItem) return;
+
+    if (draggedItem.type === 'note') {
+      moveNoteToFolder(draggedItem.id, targetFolderId);
+      if (targetFolderId) {
+        expandedFolderIds = new Set([...expandedFolderIds, targetFolderId]);
+      }
+      notify?.(t('notes.movedSuccess') || 'تم نقل الملاحظة بنجاح', 'ok');
+    } else if (draggedItem.type === 'folder') {
+      const res = moveFolder(draggedItem.id, targetFolderId);
+      if (res) {
+        if (targetFolderId) {
+          expandedFolderIds = new Set([...expandedFolderIds, targetFolderId]);
+        }
+        notify?.(t('notes.folderMovedSuccess') || 'تم نقل المجلد بنجاح', 'ok');
+      }
+    }
+
+    draggedItem = null;
+    dragOverTargetId = null;
+    reloadData();
+  }
+
+  function openMoveModal(note) {
+    moveModalNote = note;
+  }
+
+  function executeMoveNote(targetFolderId) {
+    if (!moveModalNote) return;
+    moveNoteToFolder(moveModalNote.id, targetFolderId);
+    if (targetFolderId) {
+      expandedFolderIds = new Set([...expandedFolderIds, targetFolderId]);
+    }
+    const title = moveModalNote.title;
+    moveModalNote = null;
+    reloadData();
+    notify?.(`تم نقل "${title}" بنجاح`, 'ok');
+  }
 
   async function handleImportMdFile(e) {
     const file = e.target?.files?.[0];
@@ -185,7 +259,16 @@
   {@const isSelected = selectedFolderId === folder.id}
 
   <div class="folder-tree-item" style="--depth:{depth}">
-    <div class="folder-row {isSelected ? 'selected' : ''}">
+    <div
+      class="folder-row {isSelected ? 'selected' : ''} {dragOverTargetId === folder.id ? 'drag-over' : ''}"
+      draggable={!folder.isProtected && !folder.isDaily}
+      ondragstart={(e) => handleDragStartFolder(e, folder)}
+      ondragover={(e) => handleDragOverFolder(e, folder.id)}
+      ondragleave={handleDragLeaveFolder}
+      ondrop={(e) => handleDropOnFolder(e, folder.id)}
+      role="treeitem"
+      aria-expanded={isExpanded}
+    >
       <button
         type="button"
         class="tree-arrow-btn"
@@ -280,24 +363,42 @@
           <div
             class="note-tree-leaf {activeNoteId === note.id ? 'active' : ''}"
             style="--depth:{depth + 1}"
+            draggable="true"
+            ondragstart={(e) => handleDragStartNote(e, note)}
             onclick={() => {
               activeNoteId = note.id;
               mobileView = 'editor';
             }}
+            role="button"
+            tabindex="0"
+            onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && (activeNoteId = note.id)}
           >
             <Icon name="file-text" size={13} />
             <span class="leaf-title">{note.title || 'Untitled Note'}</span>
-            <button
-              type="button"
-              class="leaf-delete"
-              onclick={(e) => {
-                e.stopPropagation();
-                handleDeleteNote(note.id);
-              }}
-              title={t('common.delete')}
-            >
-              <Icon name="trash" size={11} />
-            </button>
+            <div class="leaf-actions hstack" style="gap:2px;">
+              <button
+                type="button"
+                class="leaf-action-btn"
+                onclick={(e) => {
+                  e.stopPropagation();
+                  openMoveModal(note);
+                }}
+                title={t('notes.moveToFolder') || 'نقل لمجلد آخر'}
+              >
+                <Icon name="folder" size={11} />
+              </button>
+              <button
+                type="button"
+                class="leaf-delete"
+                onclick={(e) => {
+                  e.stopPropagation();
+                  handleDeleteNote(note.id);
+                }}
+                title={t('common.delete')}
+              >
+                <Icon name="trash" size={11} />
+              </button>
+            </div>
           </div>
         {/each}
       </div>
@@ -344,13 +445,13 @@
           />
           <button
             type="button"
-            class="primary small hstack"
-            style="gap:4px; padding:4px 8px;"
+            class="primary small hstack new-note-btn"
+            style="gap:4px; padding:3px 8px; height:26px; font-size:11.5px; white-space:nowrap; border-radius:6px; flex-shrink:0;"
             onclick={() => handleCreateNote(selectedFolderId)}
             title={t('notes.newNote') || 'New Note'}
           >
             <Icon name="plus" size={13} />
-            <span>{t('notes.newNote') || 'Note'}</span>
+            <span>{ui.lang === 'ar' ? 'ملاحظة' : 'Note'}</span>
           </button>
         </div>
       </div>
@@ -440,32 +541,58 @@
       {/each}
 
       <!-- Loose Root Notes (not inside any folder) -->
+      <div
+        class="section-divider root-drop-zone {dragOverTargetId === '__ROOT__' ? 'drag-over' : ''}"
+        style="margin-top:12px; cursor:default; border-radius:6px; padding:4px 6px; transition: background 0.15s ease;"
+        ondragover={(e) => handleDragOverFolder(e, null)}
+        ondragleave={handleDragLeaveFolder}
+        ondrop={(e) => handleDropOnFolder(e, null)}
+        role="region"
+        aria-label={t('notes.rootNotes') || 'Root Notes'}
+      >
+        <span>{t('notes.rootNotes') || 'Root Notes'} ({getFolderNotes(null).length})</span>
+      </div>
       {#if getFolderNotes(null).length > 0}
-        <div class="section-divider" style="margin-top:12px;">
-          <span>{t('notes.rootNotes') || 'Root Notes'}</span>
-        </div>
         {#each getFolderNotes(null) as rootNote (rootNote.id)}
           <div
             class="note-tree-leaf {activeNoteId === rootNote.id ? 'active' : ''}"
             style="--depth:0"
+            draggable="true"
+            ondragstart={(e) => handleDragStartNote(e, rootNote)}
             onclick={() => {
               activeNoteId = rootNote.id;
               mobileView = 'editor';
             }}
+            role="button"
+            tabindex="0"
+            onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && (activeNoteId = rootNote.id)}
           >
             <Icon name="file-text" size={13} />
             <span class="leaf-title">{rootNote.title || 'Untitled Note'}</span>
-            <button
-              type="button"
-              class="leaf-delete"
-              onclick={(e) => {
-                e.stopPropagation();
-                handleDeleteNote(rootNote.id);
-              }}
-              title={t('common.delete')}
-            >
-              <Icon name="trash" size={11} />
-            </button>
+            <div class="leaf-actions hstack" style="gap:2px;">
+              <button
+                type="button"
+                class="leaf-action-btn"
+                onclick={(e) => {
+                  e.stopPropagation();
+                  openMoveModal(rootNote);
+                }}
+                title={t('notes.moveToFolder') || 'نقل لمجلد آخر'}
+              >
+                <Icon name="folder" size={11} />
+              </button>
+              <button
+                type="button"
+                class="leaf-delete"
+                onclick={(e) => {
+                  e.stopPropagation();
+                  handleDeleteNote(rootNote.id);
+                }}
+                title={t('common.delete')}
+              >
+                <Icon name="trash" size={11} />
+              </button>
+            </div>
           </div>
         {/each}
       {/if}
@@ -510,6 +637,45 @@
     {/if}
   </main>
 </div>
+
+{#if moveModalNote}
+  <div class="modal-backdrop" onclick={() => (moveModalNote = null)} role="presentation">
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <div class="card" onclick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" style="width:min(400px, 92vw); padding:16px; border-radius:12px; background:var(--surface); border:1px solid var(--border); box-shadow:var(--shadow-glass);">
+      <div class="hstack" style="justify-content:space-between; margin-bottom:12px;">
+        <strong style="font-size:14px;">{ui.lang === 'ar' ? 'نقل الملاحظة إلى مجلد' : 'Move Note to Folder'}</strong>
+        <button class="icon-btn" onclick={() => (moveModalNote = null)} aria-label="إغلاق">
+          <Icon name="x" size={15} />
+        </button>
+      </div>
+      <p class="muted" style="font-size:12px; margin:0 0 10px;">
+        {ui.lang === 'ar' ? 'الملاحظة:' : 'Note:'} <strong>{moveModalNote.title}</strong>
+      </p>
+      <div style="display:flex; flex-direction:column; gap:6px; max-height:260px; overflow-y:auto;">
+        <button
+          type="button"
+          class="row clickable"
+          style="padding:8px 10px; border-radius:6px; justify-content:flex-start; gap:8px;"
+          onclick={() => executeMoveNote(null)}
+        >
+          <Icon name="file-text" size={14} />
+          <span>{ui.lang === 'ar' ? 'الملاحظات الرئيسية (خارج أي مجلد)' : 'Root Notes (No Folder)'}</span>
+        </button>
+        {#each folders.filter((f) => !f.isProtected && !f.isDaily) as f (f.id)}
+          <button
+            type="button"
+            class="row clickable"
+            style="padding:8px 10px; border-radius:6px; justify-content:flex-start; gap:8px;"
+            onclick={() => executeMoveNote(f.id)}
+          >
+            <Icon name="folder" size={14} />
+            <span>{f.name}</span>
+          </button>
+        {/each}
+      </div>
+    </div>
+  </div>
+{/if}
 
 <style>
   .notes-workspace {

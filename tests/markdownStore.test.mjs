@@ -25,7 +25,9 @@ const {
   disconnectNotes,
   getNoteLinks,
   getKnowledgeGraphData,
-  parseWikilinks
+  parseWikilinks,
+  moveFolder,
+  moveNoteToFolder
 } = await import('../src/lib/markdownStore.js');
 
 test('Folder creation, nested folders and breadcrumbs', () => {
@@ -128,4 +130,29 @@ test('Knowledge Graph: wikilinks, connecting notes and graph data export', () =>
   disconnectNotes(noteA.id, noteB.id);
   const graphAfter = getKnowledgeGraphData();
   assert.equal(graphAfter.edges.length, 1);
+});
+
+test('moveNoteToFolder and moveFolder handle reorganizing hierarchy', () => {
+  storage.clear();
+  const folderA = createFolder({ name: 'Folder A' });
+  const folderB = createFolder({ name: 'Folder B' });
+  const note = createNote({ title: 'Sample Note', folderId: folderA.id });
+
+  assert.equal(note.folderId, folderA.id);
+
+  // Move note to Folder B
+  const movedNote = moveNoteToFolder(note.id, folderB.id);
+  assert.equal(movedNote.folderId, folderB.id);
+
+  // Move note to root
+  const rootNote = moveNoteToFolder(note.id, null);
+  assert.equal(rootNote.folderId, null);
+
+  // Move Folder B into Folder A (nesting)
+  const movedFolder = moveFolder(folderB.id, folderA.id);
+  assert.equal(movedFolder.parentId, folderA.id);
+
+  // Moving Folder A into Folder B (its child) should fail to avoid circular loops
+  const circular = moveFolder(folderA.id, folderB.id);
+  assert.equal(circular, null);
 });

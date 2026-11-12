@@ -264,6 +264,21 @@ button.active { background: var(--accent-soft); border-color: var(--accent); col
 button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 button.primary:hover { filter: brightness(1.05); }
 
+/* Global Modals & Overlay Backdrops */
+.modal-backdrop {
+  position: fixed !important;
+  inset: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  background: rgba(0, 0, 0, 0.65) !important;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  z-index: 99999 !important;
+}
+
 input[type='text'], input[type='number'], select, textarea {
   font: inherit;
   color: var(--text);
@@ -272,28 +287,63 @@ input[type='text'], input[type='number'], select, textarea {
   border-radius: 8px;
   padding: 6px 8px;
 }
-select option {
-  background-color: var(--surface-2, #1e1e24);
-  color: var(--text, #ffffff);
-  padding: 8px 12px;
+select {
+  cursor: pointer;
+}
+:root[data-theme-mode='dark'] select,
+:root[data-theme='dark'] select,
+:root[data-theme='oled'] select,
+:root[data-theme='midnight'] select,
+:root[data-theme='forest'] select,
+:root[data-theme='plum'] select,
+:root[data-theme='graphite'] select {
+  color-scheme: dark;
+  background-color: #1a1a24;
+  color: #f5f5f7;
+}
+:root[data-theme-mode='light'] select,
+:root[data-theme='light'] select,
+:root[data-theme='clean-white'] select,
+:root[data-theme='sand'] select,
+:root[data-theme='mint'] select,
+:root[data-theme='sky'] select,
+:root[data-theme='rose'] select {
+  color-scheme: light;
+  background-color: #ffffff;
+  color: #111827;
+}
+select option, option {
+  background-color: #1e1e24;
+  color: #f5f5f7;
+  padding: 6px 10px;
 }
 :root[data-theme-mode='dark'] select option,
-:root[data-theme='dark'] select option,
+:root[data-theme-mode='dark'] option,
 :root[data-theme='oled'] select option,
+:root[data-theme='oled'] option,
 :root[data-theme='midnight'] select option,
+:root[data-theme='midnight'] option,
 :root[data-theme='forest'] select option,
+:root[data-theme='forest'] option,
 :root[data-theme='plum'] select option,
-:root[data-theme='graphite'] select option {
+:root[data-theme='plum'] option,
+:root[data-theme='graphite'] select option,
+:root[data-theme='graphite'] option {
   background-color: #1e1e24;
   color: #f5f5f7;
 }
 :root[data-theme-mode='light'] select option,
-:root[data-theme='light'] select option,
+:root[data-theme-mode='light'] option,
 :root[data-theme='clean-white'] select option,
+:root[data-theme='clean-white'] option,
 :root[data-theme='sand'] select option,
+:root[data-theme='sand'] option,
 :root[data-theme='mint'] select option,
+:root[data-theme='mint'] option,
 :root[data-theme='sky'] select option,
-:root[data-theme='rose'] select option {
+:root[data-theme='sky'] option,
+:root[data-theme='rose'] select option,
+:root[data-theme='rose'] option {
   background-color: #ffffff;
   color: #111827;
 }
@@ -408,7 +458,7 @@ html, body {
   border-bottom: 1px solid var(--border);
   background: var(--surface);
 }
-.topbar .search { flex: 1; min-width: 280px; max-width: 640px; display: flex; align-items: center; gap: 8px; }
+.topbar .search { flex: 1.4; min-width: 320px; max-width: 760px; display: flex; align-items: center; gap: 8px; }
 .topbar .search .search-ico { color: var(--muted); display: grid; place-items: center; }
 .topbar .search input { width: 100%; }
 .view { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 20px; min-height: 0; }
@@ -2531,16 +2581,22 @@ button:active:not([disabled]) { transform: translateY(1px); }
   transform: translateY(0);
 }
 
-.topbar .icon-btn {
-  background: var(--surface-2, rgba(255, 255, 255, 0.05));
-  border: 1px solid var(--border);
-  color: var(--text);
+.topbar .icon-btn,
+.topbar .import-btn {
+  background: var(--surface-2, rgba(255, 255, 255, 0.05)) !important;
+  border: 1px solid var(--border) !important;
+  color: var(--text) !important;
   border-radius: var(--radius-sm, 8px);
-  transition: background 0.15s ease, border-color 0.15s ease;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
-.topbar .icon-btn:hover {
-  background: var(--surface-3, var(--surface));
-  border-color: var(--accent);
-  color: var(--text);
+.topbar .icon-btn:hover,
+.topbar .import-btn:hover {
+  background: var(--surface-3, var(--surface)) !important;
+  border-color: var(--muted) !important;
+  color: var(--text) !important;
+}
+.topbar .recorder-btn {
+  border-color: var(--border) !important;
+  color: var(--text) !important;
 }
 

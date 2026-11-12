@@ -15,20 +15,65 @@ import {
   apiRecordShareVisit
 } from './api.js';
 
-export function formatTotalDuration(seconds) {
+export function normalizeTags(tags) {
+  if (Array.isArray(tags)) {
+    return tags.map((t) => String(t).trim().replace(/^#+/, '')).filter(Boolean);
+  }
+  if (typeof tags === 'string') {
+    return tags
+      .split(/[,،\s]+/)
+      .map((t) => t.trim().replace(/^#+/, ''))
+      .filter(Boolean);
+  }
+  return [];
+}
+
+const IMPORTED_SHARES_KEY = 'studyos.community.imported_shares';
+
+export function getImportedShareIds() {
+  try {
+    const raw = localStorage.getItem(IMPORTED_SHARES_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function isShareImported(shareId) {
+  if (!shareId) return false;
+  const list = getImportedShareIds();
+  return list.includes(shareId);
+}
+
+export function recordShareImported(shareId) {
+  if (!shareId) return;
+  try {
+    const list = getImportedShareIds();
+    if (!list.includes(shareId)) {
+      list.push(shareId);
+      localStorage.setItem(IMPORTED_SHARES_KEY, JSON.stringify(list));
+    }
+  } catch {}
+}
+
+export function formatTotalDuration(seconds, lang = 'ar') {
   const sec = Number(seconds) || 0;
   if (sec <= 0) return '';
   const h = Math.floor(sec / 3600);
   const m = Math.floor((sec % 3600) / 60);
   const s = Math.floor(sec % 60);
+  if (lang === 'en') {
+    if (h > 0) return `${h} hr${h > 1 ? 's' : ''}${m > 0 ? ' ' + m + ' min' : ''}`;
+    if (m > 0) return `${m} min`;
+    return `${s} sec`;
+  }
   if (h > 0) return `${h} س${m > 0 ? ' ' + m + ' د' : ''}`;
-  if (m > 0) return `${m} د`;
-  return `${s} ث`;
+  if (m > 0) return `${m} دقيقة`;
+  return `${s} ثانية`;
 }
 
 export function computeShareTotalDuration(share) {
   if (!share) return 0;
-  if (share.totalDurationSeconds && share.totalDurationSeconds > 0) return share.totalDurationSeconds;
   let total = 0;
   if (Array.isArray(share.items)) {
     for (const it of share.items) {
@@ -37,8 +82,22 @@ export function computeShareTotalDuration(share) {
   }
   if (Array.isArray(share.pathCourses)) {
     for (const c of share.pathCourses) {
-      total += Number(c.durationSeconds || c.totalDurationSeconds || 0);
+      const cDur = Number(c.durationSeconds || c.totalDurationSeconds || c.duration || 0);
+      if (cDur > 0) {
+        total += cDur;
+      } else if (Array.isArray(c.videos)) {
+        for (const v of c.videos) {
+          total += Number(v.duration || v.durationSeconds || v.lengthSeconds || 0);
+        }
+      } else if (Array.isArray(c.items)) {
+        for (const it of c.items) {
+          total += Number(it.duration || it.durationSeconds || it.lengthSeconds || 0);
+        }
+      }
     }
+  }
+  if (total <= 0 && share.totalDurationSeconds && Number(share.totalDurationSeconds) > 0) {
+    return Number(share.totalDurationSeconds);
   }
   return total;
 }
@@ -84,6 +143,9 @@ export async function updateCommunityShare(shareId, updatedData) {
   const authorAvatar = isAnonymous ? '' : (user?.avatar || existing.authorAvatar || '');
   const isPaid = updatedData.isPaid !== undefined ? Boolean(updatedData.isPaid) : existing.isPaid;
   const price = isPaid ? Math.max(0, Math.round(Number(updatedData.price ?? existing.price) * 100) / 100) : 0;
+  const tags = updatedData.tags !== undefined ? normalizeTags(updatedData.tags) : (existing.tags || []);
+  const isPrivate = updatedData.isPrivate !== undefined ? Boolean(updatedData.isPrivate) : Boolean(existing.isPrivate);
+  const teacher = updatedData.teacher !== undefined ? String(updatedData.teacher || '').trim() : (existing.teacher || '');
 
   const merged = {
     ...existing,
@@ -91,9 +153,12 @@ export async function updateCommunityShare(shareId, updatedData) {
     id: shareId,
     author: authorName,
     authorAvatar,
+    teacher,
     isAnonymous,
     isPaid,
     price,
+    tags,
+    isPrivate,
     items: Array.isArray(updatedData.items) ? updatedData.items : existing.items,
     updatedAt: Date.now()
   };
@@ -124,10 +189,11 @@ export function isShareOwner(share, user) {
  * Lists community items sorted and loaded from PostgreSQL backend or IndexedDB fallback.
  */
 export async function listCommunityShares() {
+  const user = getCurrentUser();
   try {
     const remote = await apiFetchCommunityShares();
     if (Array.isArray(remote) && remote.length > 0) {
-      return remote;
+      return remote.filter((s) => !s.isPrivate || isShareOwner(s, user));
     }
   } catch {}
 
@@ -135,10 +201,12 @@ export async function listCommunityShares() {
   const dbShares = await listCommunitySharesDb();
   const viewsMap = loadViewsMap();
 
-  return dbShares.map((s) => ({
-    ...s,
-    visits: (s.visits || 0) + (viewsMap[s.id] || 0)
-  }));
+  return dbShares
+    .filter((s) => !s.isPrivate || isShareOwner(s, user))
+    .map((s) => ({
+      ...s,
+      visits: (s.visits || 0) + (viewsMap[s.id] || 0)
+    }));
 }
 
 /**
@@ -156,6 +224,9 @@ export async function publishCommunityShare(shareData) {
 
   const isPaid = Boolean(shareData.isPaid && Number(shareData.price) > 0);
   const price = isPaid ? Math.max(0, Math.round(Number(shareData.price) * 100) / 100) : 0;
+  const tags = normalizeTags(shareData.tags);
+  const isPrivate = Boolean(shareData.isPrivate);
+  const teacher = String(shareData.teacher || '').trim();
 
   const newShare = {
     id: `comm-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -164,9 +235,12 @@ export async function publishCommunityShare(shareData) {
     titleEn: shareData.titleEn || shareData.title.trim(),
     author: authorName,
     authorAvatar,
+    teacher,
     creatorId: user?.id || 'guest',
     isAnonymous,
     category: shareData.category || 'general',
+    tags,
+    isPrivate,
     visits: 1,
     rating: 5.0,
     ratingsCount: 1,
@@ -220,6 +294,7 @@ export function recordShareVisit(shareId) {
  */
 export async function importShareToMyLibrary(share) {
   recordShareVisit(share.id);
+  recordShareImported(share.id);
 
   if (share.isPaid && !isContentUnlocked(share)) {
     throw new Error('CONTENT_LOCKED_PAYMENT_REQUIRED');

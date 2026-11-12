@@ -210,7 +210,9 @@ export const ICONS = {
   unlock: [['rect', 3, 11, 18, 11, 2], ['path', 'M7 11V7a5 5 0 0 1 9.9-1']],
   square: [['rect', 3, 3, 18, 18, 2]],
   layers: [['path', 'M12 2L2 7l10 5 10-5-10-5z'], ['path', 'M2 17l10 5 10-5'], ['path', 'M2 12l10 5 10-5']],
-  playlist: [['line', 8, 6, 21, 6], ['line', 8, 12, 21, 12], ['line', 8, 18, 21, 18], ['line', 3, 6, 3.01, 6], ['line', 3, 12, 3.01, 12], ['line', 3, 18, 3.01, 18]]
+  playlist: [['line', 8, 6, 21, 6], ['line', 8, 12, 21, 12], ['line', 8, 18, 21, 18], ['line', 3, 6, 3.01, 6], ['line', 3, 12, 3.01, 12], ['line', 3, 18, 3.01, 18]],
+  tag: [['path', 'M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z'], ['line', 7, 7, 7.01, 7]],
+  graduation: [['path', 'M22 10v6M2 10l10-5 10 5-10 5z'], ['path', 'M6 12v5c3 3 9 3 12 0v-5']]
 };
 
 export const ICON_NAMES = Object.keys(ICONS);

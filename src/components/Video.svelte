@@ -849,6 +849,9 @@
     current = start > 0
       ? Math.min(start, duration > 0 ? Math.max(0, duration - 0.1) : start)
       : Number(snapshot.current) || 0;
+    if (start > 0) {
+      ytPost('seek', current);
+    }
     ytQualities = normalizeQualities(snapshot.qualities);
     ytQuality = userSelectedQuality;
     if (muted) ytPost('mute');
@@ -2445,25 +2448,6 @@
                       onkeydown={(e) => e.key === 'Enter' && addYoutube()} aria-label={t('video.addYoutube')} />
                     <button class="primary small" onclick={addYoutube} disabled={!ytInput.trim()} title={t('video.addYoutube')}>
                       <Icon name="play" size={13} /><span>{t('video.addYoutube')}</span>
-                    </button>
-                  </div>
-                </div>
-              {/if}
-            </div>
-
-            <!-- YouTube Full Playlist Direct Import Section -->
-            <div class="add-section-box" style="margin-top:6px">
-              <button class="toggle-add-btn hstack" onclick={() => (isPlaylistAddOpen = !isPlaylistAddOpen)} aria-expanded={isPlaylistAddOpen}>
-                <Icon name={isPlaylistAddOpen ? 'chevron-up' : 'plus'} size={14} />
-                <span>{t('video.addPlaylistDirect')}</span>
-              </button>
-              {#if isPlaylistAddOpen}
-                <div class="add-subcard">
-                  <div class="yt-add">
-                    <input type="text" placeholder={t('video.playlistUrl')} bind:value={playlistUrlInput}
-                      onkeydown={(e) => e.key === 'Enter' && handleAddPlaylistDirect()} aria-label={t('video.addPlaylistDirect')} />
-                    <button class="primary small" onclick={handleAddPlaylistDirect} disabled={!playlistUrlInput.trim()}>
-                      <Icon name="plus" size={13} /><span>{t('common.add')}</span>
                     </button>
                   </div>
                 </div>

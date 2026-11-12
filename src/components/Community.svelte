@@ -15,7 +15,9 @@
     importShareToMyLibrary,
     recordShareVisit,
     formatTotalDuration,
-    computeShareTotalDuration
+    computeShareTotalDuration,
+    isShareImported,
+    normalizeTags
   } from '../lib/communityStore.js';
   import {
     isContentUnlocked,
@@ -38,7 +40,8 @@
 
   let shares = $state([]);
   let searchQuery = $state('');
-  let activeFilter = $state('all'); // 'all' | 'playlist' | 'pdf' | 'cards' | 'notes' | 'video'
+  let selectedTagFilter = $state('');
+  let activeFilter = $state('all'); // 'all' | 'my_shares' | 'private' | 'path' | 'playlist' | 'pdf' | 'cards' | 'notes' | 'video'
   let activeSort = $state('popular'); // 'popular' | 'rating' | 'newest'
   let pricingFilter = $state('all'); // 'all' | 'free' | 'paid'
 
@@ -48,18 +51,22 @@
   // Sharing & Edit Modal State
   let isShareModalOpen = $state(false);
   let editingShareId = $state(null); // When editing existing share
-  let newShareType = $state('playlist'); // 'playlist' | 'pdf' | 'cards' | 'video' | 'notes'
+  let newShareType = $state('playlist'); // 'playlist' | 'path' | 'pdf' | 'cards' | 'video' | 'notes'
   let newShareTitle = $state('');
   let newShareAuthor = $state('');
+  let newShareTeacher = $state('');
   let newShareDescription = $state('');
+  let newShareTags = $state('');
+  let newShareIsPrivate = $state(false);
   let newShareUrls = $state('');
   let newShareIsPaid = $state(false);
   let newSharePrice = $state(50);
   let newShareIsAnonymous = $state(false);
   let newShareFile = $state(null);
-  let newShareItems = $state([]); // [{ title, url, isFreePreview: true }]
+  let newShareItems = $state([]); // [{ title, url, isFreePreview: true, kind: 'video' | 'book' }]
   let newVideoUrlInput = $state('');
   let newVideoTitleInput = $state('');
+  let newVideoKindInput = $state('video');
   let playlistScrapeUrl = $state('');
   let isScrapingPlaylist = $state(false);
   let newShareThumbnail = $state('');
@@ -157,15 +164,24 @@
       if (activeFilter === 'my_shares') {
         return isShareOwner(item, currentUser);
       }
+      if (activeFilter === 'private') {
+        return Boolean(item.isPrivate) && isShareOwner(item, currentUser);
+      }
       if (pricingFilter === 'free' && item.isPaid) return false;
       if (pricingFilter === 'paid' && !item.isPaid) return false;
       if (activeFilter !== 'all' && item.type !== activeFilter) return false;
+      if (selectedTagFilter) {
+        const itemTags = (item.tags || []).map((t) => String(t).toLowerCase());
+        if (!itemTags.includes(selectedTagFilter.toLowerCase())) return false;
+      }
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
         const matchTitle = (item.title || '').toLowerCase().includes(q) || (item.titleEn || '').toLowerCase().includes(q);
         const matchAuthor = (item.author || '').toLowerCase().includes(q);
+        const matchTeacher = (item.teacher || '').toLowerCase().includes(q);
         const matchDesc = (item.description || '').toLowerCase().includes(q);
-        return matchTitle || matchAuthor || matchDesc;
+        const matchTags = (item.tags || []).some((t) => String(t).toLowerCase().includes(q));
+        return matchTitle || matchAuthor || matchTeacher || matchDesc || matchTags;
       }
       return true;
     });
@@ -185,6 +201,26 @@
   const mySharesCount = $derived.by(() => {
     if (isGuest) return 0;
     return shares.filter((s) => isShareOwner(s, currentUser)).length;
+  });
+
+  // Count user's private items
+  const privateSharesCount = $derived.by(() => {
+    if (isGuest) return 0;
+    return shares.filter((s) => s.isPrivate && isShareOwner(s, currentUser)).length;
+  });
+
+  // Unique tags with counts for quick discovery
+  const availableTags = $derived.by(() => {
+    const counts = {};
+    for (const item of shares) {
+      if (item.tags && Array.isArray(item.tags)) {
+        for (const t of item.tags) {
+          const norm = String(t).trim();
+          if (norm) counts[norm] = (counts[norm] || 0) + 1;
+        }
+      }
+    }
+    return Object.entries(counts).sort((a, b) => b[1] - a[1]);
   });
 
   // Count pending payments for creator's items
@@ -314,7 +350,10 @@
     newShareType = 'playlist';
     newShareTitle = '';
     newShareAuthor = currentUser?.name || '';
+    newShareTeacher = '';
     newShareDescription = '';
+    newShareTags = '';
+    newShareIsPrivate = false;
     newShareUrls = '';
     newShareFile = null;
     newShareIsPaid = false;
@@ -326,6 +365,9 @@
     playlistScrapeUrl = '';
     isScrapingPlaylist = false;
     newShareThumbnail = '';
+    newSharePathCourses = [];
+    newPathCourseTitle = '';
+    newPathCourseUrl = '';
     isShareModalOpen = true;
     setTimeout(() => {
       window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -338,7 +380,10 @@
     newShareType = share.type || 'playlist';
     newShareTitle = share.title || '';
     newShareAuthor = share.author || '';
+    newShareTeacher = share.teacher || '';
     newShareDescription = share.description || '';
+    newShareTags = Array.isArray(share.tags) ? share.tags.join('، ') : (share.tags || '');
+    newShareIsPrivate = Boolean(share.isPrivate);
     newShareIsPaid = !!share.isPaid;
     newSharePrice = share.price || 50;
     newShareIsAnonymous = !!share.isAnonymous;
@@ -557,11 +602,18 @@
         }
       }
 
+      const totalDuration = newShareType === 'path'
+        ? newSharePathCourses.reduce((acc, c) => acc + (Number(c.durationSeconds || c.totalDurationSeconds) || 0), 0)
+        : items.reduce((acc, it) => acc + Number(it.duration || it.durationSeconds || it.lengthSeconds || 0), 0);
+
       const payload = {
         type: newShareType,
         title: newShareTitle.trim(),
         author: newShareAuthor.trim(),
+        teacher: newShareTeacher.trim(),
         description: newShareDescription.trim(),
+        tags: newShareTags,
+        isPrivate: newShareIsPrivate,
         thumbnail: thumb,
         isPaid: newShareIsPaid,
         price: newSharePrice,
@@ -569,9 +621,7 @@
         itemsCount: newShareType === 'path' ? newSharePathCourses.reduce((acc, c) => acc + (c.videoCount || 1), 0) : (items.length || 1),
         items: newShareType === 'path' ? newSharePathCourses : items,
         pathCourses: newShareType === 'path' ? newSharePathCourses : [],
-        totalDurationSeconds: newShareType === 'path'
-          ? newSharePathCourses.reduce((acc, c) => acc + (c.durationSeconds || 0), 0)
-          : items.reduce((acc, it) => acc + Number(it.duration || it.durationSeconds || 0), 0),
+        totalDurationSeconds: totalDuration,
         playlistData,
         pdfData: newShareFile ? { name: newShareFile.name, size: newShareFile.size } : null
       };
@@ -587,7 +637,10 @@
       editingShareId = null;
       newShareTitle = '';
       newShareAuthor = '';
+      newShareTeacher = '';
       newShareDescription = '';
+      newShareTags = '';
+      newShareIsPrivate = false;
       newShareUrls = '';
       newShareFile = null;
       newShareIsPaid = false;
@@ -753,6 +806,17 @@
         </button>
       {/if}
 
+      {#if !isGuest && privateSharesCount > 0}
+        <button
+          class="filter-pill {activeFilter === 'private' ? 'active' : ''}"
+          onclick={() => (activeFilter = 'private')}
+        >
+          <Icon name="lock" size={14} />
+          <span>{ui.lang === 'ar' ? 'محتواي الخاص' : 'Private'}</span>
+          <span class="count-bubble">{privateSharesCount}</span>
+        </button>
+      {/if}
+
       <button
         class="filter-pill {activeFilter === 'path' ? 'active' : ''}"
         onclick={() => (activeFilter = 'path')}
@@ -793,6 +857,36 @@
         <span>{t('community.filterNotes')}</span>
       </button>
     </div>
+
+    <!-- Active Tag Filter Indicator -->
+    {#if selectedTagFilter}
+      <div class="active-tag-filter-bar hstack" style="gap:8px; margin:6px 0 10px; align-items:center;">
+        <span class="muted" style="font-size:12px;">{ui.lang === 'ar' ? 'تصفية حسب الوسم:' : 'Filter by tag:'}</span>
+        <span class="active-tag-chip hstack" style="gap:6px; background:var(--accent); color:#ffffff; padding:2px 10px; border-radius:12px; font-size:12px; font-weight:700;">
+          <span>#{selectedTagFilter}</span>
+          <button type="button" class="icon-btn tiny" style="color:#ffffff; background:transparent; border:none; padding:0; cursor:pointer;" onclick={() => (selectedTagFilter = '')} title="إلغاء الفلترة بالوسم">
+            <Icon name="x" size={11} />
+          </button>
+        </span>
+      </div>
+    {:else if availableTags.length > 0}
+      <!-- Popular Tags Bar for Quick Click Discovery -->
+      <div class="community-tags-bar hstack" style="gap:6px; flex-wrap:wrap; margin:6px 0 12px; align-items:center;">
+        <span class="muted" style="font-size:11.5px; display:inline-flex; align-items:center; gap:4px;">
+          <Icon name="tag" size={12} /> {ui.lang === 'ar' ? 'الوسوم:' : 'Tags:'}
+        </span>
+        {#each availableTags.slice(0, 10) as [tg, count]}
+          <button
+            type="button"
+            class="tag-pill-btn"
+            onclick={() => (selectedTagFilter = tg)}
+            title={`تصفية بالوسم #${tg}`}
+          >
+            #{tg} <span class="tag-count" style="opacity:0.75; font-size:10px;">({count})</span>
+          </button>
+        {/each}
+      </div>
+    {/if}
   </div>
 
   <!-- Shares Grid -->
@@ -855,9 +949,19 @@
 
             <h2 class="details-title" style="margin:0 0 10px; font-size:20px;">{share.title}</h2>
 
-            <div class="details-author-row hstack" style="gap:12px; margin-bottom:12px; font-size:13px;">
-              <span class="muted">{ui.lang === 'ar' ? 'المشارك:' : 'Creator:'}</span>
-              <strong style="color:var(--text);">{share.author}</strong>
+            <div class="details-author-row hstack" style="gap:12px; margin-bottom:12px; font-size:13px; flex-wrap:wrap;">
+              {#if share.teacher}
+                <span class="hstack" style="gap:5px;">
+                  <Icon name="graduation" size={14} style="color:var(--accent);" />
+                  <span class="muted">{ui.lang === 'ar' ? 'المحاضر / المعلم:' : 'Instructor:'}</span>
+                  <strong style="color:var(--text);">{share.teacher}</strong>
+                </span>
+                <span class="meta-dot">·</span>
+              {/if}
+              <span class="hstack" style="gap:5px;">
+                <span class="muted">{ui.lang === 'ar' ? 'المشارك:' : 'Shared by:'}</span>
+                <strong style="color:var(--text);">{share.author}</strong>
+              </span>
               <span class="meta-dot">·</span>
               <button class="review-stat-btn hstack" onclick={() => openReviewsModal(share)} style="background:transparent; border:none; cursor:pointer; color:var(--text); gap:4px; padding:0;">
                 <Icon name="star" size={13} />
@@ -868,6 +972,14 @@
                 <Icon name="eye" size={13} />
                 <span>{share.visits || 1} {ui.lang === 'ar' ? 'زيارة' : 'views'}</span>
               </span>
+              {#if share.tags && share.tags.length > 0}
+                <span class="meta-dot">·</span>
+                <div class="hstack" style="gap:4px; flex-wrap:wrap;">
+                  {#each share.tags as tg}
+                    <span class="tag-pill-btn">#{tg}</span>
+                  {/each}
+                </div>
+              {/if}
             </div>
 
             <p class="details-desc muted" style="font-size:13.5px; line-height:1.6; margin:0 0 16px; white-space:pre-wrap;">{share.description || 'لا يوجد وصف مضاف لهذا المحتوى.'}</p>
@@ -880,14 +992,26 @@
                 </button>
               {/if}
 
-              <button
-                class="{share.isPaid && !unlocked ? 'secondary' : 'primary'} hstack"
-                onclick={() => handleImport(share)}
-                disabled={importingId === share.id}
-              >
-                <Icon name={importingId === share.id ? 'check' : 'plus'} size={14} />
-                <span>{importingId === share.id ? (ui.lang === 'ar' ? 'تمت الإضافة' : 'Added') : (ui.lang === 'ar' ? 'استيراد إلى قوائمي' : 'Import to My Playlists')}</span>
-              </button>
+              {#if isShareImported(share.id)}
+                <button
+                  class="secondary hstack in-library-btn"
+                  disabled={true}
+                  style="border-color:var(--accent); color:var(--accent); opacity:0.95; cursor:default; background:rgba(37,99,235,0.08);"
+                  title="موجود في مكتبتك"
+                >
+                  <Icon name="check" size={14} />
+                  <span>{ui.lang === 'ar' ? 'مضاف في مكتبتك' : 'In Library'}</span>
+                </button>
+              {:else}
+                <button
+                  class="{share.isPaid && !unlocked ? 'secondary' : 'primary'} hstack"
+                  onclick={() => handleImport(share)}
+                  disabled={importingId === share.id}
+                >
+                  <Icon name={importingId === share.id ? 'check' : 'plus'} size={14} />
+                  <span>{importingId === share.id ? (ui.lang === 'ar' ? 'تمت الإضافة' : 'Added') : (ui.lang === 'ar' ? 'استيراد إلى قوائمي' : 'Import to My Playlists')}</span>
+                </button>
+              {/if}
 
               <button class="secondary hstack" onclick={() => openReviewsModal(share)}>
                 <Icon name="star" size={14} />
@@ -977,7 +1101,7 @@
                     </span>
                   {/if}
                 </div>
-                {#if !share.isPaid}
+                {#if isOwner}
                   <div class="lesson-url muted" style="font-size:11.5px; direction:ltr; text-align:left; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
                     {subItem.url}
                   </div>
@@ -988,7 +1112,13 @@
                 {#if canWatch}
                   <button
                     class="primary small hstack"
-                    onclick={() => onOpenVideoDirectly({ url: subItem.url, title: subItem.title, docId: share.id })}
+                    onclick={() => onOpenVideoDirectly({
+                      id: subItem.id || `yt-${(subItem.url.match(/(?:v=|\/embed\/|youtu\.be\/)([a-zA-Z0-9_-]{11})/) || [])[1] || Date.now()}`,
+                      url: subItem.url,
+                      title: subItem.title,
+                      docId: share.id,
+                      provider: 'youtube'
+                    })}
                   >
                     <Icon name="play" size={13} />
                     <span>{ui.lang === 'ar' ? 'تشغيل' : 'Play'}</span>
@@ -1101,35 +1231,75 @@
             <h4 class="share-title">{ui.lang === 'en' && item.titleEn ? item.titleEn : item.title}</h4>
             <p class="share-description muted">{ui.lang === 'en' && item.descriptionEn ? item.descriptionEn : item.description}</p>
 
-            {#if item.type === 'playlist' || item.type === 'video'}
-              <div class="card-meta-line hstack muted" style="font-size:12px; gap:8px; margin:4px 0 8px 0;">
-                <span class="hstack" style="gap:4px;"><Icon name="video" size={12} /> {item.items?.length || item.itemsCount || 1} دروس</span>
+            <div class="card-meta-line hstack muted" style="font-size:12px; gap:8px; margin:4px 0 8px 0; justify-content:space-between; align-items:center;">
+              <div class="hstack" style="gap:6px; min-width:0; flex-shrink:1;">
+                {#if item.type === 'playlist' || item.type === 'video'}
+                  <span class="hstack" style="gap:4px;"><Icon name="video" size={12} /> {item.items?.length || item.itemsCount || 1} دروس</span>
+                {:else if item.type === 'path'}
+                  <span class="hstack" style="gap:4px;"><Icon name="layers" size={12} /> {item.pathCourses?.length || item.items?.length || 0} دورات</span>
+                {:else if item.type === 'pdf'}
+                  <span class="hstack" style="gap:4px;"><Icon name="reader" size={12} /> PDF</span>
+                {:else if item.type === 'cards'}
+                  <span class="hstack" style="gap:4px;"><Icon name="flashcards" size={12} /> بطاقات</span>
+                {:else if item.type === 'notes'}
+                  <span class="hstack" style="gap:4px;"><Icon name="file-text" size={12} /> ملاحظات</span>
+                {/if}
                 {#if totalDur}
                   <span class="meta-dot">·</span>
-                  <span class="hstack" style="gap:4px;"><Icon name="clock" size={12} /> {totalDur}</span>
+                  <span class="hstack" style="gap:4px; font-weight:600;"><Icon name="clock" size={12} /> {totalDur}</span>
                 {/if}
               </div>
-            {:else if item.type === 'path'}
-              <div class="card-meta-line hstack muted" style="font-size:12px; gap:8px; margin:4px 0 8px 0;">
-                <span class="hstack" style="gap:4px;"><Icon name="layers" size={12} /> {item.pathCourses?.length || item.items?.length || 0} دورات</span>
-                {#if totalDur}
-                  <span class="meta-dot">·</span>
-                  <span class="hstack" style="gap:4px;"><Icon name="clock" size={12} /> {totalDur}</span>
-                {/if}
-              </div>
-            {/if}
 
-            <div class="share-author-row hstack">
-              <div class="author-avatar-circle">
-                {#if item.isAnonymous}
-                  <Icon name="user" size={13} />
-                {:else if item.authorAvatar}
-                  <img src={item.authorAvatar} alt="Avatar" class="avatar-mini" />
-                {:else}
-                  <Icon name="user" size={13} />
+              <!-- Tags on the other side of information -->
+              {#if item.tags && item.tags.length > 0}
+                <div class="card-tags-list hstack" style="gap:4px; flex-wrap:wrap; justify-content:flex-end;">
+                  {#each item.tags.slice(0, 2) as tag}
+                    <button
+                      type="button"
+                      class="tag-pill-btn"
+                      onclick={(e) => { e.stopPropagation(); selectedTagFilter = (selectedTagFilter === tag ? '' : tag); }}
+                      title={`تصفية حسب الوسم #${tag}`}
+                    >
+                      #{tag}
+                    </button>
+                  {/each}
+                  {#if item.tags.length > 2}
+                    <span class="tag-pill-more" title={item.tags.slice(2).join(', ')}>+{item.tags.length - 2}</span>
+                  {/if}
+                </div>
+              {/if}
+            </div>
+
+            <!-- Author & Teacher Row -->
+            <div class="share-author-row hstack" style="justify-content:space-between; align-items:center; margin-top:6px; flex-wrap:wrap; gap:6px;">
+              <div class="hstack" style="gap:8px; font-size:12px; color:var(--text); flex-wrap:wrap;">
+                {#if item.teacher}
+                  <div class="teacher-info hstack" style="gap:4px;" title="المحاضر / المعلم">
+                    <Icon name="graduation" size={13} style="color:var(--accent);" />
+                    <span style="font-weight:600; color:var(--text);">{item.teacher}</span>
+                  </div>
+                  <span class="meta-dot" style="opacity:0.6;">·</span>
                 {/if}
+                <div class="hstack" style="gap:5px; color:var(--muted);" title="مشارك المحتوى">
+                  <div class="author-avatar-circle">
+                    {#if item.isAnonymous}
+                      <Icon name="user" size={12} />
+                    {:else if item.authorAvatar}
+                      <img src={item.authorAvatar} alt="Avatar" class="avatar-mini" />
+                    {:else}
+                      <Icon name="user" size={12} />
+                    {/if}
+                  </div>
+                  <span class="author-name" style="font-size:11.5px;">{item.author}</span>
+                </div>
               </div>
-              <span class="author-name">{item.author}</span>
+
+              {#if item.isPrivate}
+                <span class="private-badge hstack" title="محتوى خاص غير معروض للعامة">
+                  <Icon name="lock" size={11} />
+                  <span>خاص</span>
+                </span>
+              {/if}
             </div>
           </div>
 
@@ -1161,22 +1331,34 @@
                 </button>
               {/if}
 
-              <button
-                class="primary small import-btn hstack"
-                onclick={(e) => { e.stopPropagation(); handleImport(item); }}
-                disabled={importingId === item.id}
-              >
-                <Icon name={importingId === item.id ? 'check' : (item.isPaid && !unlocked ? 'unlock' : 'plus')} size={14} />
-                <span>
-                  {#if importingId === item.id}
-                    {ui.lang === 'ar' ? 'تمت الإضافة' : 'Added'}
-                  {:else if item.isPaid && !unlocked}
-                    {ui.lang === 'ar' ? 'معاينة مجانية' : 'Free Preview'}
-                  {:else}
-                    {t('community.addToMyLibrary')}
-                  {/if}
-                </span>
-              </button>
+              {#if isShareImported(item.id)}
+                <button
+                  class="secondary small hstack in-library-btn"
+                  disabled={true}
+                  style="border-color:var(--accent); color:var(--accent); opacity:0.95; cursor:default; background:rgba(37,99,235,0.08);"
+                  title="موجود بالفعل في مكتبتك"
+                >
+                  <Icon name="check" size={13} />
+                  <span>{ui.lang === 'ar' ? 'مضاف في مكتبتك' : 'In Library'}</span>
+                </button>
+              {:else}
+                <button
+                  class="primary small import-btn hstack"
+                  onclick={(e) => { e.stopPropagation(); handleImport(item); }}
+                  disabled={importingId === item.id}
+                >
+                  <Icon name={importingId === item.id ? 'check' : (item.isPaid && !unlocked ? 'unlock' : 'plus')} size={14} />
+                  <span>
+                    {#if importingId === item.id}
+                      {ui.lang === 'ar' ? 'تمت الإضافة' : 'Added'}
+                    {:else if item.isPaid && !unlocked}
+                      {ui.lang === 'ar' ? 'معاينة مجانية' : 'Free Preview'}
+                    {:else}
+                      {t('community.addToMyLibrary')}
+                    {/if}
+                  </span>
+                </button>
+              {/if}
             </div>
           </div>
         </div>
@@ -1252,13 +1434,26 @@
           bind:value={newShareTitle}
         />
 
-        <label class="field-label" for="share-author">{t('community.shareAuthor')}</label>
-        <input
-          id="share-author"
-          type="text"
-          placeholder={currentUser?.name || 'اسمك أو اسم القناة / المحاضر'}
-          bind:value={newShareAuthor}
-        />
+        <div class="hstack" style="gap:12px;">
+          <div style="flex:1;">
+            <label class="field-label" for="share-author">{t('community.shareAuthor')}</label>
+            <input
+              id="share-author"
+              type="text"
+              placeholder={currentUser?.name || 'اسمك أو اسم حسابك'}
+              bind:value={newShareAuthor}
+            />
+          </div>
+          <div style="flex:1;">
+            <label class="field-label" for="share-teacher">اسم المحاضر / المعلم أو الشيخ (Teacher)</label>
+            <input
+              id="share-teacher"
+              type="text"
+              placeholder="مثال: د. إياد قنيبي أو م. أحمد حسام"
+              bind:value={newShareTeacher}
+            />
+          </div>
+        </div>
 
         <!-- Anonymity Option -->
         <label class="checkbox-label hstack">
@@ -1579,6 +1774,27 @@
           placeholder="نبذة عن المنهج، الفصول الدراسية المغطاة، وطريقة المذاكرة المقترحة…"
           bind:value={newShareDescription}
         ></textarea>
+
+        <!-- Tags & Privacy Options -->
+        <label class="field-label" for="share-tags" style="margin-top:12px;">الوسوم والتصنيفات (Tags)</label>
+        <input
+          id="share-tags"
+          type="text"
+          placeholder="أدخل وسوماً مفصولة بفاصلة، مثال: فكر، عقيدة، برمجة"
+          bind:value={newShareTags}
+        />
+        {#if newShareTags.trim()}
+          <div class="hstack" style="gap:6px; flex-wrap:wrap; margin-top:4px;">
+            {#each normalizeTags(newShareTags) as tg}
+              <span class="tag-pill-btn">#{tg}</span>
+            {/each}
+          </div>
+        {/if}
+
+        <label class="checkbox-label hstack" style="gap:8px; cursor:pointer; margin-top:12px;">
+          <input type="checkbox" bind:checked={newShareIsPrivate} />
+          <span>محتوى خاص بي فقط (غير معروض للعامة في المجتمع - خاص لمكتبتي)</span>
+        </label>
       </div>
 
       <div class="modal-footer hstack" style="justify-content:flex-end; gap:8px;">
@@ -2033,19 +2249,79 @@
   .shares-grid {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 12px;
+    gap: 14px;
   }
-  @media (max-width: 780px) and (min-width: 500px) {
+  @media (max-width: 860px) and (min-width: 540px) {
     .shares-grid {
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 10px;
+      gap: 12px;
     }
   }
-  @media (max-width: 499px) {
+  @media (max-width: 539px) {
     .shares-grid {
       grid-template-columns: 1fr;
       gap: 10px;
     }
+  }
+
+  .tag-pill-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 2px 7px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    background: var(--surface-2, rgba(255, 255, 255, 0.05));
+    border: 1px solid var(--border);
+    color: var(--accent);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+  }
+  .tag-pill-btn:hover {
+    background: var(--accent);
+    color: #ffffff;
+    border-color: var(--accent);
+  }
+  .tag-pill-btn.active {
+    background: var(--accent);
+    color: #ffffff;
+    border-color: var(--accent);
+  }
+  .tag-pill-more {
+    font-size: 10px;
+    color: var(--muted);
+    padding: 1px 4px;
+    border-radius: 3px;
+    background: var(--surface-2);
+  }
+  .teacher-info {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .private-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 10.5px;
+    font-weight: 600;
+    color: var(--muted);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    padding: 1px 6px;
+    border-radius: 4px;
+  }
+  .in-library-btn {
+    opacity: 0.95;
+    background: rgba(37, 99, 235, 0.08) !important;
+    border-color: var(--accent) !important;
+    color: var(--accent) !important;
+    font-weight: 600 !important;
   }
 
   .share-card {

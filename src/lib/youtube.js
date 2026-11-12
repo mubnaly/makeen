@@ -407,7 +407,28 @@ export async function fetchPlaylistScrape(playlistUrl) {
         if (res.ok) {
           const data = await res.json();
           if (data && Array.isArray(data.videos) && data.videos.length > 0) {
-            const vids = data.videos.map((v) => ({
+            let allRawVideos = [...data.videos];
+            const totalCount = Number(data.videoCount) || 0;
+            // Support playlists with more than 100 videos by fetching next pages
+            if (totalCount > allRawVideos.length || allRawVideos.length >= 100) {
+              let page = 2;
+              while (page <= 30 && (totalCount === 0 || allRawVideos.length < totalCount)) {
+                try {
+                  const pRes = await fetch(`${inst}/api/v1/playlists/${listId}?page=${page}`, {
+                    signal: AbortSignal.timeout ? AbortSignal.timeout(6000) : undefined
+                  });
+                  if (!pRes.ok) break;
+                  const pData = await pRes.json();
+                  if (!pData || !Array.isArray(pData.videos) || !pData.videos.length) break;
+                  allRawVideos.push(...pData.videos);
+                  if (pData.videos.length < 100) break;
+                  page++;
+                } catch {
+                  break;
+                }
+              }
+            }
+            const vids = allRawVideos.map((v) => ({
               id: v.videoId,
               title: v.title || 'فيديو بدون عنوان',
               url: `https://www.youtube.com/watch?v=${v.videoId}`,

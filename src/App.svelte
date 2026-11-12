@@ -1086,6 +1086,39 @@
   const recentPdfs = $derived(recentDocs.filter((d) => kindOf(d) === 'pdf'));
   const recentVideos = $derived(recentDocs.filter((d) => kindOf(d) === 'video'));
 
+  // Continue Learning: Active in-progress videos and books/PDFs
+  const continueLearningItems = $derived.by(() => {
+    const items = [];
+    for (const d of docs) {
+      if (d.kind === 'video' && Number(d.lastSeconds) > 0) {
+        const total = Number(d.durationSeconds) || 0;
+        const pct = total > 0 ? Math.min(100, Math.round((Number(d.lastSeconds) / total) * 100)) : 0;
+        items.push({
+          id: d.id,
+          type: 'video',
+          title: d.title || d.filename || 'فيديو',
+          doc: d,
+          progress: pct,
+          progressText: `${formatTimecode(d.lastSeconds)}${total > 0 ? ' / ' + formatTimecode(total) : ''}`,
+          lastOpened: d.lastOpened || d.updatedAt || 0,
+        });
+      } else if (d.kind === 'pdf' && Number(d.lastPage) > 1) {
+        const total = Number(d.pageCount) || 0;
+        const pct = total > 0 ? Math.min(100, Math.round((Number(d.lastPage) / total) * 100)) : 0;
+        items.push({
+          id: d.id,
+          type: 'pdf',
+          title: d.title || d.filename || 'كتاب / مستند',
+          doc: d,
+          progress: pct,
+          progressText: total > 0 ? `صفحة ${d.lastPage} من ${total}` : `صفحة ${d.lastPage}`,
+          lastOpened: d.lastOpened || d.updatedAt || 0,
+        });
+      }
+    }
+    return items.sort((a, b) => (b.lastOpened || 0) - (a.lastOpened || 0)).slice(0, 4);
+  });
+
   const libraryCounts = $derived({
     all: recentDocs.length,
     started: recentDocs.filter(library.isDocumentStarted).length,
@@ -1729,6 +1762,39 @@
           <div class="hstack mt">
             <button class="primary" onclick={startReview} disabled={dueCards.length === 0}>{t('today.reviewDue', { n: dueCards.length })}</button>
             {#if pdfDocs[0]}<button onclick={() => openDoc(pdfDocs[0])}>{t('today.continue', { title: pdfDocs[0].title })}</button>{/if}
+          </div>
+        {/if}
+
+        <!-- Continue Learning (متابعة التعلم) -->
+        {#if continueLearningItems.length > 0}
+          <div class="continue-learning-section" style="margin-top:20px;">
+            <div class="section-head" style="margin-bottom:12px;">
+              <span class="section-title" style="margin:0; display:flex; align-items:center; gap:6px;">
+                <Icon name="play" size={15} style="color:var(--accent);" />
+                <span>{ui.lang === 'ar' ? 'متابعة التعلم' : 'Continue Learning'}</span>
+              </span>
+            </div>
+            <div class="grid cols-2" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:12px;">
+              {#each continueLearningItems as item (item.id)}
+                <!-- svelte-ignore a11y_click_events_have_key_events -->
+                <div class="card continue-card clickable" role="button" tabindex="0" onclick={() => openDoc(item.doc)} style="padding:14px; display:flex; flex-direction:column; gap:8px;">
+                  <div class="hstack" style="justify-content:space-between; gap:8px;">
+                    <div class="hstack" style="gap:8px; min-width:0;">
+                      <Icon name={item.type === 'video' ? 'video' : 'reader'} size={18} style="color:var(--accent); flex-shrink:0;" />
+                      <strong class="ellipsis" style="font-size:13.5px;" title={item.title}>{item.title}</strong>
+                    </div>
+                    <span class="badge" style="font-size:10px;">{item.type === 'video' ? 'فيديو' : 'PDF'}</span>
+                  </div>
+                  <div class="progress-bar-bg" style="width:100%; height:6px; background:var(--surface-3, rgba(255,255,255,0.08)); border-radius:3px; overflow:hidden; margin-top:4px;">
+                    <div class="progress-bar-fill" style="width:{item.progress}%; height:100%; background:var(--accent); border-radius:3px; transition:width 0.3s ease;"></div>
+                  </div>
+                  <div class="hstack" style="justify-content:space-between; font-size:11.5px; color:var(--muted); margin-top:2px;">
+                    <span>{item.progressText}</span>
+                    <span style="color:var(--accent); font-weight:700;">{item.progress > 0 ? item.progress + '%' : ''}</span>
+                  </div>
+                </div>
+              {/each}
+            </div>
           </div>
         {/if}
 
@@ -2456,10 +2522,47 @@
           onRequestAuth={() => (authOpen = true)}
           onImported={() => { docs = library.listDocuments(); }}
           onOpenVideoDirectly={(videoDoc) => {
-            if (videoDoc) {
-              activeVideo = { ...videoDoc };
-              view = 'Video';
+            if (!videoDoc) return;
+            const url = videoDoc.url || '';
+            const parsed = parseYouTube(url);
+            let doc;
+            if (parsed) {
+              const docId = youtubeDocId(parsed);
+              const existing = library.getDocument(docId);
+              doc = existing || library.upsertDocument({
+                id: docId,
+                kind: 'video',
+                provider: 'youtube',
+                ytType: parsed.type === 'playlist' ? 'playlist' : 'video',
+                ytId: parsed.videoId || (parsed.type === 'playlist' ? parsed.playlistId : ''),
+                title: videoDoc.title || url,
+                filename: videoDoc.title || url,
+                url,
+                embedUrl: parsed.embedUrl,
+                size: 0,
+                mime: 'text/html',
+                thumbnail: videoDoc.thumbnail || '',
+                missing: false
+              });
+            } else {
+              const docId = videoDoc.id || ('vid_' + Date.now());
+              const existing = library.getDocument(docId);
+              doc = existing || library.upsertDocument({
+                id: docId,
+                kind: 'video',
+                provider: 'direct',
+                title: videoDoc.title || url,
+                filename: videoDoc.title || url,
+                url,
+                size: 0,
+                mime: 'video/mp4',
+                thumbnail: videoDoc.thumbnail || '',
+                missing: false
+              });
             }
+            docs = library.listDocuments();
+            activeVideo = { ...doc };
+            view = 'Video';
           }}
         />
 

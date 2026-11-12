@@ -189,6 +189,30 @@ export function deleteFolder(id) {
   return true;
 }
 
+export function moveFolder(folderId, targetParentId = null) {
+  const state = loadState();
+  const folder = state.folders.find((f) => f.id === folderId);
+  if (!folder || folder.isProtected) return null;
+
+  // Prevent circular loops
+  if (targetParentId) {
+    let curr = targetParentId;
+    while (curr) {
+      if (curr === folderId) return null;
+      const p = state.folders.find((f) => f.id === curr);
+      curr = p ? p.parentId : null;
+    }
+  }
+
+  folder.parentId = targetParentId || null;
+  persistState(state);
+  return folder;
+}
+
+export function moveNoteToFolder(noteId, targetFolderId = null) {
+  return updateNote(noteId, { folderId: targetFolderId || null });
+}
+
 export function getFolderBreadcrumbs(folderId) {
   if (!folderId) return [];
   const folders = listFolders();
