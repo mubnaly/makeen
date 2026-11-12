@@ -390,19 +390,22 @@
     }
   }
 
-  // Draggable right sidebar resize handle (flexible splitter matching DualStudio: 15% to 75% width, RTL-aware)
+  // Draggable sidebar resize handle (flexible splitter matching DualStudio: 15% to 75% width, RTL-aware)
   function startSidebarResize(e) {
     e.preventDefault();
     isResizing = true;
     document.body.style.userSelect = 'none';
     document.body.style.cursor = 'col-resize';
+    try { e.currentTarget?.setPointerCapture?.(e.pointerId); } catch {}
+    const isRtl = document.dir === 'rtl' || (typeof ui !== 'undefined' && ui.lang === 'ar');
     const onPointerMove = (ev) => {
       if (!isResizing || !workspaceEl) return;
       const rect = workspaceEl.getBoundingClientRect();
-      const minW = Math.max(260, Math.round(rect.width * 0.15));
-      const maxW = Math.round(rect.width * 0.75);
-      // Since video workspace is displayed in LTR, sidebar is always positioned on the right
-      const calculatedW = rect.right - ev.clientX;
+      const minW = Math.max(240, Math.round(rect.width * 0.15));
+      const maxW = Math.round(rect.width * 0.70);
+      // In RTL layout sidebar is docked on left side: width is from left edge
+      // In LTR layout sidebar is docked on right side: width is from right edge
+      const calculatedW = isRtl ? (ev.clientX - rect.left) : (rect.right - ev.clientX);
       sidebarWidth = Math.max(minW, Math.min(maxW, Math.round(calculatedW)));
     };
     const onPointerUp = () => {
@@ -729,7 +732,9 @@
       if (ytHost && ytFrameUrl && record.ytId) {
         ytCurrentVideoId = record.ytId;
         const start = Number(record.lastSeconds) || 0;
+        current = start;
         ytPost('loadVideo', { videoId: record.ytId, start });
+        ytPost('seek', start);
         loading = false;
         loadChapters(record.ytId);
         loadTranscript();
@@ -848,10 +853,8 @@
     const start = Number(record?.lastSeconds) || 0;
     current = start > 0
       ? Math.min(start, duration > 0 ? Math.max(0, duration - 0.1) : start)
-      : Number(snapshot.current) || 0;
-    if (start > 0) {
-      ytPost('seek', current);
-    }
+      : 0;
+    ytPost('seek', current);
     ytQualities = normalizeQualities(snapshot.qualities);
     ytQuality = userSelectedQuality;
     if (muted) ytPost('mute');
@@ -1667,9 +1670,13 @@
   function onLoadedMetadata() {
     if (!videoEl) return;
     duration = videoEl.duration || 0;
-    if (video?.lastSeconds) {
-      videoEl.currentTime = clampSeek(video.lastSeconds, duration);
+    const start = Number(video?.lastSeconds) || 0;
+    if (start > 0) {
+      videoEl.currentTime = clampSeek(start, duration);
       current = videoEl.currentTime;
+    } else {
+      videoEl.currentTime = 0;
+      current = 0;
     }
   }
 
@@ -1821,15 +1828,19 @@
     if (!videoId) return createPlaceholderFrame('YouTube Frame');
     return new Promise((resolve) => {
       const ratio = totalDuration > 0 ? (seconds / totalDuration) : 0;
-      let frameName = '2.jpg';
-      if (ratio < 0.35) frameName = '1.jpg';
-      else if (ratio > 0.65) frameName = '3.jpg';
+      let frameNum = '2';
+      if (ratio < 0.35) frameNum = '1';
+      else if (ratio > 0.65) frameNum = '3';
 
       const candidateUrls = [
+        `https://img.youtube.com/vi/${videoId}/hq${frameNum}.jpg`,
+        `https://i.ytimg.com/vi/${videoId}/hq${frameNum}.jpg`,
+        `https://img.youtube.com/vi/${videoId}/sd${frameNum}.jpg`,
+        `https://img.youtube.com/vi/${videoId}/maxres${frameNum}.jpg`,
         `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`,
         `https://img.youtube.com/vi/${videoId}/sddefault.jpg`,
         `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`,
-        `https://img.youtube.com/vi/${videoId}/${frameName}`
+        `https://img.youtube.com/vi/${videoId}/${frameNum}.jpg`
       ];
 
       function tryLoad(index) {
@@ -1840,8 +1851,8 @@
         const img = new Image();
         img.crossOrigin = 'anonymous';
         img.onload = () => {
-          // YouTube returns a 120x90 grey placeholder when maxres/sd does not exist
-          if (img.naturalWidth <= 120) {
+          // If not the last fallback, skip tiny 120x90 placeholder to get higher resolution
+          if (img.naturalWidth <= 120 && index < candidateUrls.length - 1) {
             tryLoad(index + 1);
             return;
           }
@@ -2512,7 +2523,7 @@
 
               <div class="pl-header-box mt" style="padding:10px 14px; background:var(--surface-2); border-radius:8px; margin-bottom:12px;">
                 <h4 style="margin:0 0 4px 0;">{currentPl?.title}</h4>
-                <div class="meta muted" style="font-size:12px;">{plVideos.length} {t('projects.videoCount', { n: plVideos.length })}</div>
+                <div class="meta muted" style="font-size:12px;">{t('projects.videoCount', { n: plVideos.length })}</div>
               </div>
 
               <!-- Add Video to this playlist -->

@@ -44,6 +44,13 @@
   let activeFilter = $state('all'); // 'all' | 'my_shares' | 'private' | 'path' | 'playlist' | 'pdf' | 'cards' | 'notes' | 'video'
   let activeSort = $state('popular'); // 'popular' | 'rating' | 'newest'
   let pricingFilter = $state('all'); // 'all' | 'free' | 'paid'
+  let filterDropdownOpen = $state(false);
+
+  const activeFilterCount = $derived(
+    (activeFilter !== 'all' ? 1 : 0) +
+    (pricingFilter !== 'all' ? 1 : 0) +
+    (selectedTagFilter ? 1 : 0)
+  );
 
   // Dedicated Course / Playlist Details View State
   let selectedShareDetails = $state(null);
@@ -755,6 +762,78 @@
         </button>
       </div>
 
+      <!-- Unified Filter Dropdown Button -->
+      <div class="filter-dropdown-container" style="position:relative;">
+        <button
+          type="button"
+          class="filter-dropdown-btn hstack {activeFilterCount > 0 ? 'active' : ''}"
+          onclick={() => (filterDropdownOpen = !filterDropdownOpen)}
+          title="تصفية المحتوى والخيارات المتقدمة"
+          style="gap:6px; padding:6px 12px; border-radius:8px; border:1px solid var(--border); background:var(--surface-2); font-size:12.5px; font-weight:600; cursor:pointer;"
+        >
+          <Icon name="filter" size={13} />
+          <span>{ui.lang === 'ar' ? 'تصفية' : 'Filter'}</span>
+          {#if activeFilterCount > 0}
+            <span class="count-bubble" style="background:var(--accent); color:#fff; font-size:10.5px; padding:1px 6px; border-radius:999px;">{activeFilterCount}</span>
+          {/if}
+          <Icon name={filterDropdownOpen ? 'chevron-up' : 'chevron-down'} size={12} />
+        </button>
+
+        {#if filterDropdownOpen}
+          <div class="dropdown-backdrop" style="position:fixed; inset:0; z-index:90;" onclick={() => (filterDropdownOpen = false)}></div>
+
+          <div class="community-filter-menu card" style="position:absolute; top:calc(100% + 6px); inset-inline-end:0; z-index:95; min-width:270px; padding:14px; background:var(--surface); border:1px solid var(--border); border-radius:10px; box-shadow:0 12px 32px rgba(0,0,0,0.4); display:flex; flex-direction:column; gap:12px;">
+            <div class="hstack" style="justify-content:space-between; align-items:center; border-bottom:1px solid var(--border); padding-bottom:8px;">
+              <strong style="font-size:13px; display:inline-flex; align-items:center; gap:5px;"><Icon name="filter" size={13} /> {ui.lang === 'ar' ? 'خيارات التصفية' : 'Filters'}</strong>
+              {#if activeFilterCount > 0}
+                <button
+                  type="button"
+                  class="small secondary"
+                  style="font-size:11px; padding:2px 8px; border-radius:4px;"
+                  onclick={() => { activeFilter = 'all'; pricingFilter = 'all'; selectedTagFilter = ''; }}
+                >
+                  {ui.lang === 'ar' ? 'إعادة ضبط' : 'Reset'}
+                </button>
+              {/if}
+            </div>
+
+            <!-- Content Type Filter Section -->
+            <div class="filter-section">
+              <span class="filter-label muted" style="font-size:11px; font-weight:600; display:block; margin-bottom:6px;">{ui.lang === 'ar' ? 'نوع المحتوى:' : 'Content Type:'}</span>
+              <div class="filter-options-grid" style="display:grid; grid-template-columns:1fr 1fr; gap:5px;">
+                <button type="button" class="opt-btn {activeFilter === 'all' ? 'active' : ''}" onclick={() => (activeFilter = 'all')}>الكل</button>
+                <button type="button" class="opt-btn {activeFilter === 'path' ? 'active' : ''}" onclick={() => (activeFilter = 'path')}>مسارات تعليمية</button>
+                <button type="button" class="opt-btn {activeFilter === 'playlist' ? 'active' : ''}" onclick={() => (activeFilter = 'playlist')}>قوائم وكورسات</button>
+                <button type="button" class="opt-btn {activeFilter === 'pdf' ? 'active' : ''}" onclick={() => (activeFilter = 'pdf')}>كتب ومستندات</button>
+                <button type="button" class="opt-btn {activeFilter === 'cards' ? 'active' : ''}" onclick={() => (activeFilter = 'cards')}>بطاقات ذكية</button>
+                <button type="button" class="opt-btn {activeFilter === 'notes' ? 'active' : ''}" onclick={() => (activeFilter = 'notes')}>ملاحظات</button>
+              </div>
+            </div>
+
+            <!-- Pricing Filter Section -->
+            <div class="filter-section">
+              <span class="filter-label muted" style="font-size:11px; font-weight:600; display:block; margin-bottom:6px;">{ui.lang === 'ar' ? 'التسعير:' : 'Pricing:'}</span>
+              <div class="hstack" style="gap:5px;">
+                <button type="button" class="opt-btn grow {pricingFilter === 'all' ? 'active' : ''}" onclick={() => (pricingFilter = 'all')}>الكل</button>
+                <button type="button" class="opt-btn grow {pricingFilter === 'free' ? 'active' : ''}" onclick={() => (pricingFilter = 'free')}>مجاني</button>
+                <button type="button" class="opt-btn grow {pricingFilter === 'paid' ? 'active' : ''}" onclick={() => (pricingFilter = 'paid')}>مدفوع</button>
+              </div>
+            </div>
+
+            <!-- Ownership / Privacy Filter Section -->
+            {#if !isGuest}
+              <div class="filter-section">
+                <span class="filter-label muted" style="font-size:11px; font-weight:600; display:block; margin-bottom:6px;">{ui.lang === 'ar' ? 'الملكية والخصوصية:' : 'Ownership:'}</span>
+                <div class="hstack" style="gap:5px;">
+                  <button type="button" class="opt-btn grow {activeFilter === 'my_shares' ? 'active' : ''}" onclick={() => (activeFilter = 'my_shares')}>مشاركاتي</button>
+                  <button type="button" class="opt-btn grow {activeFilter === 'private' ? 'active' : ''}" onclick={() => (activeFilter = 'private')}>خاص بي</button>
+                </div>
+              </div>
+            {/if}
+          </div>
+        {/if}
+      </div>
+
       <!-- Free vs Paid Pricing Filter -->
       <div class="pricing-filter-group hstack">
         <button
@@ -1159,6 +1238,8 @@
         {@const unlocked = isContentUnlocked(item, currentUser)}
         {@const isOwner = isShareOwner(item, currentUser)}
         {@const totalDur = formatTotalDuration(computeShareTotalDuration(item))}
+        {@const displayTags = (item.tags && item.tags.length > 0) ? item.tags : (item.type === 'path' ? ['مسار', 'تعليمي'] : (item.type === 'pdf' ? ['ملخص', 'PDF'] : (item.type === 'cards' ? ['بطاقات', 'مراجعة'] : ['قائمة', 'دروس'])))}
+        {@const displayTeacher = item.teacher || (item.author ? `أ. ${item.author}` : null)}
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <div
           class="share-card card clickable-card"
@@ -1176,8 +1257,25 @@
               </div>
             {/if}
 
+            <!-- Top Start: Price Badge (Free / Paid) -->
+            {#if item.isPaid}
+              <span class="price-badge-floating {unlocked ? 'unlocked' : 'locked'}">
+                {#if unlocked}
+                  <Icon name="check" size={12} />
+                  <span>مُفعل</span>
+                {:else}
+                  <span>{item.price} {item.currency || 'EGP'}</span>
+                {/if}
+              </span>
+            {:else}
+              <span class="price-badge-floating free">
+                <span>{t('community.free')}</span>
+              </span>
+            {/if}
+
+            <!-- Top End: Owner Edit & Delete Actions (NO OVERLAP) -->
             {#if isOwner}
-              <div class="owner-floating-actions hstack" style="position:absolute; top:8px; right:8px; z-index:4; gap:4px; background:rgba(0,0,0,0.65); padding:3px 6px; border-radius:6px;">
+              <div class="owner-floating-actions hstack">
                 <button
                   type="button"
                   class="icon-btn small"
@@ -1199,30 +1297,17 @@
               </div>
             {/if}
 
+            <!-- Bottom Start: Content Type Badge -->
             <span class="type-badge-floating hstack">
               <Icon name={typeIcon(item.type)} size={12} />
               <span>{typeLabel(item.type)}</span>
             </span>
 
+            <!-- Bottom End: Total Duration Badge -->
             {#if totalDur}
               <span class="duration-badge-floating hstack">
                 <Icon name="clock" size={11} />
                 <span>{totalDur}</span>
-              </span>
-            {/if}
-
-            {#if item.isPaid}
-              <span class="price-badge-floating {unlocked ? 'unlocked' : 'locked'}">
-                {#if unlocked}
-                  <Icon name="check" size={12} />
-                  <span>مُفعل</span>
-                {:else}
-                  <span>{item.price} {item.currency || 'EGP'}</span>
-                {/if}
-              </span>
-            {:else}
-              <span class="price-badge-floating free">
-                <span>{t('community.free')}</span>
               </span>
             {/if}
           </div>
@@ -1251,9 +1336,9 @@
               </div>
 
               <!-- Tags on the other side of information -->
-              {#if item.tags && item.tags.length > 0}
+              {#if displayTags && displayTags.length > 0}
                 <div class="card-tags-list hstack" style="gap:4px; flex-wrap:wrap; justify-content:flex-end;">
-                  {#each item.tags.slice(0, 2) as tag}
+                  {#each displayTags.slice(0, 2) as tag}
                     <button
                       type="button"
                       class="tag-pill-btn"
@@ -1273,10 +1358,10 @@
             <!-- Author & Teacher Row -->
             <div class="share-author-row hstack" style="justify-content:space-between; align-items:center; margin-top:6px; flex-wrap:wrap; gap:6px;">
               <div class="hstack" style="gap:8px; font-size:12px; color:var(--text); flex-wrap:wrap;">
-                {#if item.teacher}
+                {#if displayTeacher}
                   <div class="teacher-info hstack" style="gap:4px;" title="المحاضر / المعلم">
                     <Icon name="graduation" size={13} style="color:var(--accent);" />
-                    <span style="font-weight:600; color:var(--text);">{item.teacher}</span>
+                    <span style="font-weight:600; color:var(--text);">{displayTeacher}</span>
                   </div>
                   <span class="meta-dot" style="opacity:0.6;">·</span>
                 {/if}
@@ -2361,27 +2446,79 @@
 
   .type-badge-floating {
     position: absolute;
-    top: 8px;
+    bottom: 8px;
     inset-inline-start: 8px;
-    background: rgba(0, 0, 0, 0.72);
+    background: rgba(0, 0, 0, 0.75);
     color: #fff;
     backdrop-filter: blur(4px);
     padding: 3px 8px;
     border-radius: 6px;
     font-size: 11px;
     font-weight: 600;
+    z-index: 3;
+  }
+
+  .duration-badge-floating {
+    position: absolute;
+    bottom: 8px;
+    inset-inline-end: 8px;
+    background: rgba(0, 0, 0, 0.75);
+    color: #fff;
+    backdrop-filter: blur(4px);
+    padding: 3px 8px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    z-index: 3;
   }
 
   .price-badge-floating {
     position: absolute;
     top: 8px;
-    inset-inline-end: 8px;
+    inset-inline-start: 8px;
     background: #e74c3c;
     color: #fff;
     padding: 3px 8px;
     border-radius: 6px;
     font-size: 11.5px;
     font-weight: 700;
+    z-index: 3;
+  }
+  .owner-floating-actions {
+    position: absolute;
+    top: 8px;
+    inset-inline-end: 8px;
+    z-index: 4;
+    gap: 4px;
+    background: rgba(0, 0, 0, 0.65);
+    padding: 3px 6px;
+    border-radius: 6px;
+  }
+  .filter-dropdown-btn.active {
+    background: var(--accent-light, rgba(59, 130, 246, 0.15)) !important;
+    border-color: var(--accent) !important;
+    color: var(--accent) !important;
+  }
+  .opt-btn {
+    padding: 5px 8px;
+    font-size: 11.5px;
+    font-weight: 500;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    color: var(--text);
+    cursor: pointer;
+    text-align: center;
+    transition: all 0.12s ease;
+  }
+  .opt-btn:hover {
+    background: var(--surface-3);
+  }
+  .opt-btn.active {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+    font-weight: 600;
   }
   .price-badge-floating.free {
     background: #27ae60;
@@ -2508,25 +2645,34 @@
     justify-content: center;
     overflow-y: auto;
     padding: 20px 14px;
-    background: rgba(0, 0, 0, 0.65);
+    background: rgba(0, 0, 0, 0.7);
     backdrop-filter: blur(5px);
   }
-  .modal-backdrop {
-    position: fixed;
-    inset: 0;
-    background: transparent;
-    z-index: 1;
+  .modal-root > .modal-backdrop {
+    position: fixed !important;
+    inset: 0 !important;
+    background: transparent !important;
+    z-index: 1 !important;
+    pointer-events: auto !important;
   }
-  .share-modal {
-    position: relative;
+  .modal-root > *:not(.modal-backdrop),
+  .share-modal,
+  .payment-modal,
+  .orders-modal,
+  .review-modal,
+  .receipt-zoom-container {
+    position: relative !important;
     top: auto;
     left: auto;
     transform: none;
     margin: auto;
+    z-index: 100 !important;
+    pointer-events: auto !important;
+  }
+  .share-modal {
     width: min(580px, 94vw);
     max-height: calc(100vh - 40px);
     overflow-y: auto;
-    z-index: 2;
     padding: 22px;
     border-radius: var(--radius-lg);
     display: flex;

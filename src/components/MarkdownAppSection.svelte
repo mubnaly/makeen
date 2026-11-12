@@ -285,7 +285,10 @@
       <button
         type="button"
         class="folder-label-btn"
-        onclick={() => (selectedFolderId = folder.id)}
+        onclick={() => {
+          selectedFolderId = folder.id;
+          toggleFolder(folder.id);
+        }}
       >
         <Icon name={folder.isDaily || folder.isProtected ? 'planner' : 'folder'} size={14} />
         {#if editingFolderId === folder.id}

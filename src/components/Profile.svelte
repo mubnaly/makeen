@@ -83,16 +83,28 @@
   const activityDays = $derived.by(() => {
     const arr = [];
     const today = new Date();
+    today.setHours(0, 0, 0, 0);
     const daysMap = stats.days || {};
     const totalDays = Math.max(7, selectedRangeDays);
     const numWeeks = Math.ceil(totalDays / 7);
-    const alignedCount = numWeeks * 7;
 
-    for (let i = alignedCount - 1; i >= 0; i--) {
-      const d = new Date(today);
-      d.setDate(d.getDate() - i);
+    // Align grid so row 0 is always Saturday (day 6) and row 6 is Friday (day 5)
+    // In JS: 0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat
+    // Offset from today to end of current week (Friday):
+    const daysUntilFriday = (5 - today.getDay() + 7) % 7;
+    const endOfWeek = new Date(today);
+    endOfWeek.setDate(today.getDate() + daysUntilFriday);
+
+    const totalGridDays = numWeeks * 7;
+    const startDate = new Date(endOfWeek);
+    startDate.setDate(startDate.getDate() - totalGridDays + 1);
+
+    for (let i = 0; i < totalGridDays; i++) {
+      const d = new Date(startDate);
+      d.setDate(d.getDate() + i);
+      const isFuture = d.getTime() > today.getTime();
       const key = d.toISOString().slice(0, 10);
-      const dayData = daysMap[key] || {};
+      const dayData = isFuture ? {} : (daysMap[key] || {});
       
       const videoSec = Number(dayData.videoSec || 0);
       const readingSec = Number(dayData.readingSec || 0);
@@ -103,18 +115,22 @@
       
       const totalHours = (sec / 3600);
       let level = 0;
-      if (totalHours >= 5) level = 4;
-      else if (totalHours >= 2.5) level = 3;
-      else if (totalHours >= 1) level = 2;
-      else if (totalHours > 0) level = 1;
+      if (!isFuture) {
+        if (totalHours >= 5) level = 4;
+        else if (totalHours >= 2.5) level = 3;
+        else if (totalHours >= 1) level = 2;
+        else if (totalHours > 0) level = 1;
+      }
 
       const dayNames = ui.lang === 'ar'
         ? ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت']
         : ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-      const hoursStr = sec > 0
-        ? (totalHours >= 1 ? `${totalHours.toFixed(1)} ${ui.lang === 'ar' ? 'ساعة' : 'hours'}` : `${Math.round(sec / 60)} ${ui.lang === 'ar' ? 'دقيقة' : 'mins'}`)
-        : (ui.lang === 'ar' ? 'لا يوجد دراسة' : 'No study');
+      const hoursStr = isFuture
+        ? (ui.lang === 'ar' ? 'تاريخ مستقبلي' : 'Future date')
+        : (sec > 0
+          ? (totalHours >= 1 ? `${totalHours.toFixed(1)} ${ui.lang === 'ar' ? 'ساعة' : 'hours'}` : `${Math.round(sec / 60)} ${ui.lang === 'ar' ? 'دقيقة' : 'mins'}`)
+          : (ui.lang === 'ar' ? 'لا يوجد دراسة' : 'No study'));
 
       const breakdown = sec > 0
         ? `فيديو: ${Math.round(videoSec/60)}د، قراءة: ${Math.round(readingSec/60)}د، تركيز: ${Math.round(pomoSec/60)}د`
@@ -125,6 +141,7 @@
         sec,
         totalHours,
         level,
+        isFuture,
         dayName: dayNames[d.getDay()],
         breakdown,
         hoursStr,
@@ -509,11 +526,19 @@
             <div class="activity-grid">
               {#each activityDays as day}
                 <div
-                  class="heat-square level-{day.level}"
+                  class="heat-square level-{day.level} {day.isFuture ? 'future-square' : ''}"
                   title="{day.date} ({day.dayName}): {day.hoursStr} {day.breakdown ? `• ${day.breakdown}` : ''}"
                 ></div>
               {/each}
             </div>
+          </div>
+
+          <!-- Bottom Dates Axis -->
+          <div class="heatmap-bottom-axis hstack muted" style="font-size:10px; margin-top:4px; padding-inline-start:38px; justify-content:space-between;">
+            {#if activityDays.length > 0}
+              <span>{activityDays[0].date}</span>
+              <span>{activityDays[activityDays.length - 1].date}</span>
+            {/if}
           </div>
         </div>
       </div>
@@ -1215,10 +1240,11 @@
     border-radius: 2px;
   }
   .level-0 { background: var(--surface-3, rgba(255, 255, 255, 0.08)); }
-  .level-1 { background: #0e4429; }
-  .level-2 { background: #006d32; }
-  .level-3 { background: #26a641; }
-  .level-4 { background: #39d353; }
+  .level-1 { background: #064e3b; }
+  .level-2 { background: #047857; }
+  .level-3 { background: #10b981; }
+  .level-4 { background: #34d399; }
+  .future-square { opacity: 0.25; }
 
   .gh-repo-grid {
     display: grid;

@@ -52,6 +52,7 @@
   import { parseYouTube, youtubeDocId } from './lib/youtube.js';
   import { moveToTrash, restoreTrashItem, purgeExpiredTrash, loadTrashRetentionDays, saveTrashRetentionDays, emptyAllTrash } from './lib/trash.js';
   import { listAllNotes } from './lib/markdownStore.js';
+  import { getImportedShareIds, listCommunityShares } from './lib/communityStore.js';
   import { recordStudyHeartbeat, computeStudySummary, formatHumanDuration } from './lib/stats.js';
   import PrayerCard from './components/PrayerCard.svelte';
   import { POPULAR_CITIES, loadPrayerSettings, savePrayerSettings } from './lib/prayer.js';
@@ -151,6 +152,26 @@
   let captures = $state([]);
   let cards = $state([]);
   let selectedCaptures = $state([]);
+  let enrolledCoursesList = $state([]);
+
+  async function refreshEnrolledCourses() {
+    try {
+      const ids = getImportedShareIds();
+      if (!ids || !ids.length) { enrolledCoursesList = []; return; }
+      const allShares = await listCommunityShares();
+      enrolledCoursesList = (allShares || []).filter((s) => ids.includes(s.id));
+    } catch {
+      enrolledCoursesList = [];
+    }
+  }
+
+  function openEnrolledCourse(share) {
+    if (share.type === 'playlist' || share.type === 'video') {
+      view = 'Video';
+    } else {
+      view = 'Community';
+    }
+  }
   let exportLabels = $state(true);
   let exportingGallery = $state(false);
   let previewCapture = $state(null);
@@ -323,6 +344,7 @@
     try { captures = await listCaptures(); } catch (e) { notify(t('toast.loadCapturesFailed'), 'error'); }
     try { cards = await listCards(); } catch (e) { notify(t('toast.loadCardsFailed'), 'error'); }
     startDueReminderLoop();
+    refreshEnrolledCourses();
 
     // Track active application open duration and update study summary
     setInterval(() => {
@@ -600,6 +622,8 @@
       } else if (videoDocs.length > 0) {
         activeVideo = { ...videoDocs[0] };
       }
+    } else if (id === 'Library') {
+      refreshEnrolledCourses();
     }
     view = id;
   }
@@ -1698,14 +1722,14 @@
       <button class="icon-btn" onclick={openHelp} title={t('topbar.help')} aria-label={t('topbar.help')} aria-haspopup="dialog">
         <Icon name="help" size={18} />
       </button>
-      <button class="import-btn" onclick={pickPdf} title={`${t('topbar.importPdf')} (Ctrl+O)`}>
-        <Icon name="upload" size={15} /><span>{t('topbar.importPdf')}</span>
+      <button class="import-btn" onclick={pickPdf} title="PDF (Ctrl+O)">
+        <Icon name="upload" size={14} /><span>PDF</span>
       </button>
-      <button class="import-btn" onclick={pickVideo} title={t('topbar.importMedia') || 'استيراد فيديو أو صوت'}>
-        <Icon name="video" size={15} /><span>{importingVideo ? t('video.importing') : (t('topbar.importMedia') || t('topbar.importVideo'))}</span>
+      <button class="import-btn" onclick={pickVideo} title={t('topbar.importMedia') || 'فيديو أو صوت'}>
+        <Icon name="video" size={14} /><span>{importingVideo ? t('video.importing') : (ui.lang === 'ar' ? 'فيديو وصوت' : 'Video & Audio')}</span>
       </button>
       <button class="import-btn recorder-btn" onclick={() => (recorderOpen = true)} title={t('recorder.recordScreen')}>
-        <Icon name="camera" size={15} /><span>{t('recorder.recordScreen')}</span>
+        <Icon name="camera" size={14} /><span>{t('recorder.recordScreen')}</span>
       </button>
       <button class="more-drawer-btn" onclick={() => (mobileDrawerOpen = !mobileDrawerOpen)} title={t('nav.other')} aria-label={t('nav.other')}>
         <Icon name="menu" size={18} />
@@ -1975,6 +1999,37 @@
           </button>
         </div>
 
+        <!-- Enrolled Courses, Playlists & Learning Paths Folders -->
+        {#if enrolledCoursesList.length > 0}
+          <div class="library-enrolled-section mt" style="margin-bottom:16px;">
+            <div class="hstack" style="gap:6px; margin-bottom:8px; font-size:13px; font-weight:700;">
+              <Icon name="folder" size={15} />
+              <span>{ui.lang === 'ar' ? 'الدورات والمسارات المشترك بها (المجلدات)' : 'Enrolled Courses & Paths'}</span>
+              <span class="badge" style="font-size:10px;">{enrolledCoursesList.length}</span>
+            </div>
+            <div class="library-folders-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(240px, 1fr)); gap:10px;">
+              {#each enrolledCoursesList as c (c.id)}
+                <div
+                  class="card clickable hstack"
+                  role="button"
+                  tabindex="0"
+                  onclick={() => openEnrolledCourse(c)}
+                  onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && openEnrolledCourse(c)}
+                  style="padding:10px 12px; gap:10px; background:var(--surface-2); border:1px solid var(--border); border-radius:8px; align-items:center;"
+                >
+                  <div style="width:32px; height:32px; border-radius:6px; background:var(--accent-light, rgba(59,130,246,0.12)); color:var(--accent); display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+                    <Icon name={c.type === 'path' ? 'layers' : (c.type === 'playlist' ? 'video' : 'folder')} size={17} />
+                  </div>
+                  <div class="grow" style="min-width:0; overflow:hidden;">
+                    <div class="title ellipsis" style="font-size:12px; font-weight:600;" title={c.title}>{c.title}</div>
+                    <div class="meta muted" style="font-size:10.5px;">{c.type === 'path' ? 'مسار تعليمي' : 'كورس / قائمة'}</div>
+                  </div>
+                </div>
+              {/each}
+            </div>
+          </div>
+        {/if}
+
         <div class="mt">
           {#if filteredDocs.length === 0}
             {#if recentDocs.length > 0}
@@ -1994,23 +2049,26 @@
                 secondaryLabel={t('topbar.importVideo')} onsecondary={pickVideo} />
             {/if}
           {:else if modeOf('library') === 'grid'}
-            <div class="grid cols-3">
+            <div class="library-compact-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:10px;">
               {#each filteredDocs as d (d.id)}
-                <div class="card clickable" role="button" tabindex="0" onclick={() => openDoc(d)}
-                  onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && openDoc(d)}>
-                  <div class="hstack" style="min-width:0; overflow:hidden;">
-                    <span class="row-ico" style="flex-shrink:0"><Icon name={kindOf(d) === 'video' ? 'video' : 'reader'} size={18} /></span>
+                <div class="card clickable library-item-card" role="button" tabindex="0" onclick={() => openDoc(d)}
+                  onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && openDoc(d)}
+                  style="padding:10px 12px; display:flex; flex-direction:column; gap:6px;">
+                  <div class="hstack" style="min-width:0; overflow:hidden; gap:8px;">
+                    <span class="row-ico" style="flex-shrink:0"><Icon name={kindOf(d) === 'video' ? 'video' : 'reader'} size={16} /></span>
                     <div class="grow" style="min-width:0; overflow:hidden;">
-                      <div class="title" title={d.title} style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:block;">{d.title}</div>
-                      <div class="meta muted" style="font-size:12px; margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{docMeta(d)}</div>
+                      <div class="title ellipsis" title={d.title} style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; font-weight:600;">{d.title}</div>
+                      <div class="meta muted" style="font-size:11px; margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{docMeta(d)}</div>
                     </div>
                   </div>
-                  <div class="hstack" style="margin-top:10px; justify-content:space-between">
-                    <span class="hstack" style="gap:6px">
-                      {#if d.missing}<span class="badge" style="color:var(--danger)">{t('library.missing')}</span>{/if}
-                      <span class="badge">{kindOf(d) === 'video' ? t('library.badgeVideo') : t('library.badgePdf')}</span>
+                  <div class="hstack" style="margin-top:auto; padding-top:4px; justify-content:space-between; align-items:center;">
+                    <span class="hstack" style="gap:4px;">
+                      {#if d.missing}<span class="badge" style="color:var(--danger); font-size:10px;">{t('library.missing')}</span>{/if}
+                      <span class="badge" style="font-size:10px;">{kindOf(d) === 'video' ? t('library.badgeVideo') : t('library.badgePdf')}</span>
                     </span>
-                    <button onclick={(e) => { e.stopPropagation(); removeDoc(d); }}>{t('common.remove')}</button>
+                    <button class="small secondary icon-btn" style="height:24px; width:24px; padding:0;" onclick={(e) => { e.stopPropagation(); removeDoc(d); }} title={t('common.remove')}>
+                      <Icon name="trash" size={12} />
+                    </button>
                   </div>
                 </div>
               {/each}
@@ -2136,7 +2194,7 @@
                 <img
                   src={c.image}
                   alt={c.name}
-                  style="cursor: zoom-in;"
+                  style="cursor: pointer;"
                   onclick={(e) => { e.stopPropagation(); previewCapture = c; }}
                   title="انقر لعرض الصورة بالحجم الكامل"
                 />
@@ -2151,14 +2209,11 @@
                       <span>{t('common.pageShort')}{c.page}</span>
                     {/if}
                   </div>
-                  <div class="hstack" style="margin-top:6px; gap:4px;">
-                    <button class="small" onclick={async (e) => { e.stopPropagation(); await createCardFromCapture(c); notify(t('toast.cardCreated'), 'ok'); }} title={t('gallery.card')}>
+                  <div class="hstack" style="margin-top:8px; gap:6px; justify-content:space-between;">
+                    <button class="small grow hstack" style="justify-content:center; gap:4px; height:28px; font-size:11.5px; border-radius:6px;" onclick={async (e) => { e.stopPropagation(); await createCardFromCapture(c); notify(t('toast.cardCreated'), 'ok'); }} title={t('gallery.card')}>
                       <Icon name="flashcards" size={13} /><span>{t('gallery.card')}</span>
                     </button>
-                    <button class="small" onclick={(e) => { e.stopPropagation(); previewCapture = c; }} title="معاينة كاملة">
-                      <Icon name="eye" size={13} />
-                    </button>
-                    <button class="small danger" onclick={(e) => { e.stopPropagation(); deleteCapture(c); }} title={t('common.delete')}>
+                    <button class="small danger icon-btn" style="height:28px; width:28px; border-radius:6px; flex-shrink:0;" onclick={(e) => { e.stopPropagation(); deleteCapture(c); }} title={t('common.delete')}>
                       <Icon name="trash" size={13} />
                     </button>
                   </div>
@@ -2178,7 +2233,7 @@
                   class="row-thumb"
                   src={c.image}
                   alt={c.name}
-                  style="cursor: zoom-in;"
+                  style="cursor: pointer;"
                   onclick={(e) => { e.stopPropagation(); previewCapture = c; }}
                   title="انقر لعرض الصورة بالحجم الكامل"
                 />
@@ -2194,15 +2249,14 @@
                     {/if}
                   </div>
                 </div>
-                <button class="small" onclick={async (e) => { e.stopPropagation(); await createCardFromCapture(c); notify(t('toast.cardCreated'), 'ok'); }}>
-                  <Icon name="flashcards" size={14} /><span>{t('gallery.card')}</span>
-                </button>
-                <button class="small" onclick={(e) => { e.stopPropagation(); previewCapture = c; }} title="معاينة">
-                  <Icon name="eye" size={14} />
-                </button>
-                <button class="small danger" onclick={(e) => { e.stopPropagation(); deleteCapture(c); }}>
-                  <Icon name="trash" size={14} />
-                </button>
+                <div class="hstack" style="gap:6px;">
+                  <button class="small hstack" style="gap:4px; height:28px; font-size:11.5px; border-radius:6px;" onclick={async (e) => { e.stopPropagation(); await createCardFromCapture(c); notify(t('toast.cardCreated'), 'ok'); }}>
+                    <Icon name="flashcards" size={13} /><span>{t('gallery.card')}</span>
+                  </button>
+                  <button class="small danger icon-btn" style="height:28px; width:28px; border-radius:6px;" onclick={(e) => { e.stopPropagation(); deleteCapture(c); }} title={t('common.delete')}>
+                    <Icon name="trash" size={13} />
+                  </button>
+                </div>
               </div>
             {/each}
           </div>
@@ -2693,18 +2747,80 @@
 {/if}
 
 {#if previewCapture}
-  <div class="modal-backdrop" onclick={() => (previewCapture = null)} role="presentation" style="z-index:9999; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,0.85); backdrop-filter:blur(6px);">
+  {@const curIdx = captures.findIndex((c) => c.id === previewCapture?.id)}
+  {@const totalCaptures = captures.length}
+  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+  <div
+    class="modal-backdrop"
+    onclick={() => (previewCapture = null)}
+    onkeydown={(e) => {
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+        e.stopPropagation();
+        if (curIdx < totalCaptures - 1) previewCapture = captures[curIdx + 1];
+        else previewCapture = captures[0];
+      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+        e.stopPropagation();
+        if (curIdx > 0) previewCapture = captures[curIdx - 1];
+        else previewCapture = captures[totalCaptures - 1];
+      } else if (e.key === 'Escape') {
+        previewCapture = null;
+      }
+    }}
+    role="presentation"
+    style="z-index:99999; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,0.85); backdrop-filter:blur(6px);"
+  >
     <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <div class="card" onclick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" style="max-width:92vw; max-height:92vh; width:fit-content; padding:14px; display:flex; flex-direction:column; gap:10px; background:var(--surface);">
+    <div class="card" onclick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" style="max-width:94vw; max-height:94vh; width:fit-content; padding:14px; display:flex; flex-direction:column; gap:10px; background:var(--surface); position:relative;">
       <div class="hstack" style="justify-content:space-between; gap:12px;">
-        <strong class="truncate" style="max-width:70vw; font-size:14px;">{previewCapture.name}</strong>
+        <div class="hstack" style="gap:8px; min-width:0; overflow:hidden;">
+          <span class="badge" style="background:var(--accent-soft); color:var(--accent);">{curIdx >= 0 ? curIdx + 1 : 1} / {totalCaptures}</span>
+          <strong class="truncate" style="max-width:65vw; font-size:13.5px;">{previewCapture.name}</strong>
+        </div>
         <button class="icon-btn" onclick={() => (previewCapture = null)} aria-label="إغلاق">
           <Icon name="x" size={16} />
         </button>
       </div>
-      <div style="flex:1; overflow:auto; display:flex; align-items:center; justify-content:center; min-height:200px;">
-        <img src={previewCapture.image} alt={previewCapture.name} style="max-width:100%; max-height:76vh; object-fit:contain; border-radius:6px; box-shadow:0 4px 18px rgba(0,0,0,0.3);" />
+
+      <div style="position:relative; flex:1; overflow:hidden; display:flex; align-items:center; justify-content:center; min-height:220px;">
+        {#if totalCaptures > 1}
+          <button
+            type="button"
+            class="lightbox-nav-btn prev"
+            onclick={(e) => {
+              e.stopPropagation();
+              if (curIdx > 0) previewCapture = captures[curIdx - 1];
+              else previewCapture = captures[totalCaptures - 1];
+            }}
+            title="الصورة السابقة (السهم الأيمن/الأيسر)"
+            style="position:absolute; inset-inline-start:8px; z-index:10; background:rgba(0,0,0,0.6); color:#fff; border:none; border-radius:50%; width:36px; height:36px; display:flex; align-items:center; justify-content:center; cursor:pointer;"
+          >
+            <Icon name="chevron-left" size={20} />
+          </button>
+        {/if}
+
+        <img
+          src={previewCapture.image}
+          alt={previewCapture.name}
+          style="max-width:100%; max-height:72vh; object-fit:contain; border-radius:6px; box-shadow:0 4px 18px rgba(0,0,0,0.3); user-select:none;"
+        />
+
+        {#if totalCaptures > 1}
+          <button
+            type="button"
+            class="lightbox-nav-btn next"
+            onclick={(e) => {
+              e.stopPropagation();
+              if (curIdx < totalCaptures - 1) previewCapture = captures[curIdx + 1];
+              else previewCapture = captures[0];
+            }}
+            title="الصورة التالية (السهم الأيمن/الأيسر)"
+            style="position:absolute; inset-inline-end:8px; z-index:10; background:rgba(0,0,0,0.6); color:#fff; border:none; border-radius:50%; width:36px; height:36px; display:flex; align-items:center; justify-content:center; cursor:pointer;"
+          >
+            <Icon name="chevron-right" size={20} />
+          </button>
+        {/if}
       </div>
+
       <div class="hstack" style="justify-content:space-between; font-size:12px; color:var(--muted); flex-wrap:wrap; gap:8px;">
         <span>{previewCapture.timecode ? `التوقيت: ${previewCapture.timecode}` : (previewCapture.page ? `صفحة ${previewCapture.page}` : '')}</span>
         <div class="hstack" style="gap:8px;">

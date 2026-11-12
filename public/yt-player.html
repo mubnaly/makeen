@@ -219,8 +219,8 @@
                 var targetVid = typeof data.args === 'object' ? data.args.videoId : data.args;
                 var startSec = typeof data.args === 'object' ? Number(data.args.start || 0) : 0;
                 if (targetVid && typeof player.loadVideoById === 'function') {
-                  player.loadVideoById({ videoId: String(targetVid).trim(), startSeconds: startSec });
-                  post('state');
+                  currentVideoId = String(targetVid).trim();
+                  player.loadVideoById({ videoId: currentVideoId, startSeconds: startSec });
                 }
                 break;
               }

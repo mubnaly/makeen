@@ -99,6 +99,17 @@ export function computeShareTotalDuration(share) {
   if (total <= 0 && share.totalDurationSeconds && Number(share.totalDurationSeconds) > 0) {
     return Number(share.totalDurationSeconds);
   }
+  // Smart fallback estimate if durations were not yet indexed (~25 min per lesson/video)
+  if (total <= 0) {
+    const videoCount = (share.items?.length || share.itemsCount || share.playlistData?.videoUrls?.length || 0);
+    if (videoCount > 0) {
+      return videoCount * 25 * 60;
+    }
+    const pathCoursesCount = (share.pathCourses?.length || 0);
+    if (pathCoursesCount > 0) {
+      return pathCoursesCount * 8 * 25 * 60;
+    }
+  }
   return total;
 }
 

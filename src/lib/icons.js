@@ -31,6 +31,7 @@ export const ICONS = {
   project: [['path', 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'], ['line', 3, 11, 21, 11]],
   folder: [['path', 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'], ['line', 3, 11, 21, 11]],
   folderPlus: [['path', 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'], ['line', 12, 10, 12, 16], ['line', 9, 13, 15, 13]],
+  filter: [['polygon', '22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3']],
   network: [
     ['circle', 12, 5, 3],
     ['circle', 5, 18, 3],
