@@ -18,7 +18,12 @@
     computeShareTotalDuration,
     isShareImported,
     getImportedShareIds,
-    normalizeTags
+    normalizeTags,
+    generateCouponBatch,
+    setShareMasterPasscode,
+    redeemShareCoupon,
+    insertResourceIntoShare,
+    getShareDeepLink
   } from '../lib/communityStore.js';
   import {
     isContentUnlocked,
@@ -110,6 +115,35 @@
   let reviewRating = $state(5);
   let reviewComment = $state('');
   let activeShareReviews = $state([]);
+
+  // Preview Mode for Owner & URL Concealment
+  let previewModeActive = $state(false);
+  let showOwnerRawUrls = $state(false);
+
+  // Enroll First Gate Prompt Modal
+  let enrollPromptItem = $state(null);
+
+  // Resource Insertion Modal State
+  let isInsertResourceModalOpen = $state(false);
+  let insertResourceType = $state('video');
+  let insertResourceTitle = $state('');
+  let insertResourceUrl = $state('');
+  let insertResourceContent = $state('');
+  let insertResourcePosition = $state(-1);
+  let insertResourceIsFreePreview = $state(false);
+  let isInsertingResource = $state(false);
+
+  // Coupons Management Modal State (Owner)
+  let isCouponsModalOpen = $state(false);
+  let couponBatchCount = $state(20);
+  let isGeneratingCoupons = $state(false);
+  let masterPasscodeDraft = $state('');
+  let isSavingPasscode = $state(false);
+
+  // Student Coupon Redemption Modal State
+  let isRedeemModalOpen = $state(false);
+  let redeemCodeInput = $state('');
+  let isRedeemingCoupon = $state(false);
 
   // Learning Path Courses State
   let newSharePathCourses = $state([]);
@@ -328,6 +362,186 @@
       }
     } finally {
       importingId = null;
+    }
+  }
+
+  async function handleShareCourseLink(share) {
+    if (!share) return;
+    const link = getShareDeepLink(share.id);
+    if (typeof navigator !== 'undefined' && navigator.share) {
+      try {
+        await navigator.share({
+          title: share.title,
+          text: `شاهد دورة "${share.title}" على مَكِين:`,
+          url: link
+        });
+        notify('تمت مشاركة رابط الدورة بنجاح', 'ok');
+        return;
+      } catch (err) {
+        if (err.name === 'AbortError') return;
+      }
+    }
+    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+      try {
+        await navigator.clipboard.writeText(link);
+        notify('تم نسخ رابط الدورة بنجاح!', 'ok');
+        return;
+      } catch {}
+    }
+    notify(link, 'info');
+  }
+
+  function handleLessonClick(subItem, share) {
+    if (!subItem) return;
+    const isOwner = isShareOwner(share, currentUser);
+    const enrolled = checkIsImported(share.id);
+    const unlocked = isContentUnlocked(share, currentUser) || isOwner || !share.isPaid;
+
+    if (!unlocked) {
+      openPaymentModal(share);
+      return;
+    }
+
+    if (enrolled || isOwner) {
+      playLessonVideo(subItem, share);
+      return;
+    }
+
+    if (subItem.isFreePreview) {
+      notify('تشغيل درس المعاينة المجانية — يمكنك استيراد الدورة كاملة في أي وقت', 'info');
+      playLessonVideo(subItem, share);
+      return;
+    }
+
+    enrollPromptItem = { subItem, share };
+  }
+
+  async function handleConfirmEnrollAndPlay() {
+    if (!enrollPromptItem) return;
+    const { subItem, share } = enrollPromptItem;
+    enrollPromptItem = null;
+    await handleImport(share);
+    playLessonVideo(subItem, share);
+  }
+
+  function playLessonVideo(subItem, share) {
+    if (subItem.type === 'pdf') {
+      onOpenView?.('Reader');
+      return;
+    }
+    if (subItem.type === 'notes') {
+      onOpenView?.('Notes');
+      return;
+    }
+    if (subItem.type === 'cards') {
+      onOpenView?.('Cards');
+      return;
+    }
+    onOpenVideoDirectly({
+      id: subItem.id || `yt-${(subItem.url.match(/(?:v=|\/embed\/|youtu\.be\/)([a-zA-Z0-9_-]{11})/) || [])[1] || Date.now()}`,
+      url: subItem.url,
+      title: subItem.title,
+      docId: share.id,
+      provider: 'youtube'
+    });
+  }
+
+  async function handleGenerateCoupons(shareId) {
+    if (!shareId) return;
+    isGeneratingCoupons = true;
+    try {
+      const res = await generateCouponBatch(shareId, couponBatchCount || 20, 1);
+      if (res.ok) {
+        notify(`تم توليد ${res.generated.length} كوبون بنجاح!`, 'ok');
+        selectedShareDetails = { ...res.share };
+        shares = shares.map((s) => s.id === shareId ? { ...res.share } : s);
+      } else {
+        notify(res.error || 'فشل توليد الكوبونات', 'error');
+      }
+    } catch {
+      notify('حدث خطأ أثناء توليد الكوبونات', 'error');
+    } finally {
+      isGeneratingCoupons = false;
+    }
+  }
+
+  async function handleSaveMasterPasscode(shareId) {
+    if (!shareId) return;
+    isSavingPasscode = true;
+    try {
+      const res = await setShareMasterPasscode(shareId, masterPasscodeDraft);
+      if (res.ok) {
+        notify('تم حفظ كلمة المرور الموحدة للدورة بنجاح!', 'ok');
+        selectedShareDetails = { ...res.share };
+        shares = shares.map((s) => s.id === shareId ? { ...res.share } : s);
+      } else {
+        notify('فشل حفظ كلمة المرور', 'error');
+      }
+    } catch {
+      notify('حدث خطأ أثناء حفظ كلمة المرور', 'error');
+    } finally {
+      isSavingPasscode = false;
+    }
+  }
+
+  async function handleRedeemCoupon(shareId) {
+    if (!redeemCodeInput.trim()) {
+      notify('يرجى إدخال كود الكوبون أو كلمة المرور', 'warn');
+      return;
+    }
+    isRedeemingCoupon = true;
+    try {
+      const res = await redeemShareCoupon(shareId, redeemCodeInput.trim(), currentUser);
+      if (res.ok) {
+        notify(res.message || 'تم تفعيل الدورة بنجاح!', 'ok');
+        isRedeemModalOpen = false;
+        redeemCodeInput = '';
+        shares = await listCommunityShares();
+        const updated = shares.find((s) => s.id === shareId);
+        if (updated) selectedShareDetails = { ...updated };
+      } else {
+        notify(res.error || 'كود الكوبون أو كلمة المرور غير صحيحة', 'error');
+      }
+    } catch {
+      notify('حدث خطأ أثناء تفعيل الكوبون', 'error');
+    } finally {
+      isRedeemingCoupon = false;
+    }
+  }
+
+  async function handleInsertResource(shareId) {
+    if (!insertResourceTitle.trim()) {
+      notify('يرجى إدخال عنوان المورد', 'warn');
+      return;
+    }
+    isInsertingResource = true;
+    try {
+      const res = await insertResourceIntoShare(
+        shareId,
+        {
+          type: insertResourceType,
+          title: insertResourceTitle.trim(),
+          url: insertResourceUrl.trim(),
+          content: insertResourceContent.trim(),
+          isFreePreview: insertResourceIsFreePreview
+        },
+        Number(insertResourcePosition)
+      );
+      if (res.ok) {
+        notify('تمت إضافة المورد للدورة بنجاح!', 'ok');
+        isInsertResourceModalOpen = false;
+        insertResourceTitle = '';
+        insertResourceUrl = '';
+        insertResourceContent = '';
+        selectedShareDetails = { ...res.share };
+        shares = shares.map((s) => s.id === shareId ? { ...res.share } : s);
+      } else {
+        notify(res.error || 'فشلت إضافة المورد', 'error');
+      }
+    } catch {
+      notify('حدث خطأ أثناء إضافة المورد', 'error');
+    } finally {
+      isInsertingResource = false;
     }
   }
 
@@ -748,6 +962,12 @@
     return 'reader';
   }
 
+  function lessonIcon(item) {
+    if (!item?.type || item.type === 'video') return 'play';
+    if (item.type === 'pdf') return 'book-open';
+    return 'file-text';
+  }
+
   function typeLabel(type) {
     if (type === 'path') return ui.lang === 'ar' ? 'مسار تعليمي' : 'Learning Path';
     if (type === 'playlist') return t('community.filterPlaylists');
@@ -1081,14 +1301,26 @@
 
         {#if isOwner}
           <div class="hstack" style="gap:8px;">
-            <button class="secondary small hstack" onclick={() => openEditShare(share)}>
-              <Icon name="pencil" size={14} />
-              <span>{ui.lang === 'ar' ? 'تعديل المحتوى' : 'Edit Share'}</span>
+            <button
+              type="button"
+              class="secondary small hstack"
+              style={previewModeActive ? 'background:rgba(37,99,235,0.15); border-color:var(--accent); font-weight:700;' : ''}
+              onclick={() => (previewModeActive = !previewModeActive)}
+              title="معاينة محتوى وتفاصيل الدورة كما يراها الطلاب"
+            >
+              <Icon name={previewModeActive ? 'pencil' : 'eye'} size={14} />
+              <span>{previewModeActive ? (ui.lang === 'ar' ? 'وضع المالك والتعديل' : 'Owner Edit Mode') : (ui.lang === 'ar' ? 'معاينة كما يراها الطالب' : 'Preview as Student')}</span>
             </button>
-            <button class="danger small hstack" onclick={() => handleDeleteShare(share)}>
-              <Icon name="trash" size={14} />
-              <span>{ui.lang === 'ar' ? 'حذف من المجتمع' : 'Delete'}</span>
-            </button>
+            {#if !previewModeActive}
+              <button class="secondary small hstack" onclick={() => openEditShare(share)}>
+                <Icon name="pencil" size={14} />
+                <span>{ui.lang === 'ar' ? 'تعديل المحتوى' : 'Edit Share'}</span>
+              </button>
+              <button class="danger small hstack" onclick={() => handleDeleteShare(share)}>
+                <Icon name="trash" size={14} />
+                <span>{ui.lang === 'ar' ? 'حذف من المجتمع' : 'Delete'}</span>
+              </button>
+            {/if}
           </div>
         {/if}
       </div>
@@ -1162,10 +1394,14 @@
             <p class="details-desc muted" style="font-size:13.5px; line-height:1.6; margin:0 0 16px; white-space:pre-wrap;">{share.description || 'لا يوجد وصف مضاف لهذا المحتوى.'}</p>
 
             <div class="details-actions-bar hstack" style="gap:10px; flex-wrap:wrap;">
-              {#if share.isPaid && !unlocked}
+              {#if share.isPaid && !unlocked && !isOwner}
                 <button class="primary hstack" onclick={() => openPaymentModal(share)}>
                   <Icon name="upload" size={14} />
                   <span>{ui.lang === 'ar' ? 'شراء ورفع إيصال الدفع' : 'Enroll / Upload Receipt'}</span>
+                </button>
+                <button class="secondary hstack" onclick={() => (isRedeemModalOpen = true)}>
+                  <Icon name="unlock" size={14} />
+                  <span>{ui.lang === 'ar' ? 'تفعيل بكوبون / كلمة مرور' : 'Redeem Coupon'}</span>
                 </button>
               {/if}
 
@@ -1187,6 +1423,35 @@
                 >
                   <Icon name={importingId === share.id ? 'check' : 'plus'} size={14} />
                   <span>{importingId === share.id ? (ui.lang === 'ar' ? 'تمت الإضافة' : 'Added') : (ui.lang === 'ar' ? 'استيراد إلى قوائمي' : 'Import to My Playlists')}</span>
+                </button>
+              {/if}
+
+              <!-- Share Direct Link Button -->
+              <button class="secondary hstack" onclick={() => handleShareCourseLink(share)} title="مشاركة رابط الدورة المباشر">
+                <Icon name="share" size={14} />
+                <span>{ui.lang === 'ar' ? 'مشاركة' : 'Share'}</span>
+              </button>
+
+              {#if isOwner && !previewModeActive}
+                {#if share.isPaid}
+                  <button class="secondary hstack" onclick={() => { masterPasscodeDraft = share.masterPasscode || ''; isCouponsModalOpen = true; }}>
+                    <Icon name="tag" size={14} />
+                    <span>{ui.lang === 'ar' ? 'إدارة الكوبونات (20+)' : 'Coupons & Passcode'}</span>
+                  </button>
+                {/if}
+                <button class="secondary hstack" onclick={() => (isInsertResourceModalOpen = true)}>
+                  <Icon name="plus" size={14} />
+                  <span>{ui.lang === 'ar' ? 'إدراج مورد / درس جديد' : 'Insert Resource'}</span>
+                </button>
+                <button
+                  type="button"
+                  class="secondary small hstack"
+                  onclick={() => (showOwnerRawUrls = !showOwnerRawUrls)}
+                  title="إظهار أو إخفاء الروابط الخام للمالك"
+                  style="opacity:0.85;"
+                >
+                  <Icon name={showOwnerRawUrls ? 'eye-slash' : 'link'} size={13} />
+                  <span>{showOwnerRawUrls ? 'إخفاء الروابط' : 'عرض الروابط'}</span>
                 </button>
               {/if}
 
@@ -1258,7 +1523,8 @@
 
           <div class="curriculum-list" style="display:flex; flex-direction:column; gap:8px;">
             {#each (share.items || (share.playlistData?.videoUrls || []).map((u, i) => ({ title: `${share.title} - درس ${i + 1}`, url: u, isFreePreview: i === 0 || !share.isPaid }))) as subItem, idx}
-              {@const canWatch = unlocked || subItem.isFreePreview || !share.isPaid}
+              {@const isSubVideo = !subItem.type || subItem.type === 'video'}
+              {@const canWatch = unlocked || subItem.isFreePreview || !share.isPaid || (isOwner && !previewModeActive)}
               <div class="curriculum-item-row card hstack" style="padding:10px 14px; gap:12px; background:var(--surface-2); border:1px solid var(--border); border-radius:8px; align-items:center;">
               <div class="lesson-num-badge" style="width:26px; height:26px; border-radius:50%; background:var(--surface-1); border:1px solid var(--border); display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700;">
                 {idx + 1}
@@ -1267,6 +1533,11 @@
               <div class="lesson-info" style="flex:1; min-width:0;">
                 <div class="lesson-title hstack" style="gap:8px; margin-bottom:3px; flex-wrap:wrap;">
                   <span style="font-weight:600; font-size:13.5px;">{subItem.title}</span>
+                  {#if subItem.type && subItem.type !== 'video'}
+                    <span class="badge" style="font-size:11px; padding:2px 8px; border-radius:999px;">
+                      {subItem.type === 'pdf' ? 'ملف PDF' : (subItem.type === 'notes' ? 'ملاحظة دراسية' : (subItem.type === 'cards' ? 'بطاقات استذكار' : subItem.type))}
+                    </span>
+                  {/if}
                   {#if subItem.isFreePreview && share.isPaid}
                     <span class="preview-tag-chip" style="padding:2px 8px; border-radius:999px; font-size:11px; background:#27ae6022; color:#27ae60; font-weight:700;">
                       {ui.lang === 'ar' ? 'معاينة مجانية' : 'Free Preview'}
@@ -1278,9 +1549,9 @@
                     </span>
                   {/if}
                 </div>
-                {#if isOwner}
+                {#if isOwner && !previewModeActive && showOwnerRawUrls}
                   <div class="lesson-url muted" style="font-size:11.5px; direction:ltr; text-align:left; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
-                    {subItem.url}
+                    {subItem.url || subItem.pdfUrl || ''}
                   </div>
                 {/if}
               </div>
@@ -1289,16 +1560,10 @@
                 {#if canWatch}
                   <button
                     class="primary small hstack"
-                    onclick={() => onOpenVideoDirectly({
-                      id: subItem.id || `yt-${(subItem.url.match(/(?:v=|\/embed\/|youtu\.be\/)([a-zA-Z0-9_-]{11})/) || [])[1] || Date.now()}`,
-                      url: subItem.url,
-                      title: subItem.title,
-                      docId: share.id,
-                      provider: 'youtube'
-                    })}
+                    onclick={() => handleLessonClick(subItem, share)}
                   >
-                    <Icon name="play" size={13} />
-                    <span>{ui.lang === 'ar' ? 'تشغيل' : 'Play'}</span>
+                    <Icon name={lessonIcon(subItem)} size={13} />
+                    <span>{isSubVideo ? (ui.lang === 'ar' ? 'تشغيل' : 'Play') : (ui.lang === 'ar' ? 'فتح' : 'Open')}</span>
                   </button>
                 {:else}
                   <button
@@ -2233,6 +2498,348 @@
               {/each}
             {/if}
           </div>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  <!-- Enroll First Confirmation Modal -->
+  {#if enrollPromptItem}
+    <div class="modal-root" role="dialog" aria-modal="true">
+      <div class="modal-backdrop" onclick={() => (enrollPromptItem = null)} role="presentation"></div>
+      <div class="share-modal card" style="max-width:440px;" aria-label="استيراد الدورة أولاً">
+        <div class="modal-header">
+          <div class="hstack" style="gap:8px;">
+            <Icon name="bookmark" size={18} />
+            <h3 style="margin:0;">استيراد الدورة أولاً</h3>
+          </div>
+          <button class="icon-btn" onclick={() => (enrollPromptItem = null)}>
+            <Icon name="x" size={16} />
+          </button>
+        </div>
+        <div class="modal-body" style="padding:16px 0; font-size:14px; line-height:1.6;">
+          <p style="margin:0 0 12px;">
+            لمتابعة كافة دروس دورة <strong>"{enrollPromptItem.share.title}"</strong> وحفظ تقدمك الدراسي وملاحظاتك في مكتبتك، يرجى استيراد الدورة أولاً.
+          </p>
+          <div class="hstack muted" style="font-size:12.5px; gap:6px;">
+            <Icon name="check" size={14} />
+            <span>الدرس المطلوب: {enrollPromptItem.subItem.title}</span>
+          </div>
+        </div>
+        <div class="modal-footer hstack" style="justify-content:flex-end; gap:8px;">
+          <button type="button" class="secondary" onclick={() => (enrollPromptItem = null)}>
+            {t('common.cancel')}
+          </button>
+          <button type="button" class="primary hstack" onclick={handleConfirmEnrollAndPlay}>
+            <Icon name="plus" size={14} />
+            <span>استيراد ومتابعة التشغيل</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  <!-- Coupons & Passcode Management Modal (Owner) -->
+  {#if isCouponsModalOpen && selectedShareDetails}
+    {@const share = selectedShareDetails}
+    {@const coupons = share.coupons || []}
+    <div class="modal-root" role="dialog" aria-modal="true">
+      <div class="modal-backdrop" onclick={() => (isCouponsModalOpen = false)} role="presentation"></div>
+      <div class="share-modal card wide" style="max-width:680px;" aria-label="إدارة الكوبونات وأكواد التفعيل">
+        <div class="modal-header">
+          <div class="hstack" style="gap:8px;">
+            <Icon name="tag" size={18} />
+            <h3 style="margin:0;">إدارة الكوبونات وأكواد التفعيل: {share.title}</h3>
+          </div>
+          <button class="icon-btn" onclick={() => (isCouponsModalOpen = false)}>
+            <Icon name="x" size={16} />
+          </button>
+        </div>
+
+        <div class="modal-body" style="display:flex; flex-direction:column; gap:16px;">
+          <!-- Master Passcode Section -->
+          <div class="card" style="padding:14px; background:var(--surface-2); border:1px solid var(--border); border-radius:8px;">
+            <div class="hstack" style="gap:8px; margin-bottom:6px;">
+              <Icon name="unlock" size={15} />
+              <strong style="font-size:14px;">كلمة المرور الموحدة للدورة (Master Passcode)</strong>
+            </div>
+            <p class="muted" style="font-size:12px; margin:0 0 10px;">
+              كلمة مرور أو كود تفعيل موحد، يمكن لأي طالب يملك هذه الكلمة إدخالها ليتم تفعيل الدورة له مباشرة دون الحاجة لكوبون فردي.
+            </p>
+            <div class="hstack" style="gap:8px;">
+              <input
+                type="text"
+                placeholder="مثال: ALLAMA2026 أو PASS-PHYSICS"
+                bind:value={masterPasscodeDraft}
+                style="flex:1;"
+              />
+              <button
+                type="button"
+                class="primary small hstack"
+                onclick={() => handleSaveMasterPasscode(share.id)}
+                disabled={isSavingPasscode}
+              >
+                <Icon name="check" size={13} />
+                <span>حفظ كلمة المرور</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Batch Coupon Generator -->
+          <div class="card" style="padding:14px; background:var(--surface-2); border:1px solid var(--border); border-radius:8px;">
+            <div class="hstack" style="gap:8px; margin-bottom:6px;">
+              <Icon name="plus" size={15} />
+              <strong style="font-size:14px;">توليد دفعة كوبونات جديدة</strong>
+            </div>
+            <p class="muted" style="font-size:12px; margin:0 0 10px;">
+              توليد أكواد فريدة مشفرة بنقرة واحدة (مثلاً 20 كوبون)، كل كوبون صالح لاستخدام طالب واحد ويتم تحديث حالته فوراً.
+            </p>
+            <div class="hstack" style="gap:8px;">
+              <input
+                type="number"
+                min="1"
+                max="100"
+                placeholder="عدد الكوبونات"
+                bind:value={couponBatchCount}
+                style="width:120px;"
+              />
+              <button
+                type="button"
+                class="primary small hstack"
+                onclick={() => handleGenerateCoupons(share.id)}
+                disabled={isGeneratingCoupons}
+              >
+                <Icon name="sparkles" size={13} />
+                <span>{isGeneratingCoupons ? 'جارِ التوليد...' : `توليد ${couponBatchCount || 20} كوبون الآن`}</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Coupons List & Status Table -->
+          <div class="coupons-list-wrapper">
+            <div class="hstack" style="justify-content:space-between; margin-bottom:8px;">
+              <strong style="font-size:13.5px;">قائمة الكوبونات المنشأة ({coupons.length})</strong>
+              <small class="muted">
+                {coupons.filter(c => (c.usedCount || 0) >= (c.maxUses || 1)).length} مُستخدمة · {coupons.filter(c => (c.usedCount || 0) < (c.maxUses || 1)).length} متاحة
+              </small>
+            </div>
+
+            {#if coupons.length === 0}
+              <div class="empty muted" style="padding:20px; text-align:center; background:var(--surface-1); border-radius:8px;">
+                لم يتم إنشاء أي كوبونات بعد. اضغط على زر التوليد أعلاه لإنشاء دفعة جديدة.
+              </div>
+            {:else}
+              <div style="max-height:240px; overflow-y:auto; display:flex; flex-direction:column; gap:6px;">
+                {#each coupons as cpn}
+                  {@const isUsed = (cpn.usedCount || 0) >= (cpn.maxUses || 1)}
+                  <div class="coupon-item-row hstack card" style="padding:8px 12px; background:var(--surface-1); border-radius:6px; justify-content:space-between; border:1px solid {isUsed ? 'rgba(39, 174, 96, 0.4)' : 'var(--border)'};">
+                    <div class="hstack" style="gap:10px;">
+                      <code style="font-size:13px; font-weight:700; color:var(--text); letter-spacing:0.5px;">{cpn.code}</code>
+                      <button
+                        type="button"
+                        class="icon-btn tiny"
+                        onclick={() => { navigator.clipboard?.writeText(cpn.code); notify('تم نسخ الكود!', 'ok'); }}
+                        title="نسخ الكود"
+                      >
+                        <Icon name="copy" size={12} />
+                      </button>
+                    </div>
+
+                    <div class="hstack" style="gap:8px;">
+                      {#if isUsed}
+                        <span class="badge" style="background:#27ae60; color:#fff; font-size:11px; padding:2px 8px; border-radius:999px; font-weight:700;">
+                          مُستخدم ({cpn.usedBy?.[0]?.username || 'طالب'})
+                        </span>
+                      {:else}
+                        <span class="badge" style="background:var(--accent); color:#fff; font-size:11px; padding:2px 8px; border-radius:999px;">
+                          متاح للاستخدام
+                        </span>
+                      {/if}
+                    </div>
+                  </div>
+                {/each}
+              </div>
+            {/if}
+          </div>
+        </div>
+
+        <div class="modal-footer hstack" style="justify-content:flex-end;">
+          <button type="button" class="secondary" onclick={() => (isCouponsModalOpen = false)}>
+            إغلاق
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  <!-- Student Coupon Redemption Modal -->
+  {#if isRedeemModalOpen && selectedShareDetails}
+    {@const share = selectedShareDetails}
+    <div class="modal-root" role="dialog" aria-modal="true">
+      <div class="modal-backdrop" onclick={() => (isRedeemModalOpen = false)} role="presentation"></div>
+      <div class="share-modal card" style="max-width:440px;" aria-label="تفعيل الدورة بكوبون أو كلمة مرور">
+        <div class="modal-header">
+          <div class="hstack" style="gap:8px;">
+            <Icon name="unlock" size={18} />
+            <h3 style="margin:0;">تفعيل الدورة بكوبون أو كلمة مرور</h3>
+          </div>
+          <button class="icon-btn" onclick={() => (isRedeemModalOpen = false)}>
+            <Icon name="x" size={16} />
+          </button>
+        </div>
+
+        <div class="modal-body" style="padding:16px 0; display:flex; flex-direction:column; gap:12px;">
+          <p class="muted" style="font-size:13px; margin:0;">
+            أدخل كود الكوبون المخصص لك أو كلمة المرور الخاصة بالدورة <strong>"{share.title}"</strong> لفتح المحتوى فوراً:
+          </p>
+          <input
+            type="text"
+            placeholder="أدخل كود الكوبون (مثال: MK-XXXX-YYYY) أو كلمة المرور..."
+            bind:value={redeemCodeInput}
+            onkeydown={(e) => { if (e.key === 'Enter') handleRedeemCoupon(share.id); }}
+            style="direction:ltr; text-align:center; font-weight:700; letter-spacing:1px;"
+          />
+        </div>
+
+        <div class="modal-footer hstack" style="justify-content:flex-end; gap:8px;">
+          <button type="button" class="secondary" onclick={() => (isRedeemModalOpen = false)}>
+            {t('common.cancel')}
+          </button>
+          <button
+            type="button"
+            class="primary hstack"
+            onclick={() => handleRedeemCoupon(share.id)}
+            disabled={isRedeemingCoupon || !redeemCodeInput.trim()}
+          >
+            <Icon name="check" size={14} />
+            <span>{isRedeemingCoupon ? 'جارِ التحقق...' : 'تفعيل وفتح المحتوى'}</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  <!-- Owner Resource Insertion Modal -->
+  {#if isInsertResourceModalOpen && selectedShareDetails}
+    {@const share = selectedShareDetails}
+    {@const itemsCount = share.items?.length || share.playlistData?.videoUrls?.length || 0}
+    <div class="modal-root" role="dialog" aria-modal="true">
+      <div class="modal-backdrop" onclick={() => (isInsertResourceModalOpen = false)} role="presentation"></div>
+      <div class="share-modal card" style="max-width:520px;" aria-label="إدراج مورد جديد داخل الدورة">
+        <div class="modal-header">
+          <div class="hstack" style="gap:8px;">
+            <Icon name="plus" size={18} />
+            <h3 style="margin:0;">إدراج مورد جديد داخل الدورة</h3>
+          </div>
+          <button class="icon-btn" onclick={() => (isInsertResourceModalOpen = false)}>
+            <Icon name="x" size={16} />
+          </button>
+        </div>
+
+        <div class="modal-body" style="display:flex; flex-direction:column; gap:12px;">
+          <!-- Resource Type Selector -->
+          <div>
+            <label class="field-label" style="display:block; margin-bottom:6px; font-weight:600;">نوع المورد التعليمي:</label>
+            <div class="hstack" style="gap:6px; flex-wrap:wrap;">
+              <button
+                type="button"
+                class="filter-pill {insertResourceType === 'video' ? 'active' : ''}"
+                onclick={() => (insertResourceType = 'video')}
+              >
+                <Icon name="video" size={13} />
+                <span>فيديو يوتيوب</span>
+              </button>
+              <button
+                type="button"
+                class="filter-pill {insertResourceType === 'pdf' ? 'active' : ''}"
+                onclick={() => (insertResourceType = 'pdf')}
+              >
+                <Icon name="book-open" size={13} />
+                <span>ملف PDF / مذكرة</span>
+              </button>
+              <button
+                type="button"
+                class="filter-pill {insertResourceType === 'notes' ? 'active' : ''}"
+                onclick={() => (insertResourceType = 'notes')}
+              >
+                <Icon name="file-text" size={13} />
+                <span>ملاحظات دراسية</span>
+              </button>
+              <button
+                type="button"
+                class="filter-pill {insertResourceType === 'cards' ? 'active' : ''}"
+                onclick={() => (insertResourceType = 'cards')}
+              >
+                <Icon name="layers" size={13} />
+                <span>بطاقات استذكار</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Title Input -->
+          <div>
+            <label class="field-label" style="display:block; margin-bottom:4px; font-weight:600;">عنوان المورد:</label>
+            <input
+              type="text"
+              placeholder="مثال: مذكرة شرح الدرس الأول أو فيديو ملخص..."
+              bind:value={insertResourceTitle}
+            />
+          </div>
+
+          <!-- URL or Content Input -->
+          <div>
+            <label class="field-label" style="display:block; margin-bottom:4px; font-weight:600;">
+              {insertResourceType === 'notes' ? 'محتوى الملاحظة (نص / Markdown):' : 'الرابط أو المسار:'}
+            </label>
+            {#if insertResourceType === 'notes'}
+              <textarea
+                rows="3"
+                placeholder="اكتب الملاحظات أو النقاط الملخصة هنا..."
+                bind:value={insertResourceContent}
+              ></textarea>
+            {:else}
+              <input
+                type="url"
+                placeholder={insertResourceType === 'pdf' ? 'رابط ملف PDF أو مستند...' : 'رابط الفيديو على يوتيوب...'}
+                bind:value={insertResourceUrl}
+              />
+            {/if}
+          </div>
+
+          <!-- Position Selector -->
+          <div>
+            <label class="field-label" style="display:block; margin-bottom:4px; font-weight:600;">موضع الإدراج داخل القائمة:</label>
+            <select bind:value={insertResourcePosition} style="width:100%;">
+              <option value={-1}>في نهاية الدورة (بعد العنصر الأخير)</option>
+              <option value={0}>في البداية (قبل الدرس الأول)</option>
+              {#each Array(itemsCount) as _, pIdx}
+                <option value={pIdx + 1}>بعد العنصر رقم {pIdx + 1}</option>
+              {/each}
+            </select>
+          </div>
+
+          <!-- Free Preview Checkbox -->
+          {#if share.isPaid}
+            <label class="hstack" style="gap:8px; cursor:pointer; font-size:13px; margin-top:4px;">
+              <input type="checkbox" bind:checked={insertResourceIsFreePreview} />
+              <span>متاح للمعاينة المجانية لكافة الطلاب</span>
+            </label>
+          {/if}
+        </div>
+
+        <div class="modal-footer hstack" style="justify-content:flex-end; gap:8px;">
+          <button type="button" class="secondary" onclick={() => (isInsertResourceModalOpen = false)}>
+            {t('common.cancel')}
+          </button>
+          <button
+            type="button"
+            class="primary hstack"
+            onclick={() => handleInsertResource(share.id)}
+            disabled={isInsertingResource || !insertResourceTitle.trim()}
+          >
+            <Icon name="check" size={14} />
+            <span>{isInsertingResource ? 'جارِ الإدراج...' : 'إدراج المورد'}</span>
+          </button>
         </div>
       </div>
     </div>

@@ -125,6 +125,15 @@
   let openTabs = $state([]);
   let activeVideo = $state(null);
   let activeCommunityShare = $state(null);
+  let previousViewForVideo = $state('Community');
+
+  function handleVideoBack() {
+    if (previousViewForVideo && previousViewForVideo !== 'Video') {
+      view = previousViewForVideo;
+    } else {
+      view = 'Community';
+    }
+  }
   let backgroundAudio = $state(true);
   try {
     const savedBgAudio = localStorage.getItem('makeen.bgAudio');
@@ -370,6 +379,25 @@
     try { cards = await listCards(); } catch (e) { notify(t('toast.loadCardsFailed'), 'error'); }
     startDueReminderLoop();
     refreshEnrolledCourses();
+
+    // Check for share deep links (?share=xxx or #course/xxx)
+    try {
+      if (typeof window !== 'undefined') {
+        const urlParams = new URLSearchParams(window.location.search);
+        const shareParam = urlParams.get('share');
+        const hashMatch = window.location.hash.match(/#(?:course|share)\/([a-zA-Z0-9_-]+)/);
+        const targetShareId = shareParam || (hashMatch ? hashMatch[1] : null);
+        if (targetShareId) {
+          const { listCommunityShares } = await import('./lib/communityStore.js');
+          const all = await listCommunityShares();
+          const found = all.find((s) => s.id === targetShareId);
+          if (found) {
+            activeCommunityShare = { ...found };
+            view = 'Community';
+          }
+        }
+      }
+    } catch {}
 
     window.addEventListener('touchstart', handleTouchStart, { passive: true });
     window.addEventListener('touchend', handleTouchEnd, { passive: true });
@@ -2763,6 +2791,7 @@
                 missing: false
               });
             }
+            if (view !== 'Video') previousViewForVideo = view;
             docs = library.listDocuments();
             activeVideo = { ...doc };
             view = 'Video';
@@ -2804,6 +2833,7 @@
             onPlaybackStateChange={handleBgPlaybackStateChange}
             registerController={(ctrl) => { bgVideoController = ctrl; }}
             onOpenPdfDirectly={openPdfStudyMode}
+            onBack={handleVideoBack}
           />
         </div>
       {/if}

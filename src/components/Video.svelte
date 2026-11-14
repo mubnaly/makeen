@@ -48,7 +48,8 @@
     backgroundAudio = $bindable(false),
     onPlaybackStateChange = null,
     registerController = null,
-    onOpenPdfDirectly = null
+    onOpenPdfDirectly = null,
+    onBack = null
   } = $props();
 
   let videoEl = $state();
@@ -481,6 +482,21 @@
   const isCommunityContent = $derived(
     !!(video?.fromCommunity || video?.communityShareId || video?.isPaid || video?.isProtected || activePlaylistRecord?.fromCommunity)
   );
+  const canGoBack = $derived(
+    Boolean(onBack || activePlaylistId || video?.playlistId || video?.communityShareId || video?.docId)
+  );
+
+  function handleBackNavigation() {
+    if (onBack) {
+      onBack();
+      return;
+    }
+    if (activePlaylistId) {
+      activePlaylistId = '';
+      return;
+    }
+    video = null;
+  }
 
   let playlistVideoAddOpen = $state(false);
   let playlistVideoUrlInput = $state('');
@@ -1726,6 +1742,21 @@
 
   function onKeydown(event) {
     if (!video) return;
+    if (event.key === 'Escape' || event.code === 'Escape') {
+      if (annotatingCapture) {
+        handleCancelAnnotated();
+        return;
+      }
+      if (isFullscreen) {
+        toggleFullscreen();
+        return;
+      }
+      if (canGoBack) {
+        event.preventDefault();
+        handleBackNavigation();
+        return;
+      }
+    }
     const isSpace = event.key === ' ' || event.code === 'Space' || event.key === 'Spacebar';
     if (isSpace || event.key === 'k' || event.key === 'K') {
       if (isTypingInput(event.target)) return;
@@ -1752,7 +1783,10 @@
       playing = false;
     }
 
-    const captureSec = current;
+    const captureSec = (videoEl && typeof videoEl.currentTime === 'number' && !Number.isNaN(videoEl.currentTime))
+      ? videoEl.currentTime
+      : current;
+    current = captureSec;
     capturing = true;
 
     try {
@@ -1767,7 +1801,28 @@
                 { x: rect.left, y: rect.top, width: rect.width, height: rect.height },
                 loadImageQuality()
               );
-              if (res?.ok && res.dataUrl) dataUrl = res.dataUrl;
+              if (res?.ok && res.dataUrl) {
+                // Ensure standard 360p height canvas (medium quality)
+                try {
+                  const img = new Image();
+                  await new Promise((r) => { img.onload = r; img.onerror = r; img.src = res.dataUrl; });
+                  if (img.width && img.height) {
+                    const aspect = img.width / img.height;
+                    const canvas = document.createElement('canvas');
+                    canvas.height = 360;
+                    canvas.width = Math.round(360 * aspect);
+                    const ctx = canvas.getContext('2d');
+                    ctx.imageSmoothingEnabled = true;
+                    ctx.imageSmoothingQuality = 'high';
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                    dataUrl = canvasCapture(canvas, loadImageQuality());
+                  } else {
+                    dataUrl = res.dataUrl;
+                  }
+                } catch {
+                  dataUrl = res.dataUrl;
+                }
+              }
             }
           } catch { /* fallback to thumbnail */ }
         }
@@ -1778,14 +1833,16 @@
           }
         }
       } else if (videoEl && videoEl.videoWidth) {
-        const targetDims = computeTargetDimensions(
-          videoEl.videoWidth,
-          videoEl.videoHeight,
-          loadScreenshotResolution()
-        );
+        // Guarantee 360p resolution canvas (medium quality, e.g. 640x360 for 16:9)
+        // regardless of stream resolution (144p or 1080p)
+        const aspect = (videoEl.videoWidth && videoEl.videoHeight)
+          ? (videoEl.videoWidth / videoEl.videoHeight)
+          : (16 / 9);
+        const targetHeight = 360;
+        const targetWidth = Math.max(360, Math.round(targetHeight * aspect));
         const canvas = document.createElement('canvas');
-        canvas.width = targetDims.width;
-        canvas.height = targetDims.height;
+        canvas.width = targetWidth;
+        canvas.height = targetHeight;
         const ctx = canvas.getContext('2d');
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = 'high';
@@ -1853,13 +1910,15 @@
             const canvas = document.createElement('canvas');
             const natW = img.naturalWidth || 1280;
             const natH = img.naturalHeight || 720;
-            const targetDims = computeTargetDimensions(natW, natH, loadScreenshotResolution());
-            canvas.width = targetDims.width;
-            canvas.height = targetDims.height;
+            const aspect = (natW && natH) ? (natW / natH) : (16 / 9);
+            const targetHeight = 360;
+            const targetWidth = Math.max(360, Math.round(targetHeight * aspect));
+            canvas.width = targetWidth;
+            canvas.height = targetHeight;
             const ctx = canvas.getContext('2d');
             ctx.imageSmoothingEnabled = true;
             ctx.imageSmoothingQuality = 'high';
-            ctx.drawImage(img, 0, 0, targetDims.width, targetDims.height);
+            ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
             resolve(canvas.toDataURL('image/png'));
           } catch {
             resolve(createPlaceholderFrame(video?.title || 'YouTube Frame'));
@@ -2146,8 +2205,22 @@
       <div class="player-card">
         {#if !isFullscreen}
           <div class="player-head">
-            <span class="ph-title">{video.title}</span>
-            <span class="muted" style="font-size:12px">
+            <div class="hstack" style="gap:8px; align-items:center; min-width:0; flex:1;">
+              {#if canGoBack}
+                <button
+                  type="button"
+                  class="secondary small hstack back-nav-btn"
+                  onclick={handleBackNavigation}
+                  title="العودة للقائمة أو الصفحة السابقة (Esc)"
+                  style="padding:4px 10px; font-size:12px; font-weight:600; border-radius:6px; flex-shrink:0;"
+                >
+                  <Icon name="arrow-right" size={14} />
+                  <span>{ui.lang === 'ar' ? 'عودة (Esc)' : 'Back (Esc)'}</span>
+                </button>
+              {/if}
+              <span class="ph-title truncate">{video.title}</span>
+            </div>
+            <span class="muted" style="font-size:12px; flex-shrink:0;">
               {hasDuration ? formatTimecode(duration) : t('video.unknownDuration')}
             </span>
           </div>

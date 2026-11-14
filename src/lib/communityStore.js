@@ -5,7 +5,7 @@ import { upsertDocument, upsertPlaylist } from './library.js';
 import { putCard, putCommunityShare, listCommunitySharesDb, deleteCommunityShareDb } from './storage.js';
 import { createNote } from './markdownStore.js';
 import { getCurrentUser } from './auth.js';
-import { isContentUnlocked } from './sessionStore.js';
+import { isContentUnlocked, unlockContentForUser } from './sessionStore.js';
 import { upsertProject } from './projects.js';
 import {
   apiFetchCommunityShares,
@@ -749,3 +749,157 @@ export async function importShareToMyLibrary(share) {
 
   return { ok: false };
 }
+
+// --- Coupons, Master Passcode & Resource Insertion Engine -------------------
+
+export function generateCouponCode() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let part1 = '';
+  let part2 = '';
+  for (let i = 0; i < 4; i++) {
+    part1 += chars.charAt(Math.floor(Math.random() * chars.length));
+    part2 += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return `MK-${part1}-${part2}`;
+}
+
+export async function generateCouponBatch(shareId, count = 20, maxUses = 1) {
+  const existingList = await listCommunitySharesDb();
+  let existing = existingList.find((s) => s.id === shareId);
+  if (!existing) {
+    existing = REAL_YOUTUBE_COMMUNITY_SHARES.find((s) => s.id === shareId);
+  }
+  if (!existing) return { ok: false, error: 'SHARE_NOT_FOUND' };
+
+  const currentCoupons = Array.isArray(existing.coupons) ? [...existing.coupons] : [];
+  const existingCodes = new Set(currentCoupons.map((c) => String(c.code).toUpperCase()));
+  const generated = [];
+
+  for (let i = 0; i < count; i++) {
+    let code = generateCouponCode();
+    while (existingCodes.has(code)) {
+      code = generateCouponCode();
+    }
+    existingCodes.add(code);
+    const coupon = {
+      id: `cpn-${Date.now()}-${Math.random().toString(36).slice(2, 7)}-${i}`,
+      code,
+      maxUses: Math.max(1, Number(maxUses) || 1),
+      usedCount: 0,
+      createdAt: new Date().toISOString(),
+      usedBy: []
+    };
+    currentCoupons.push(coupon);
+    generated.push(coupon);
+  }
+
+  const updated = await updateCommunityShare(shareId, { coupons: currentCoupons });
+  return { ok: true, generated, totalCoupons: currentCoupons, share: updated };
+}
+
+export async function setShareMasterPasscode(shareId, passcode) {
+  const clean = String(passcode || '').trim();
+  const updated = await updateCommunityShare(shareId, { masterPasscode: clean });
+  return { ok: true, masterPasscode: clean, share: updated };
+}
+
+export async function redeemShareCoupon(shareId, rawCode, user = null) {
+  const code = String(rawCode || '').trim();
+  if (!code) return { ok: false, error: 'الرجاء إدخال كود الكوبون أو كلمة المرور' };
+
+  const all = await listCommunityShares();
+  const share = all.find((s) => s.id === shareId);
+  if (!share) return { ok: false, error: 'الدورة غير موجودة' };
+
+  const currentUser = user || getCurrentUser();
+  const userId = currentUser?.id || 'guest';
+  const userName = currentUser?.name || currentUser?.username || 'طالب مَكِين';
+
+  // Check master passcode
+  if (share.masterPasscode && String(share.masterPasscode).trim().toLowerCase() === code.toLowerCase()) {
+    unlockContentForUser(userId, shareId);
+    return { ok: true, isMasterPasscode: true, message: 'تم تفعيل الدورة بنجاح بواسطة كلمة المرور!' };
+  }
+
+  // Check individual coupons
+  const coupons = Array.isArray(share.coupons) ? [...share.coupons] : [];
+  const targetIndex = coupons.findIndex((c) => String(c.code).toUpperCase() === code.toUpperCase());
+
+  if (targetIndex === -1) {
+    return { ok: false, error: 'كود الكوبون أو كلمة المرور غير صحيحة' };
+  }
+
+  const target = { ...coupons[targetIndex] };
+  const usedBy = Array.isArray(target.usedBy) ? [...target.usedBy] : [];
+
+  if (target.usedCount >= target.maxUses) {
+    return { ok: false, error: 'عذراً، هذا الكوبون تم استخدامه بالكامل مسبقاً' };
+  }
+
+  if (userId !== 'guest' && usedBy.some((u) => u.userId === userId)) {
+    return { ok: false, error: 'لقد قمت باستخدام هذا الكوبون لحسابك بالفعل' };
+  }
+
+  target.usedCount = (target.usedCount || 0) + 1;
+  usedBy.push({
+    userId,
+    username: userName,
+    usedAt: new Date().toISOString()
+  });
+  target.usedBy = usedBy;
+  coupons[targetIndex] = target;
+
+  await updateCommunityShare(shareId, { coupons });
+  unlockContentForUser(userId, shareId);
+
+  return {
+    ok: true,
+    coupon: target,
+    message: 'تم تفعيل الكوبون بنجاح وفتح محتويات الدورة!'
+  };
+}
+
+export async function insertResourceIntoShare(shareId, resource, positionIndex = -1) {
+  const all = await listCommunityShares();
+  const share = all.find((s) => s.id === shareId);
+  if (!share) return { ok: false, error: 'الدورة غير موجودة' };
+
+  let items = Array.isArray(share.items) ? [...share.items] : [];
+  if (items.length === 0 && share.playlistData?.videoUrls?.length) {
+    items = share.playlistData.videoUrls.map((u, i) => ({
+      id: `item-${i + 1}`,
+      type: 'video',
+      title: `${share.title} - درس ${i + 1}`,
+      url: u,
+      isFreePreview: i === 0 || !share.isPaid
+    }));
+  }
+
+  const newItem = {
+    id: `res-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    type: resource.type || 'video',
+    title: String(resource.title || '').trim() || 'عنصر تعليمي جديد',
+    url: resource.url || '',
+    content: resource.content || '',
+    pdfUrl: resource.pdfUrl || resource.url || '',
+    isFreePreview: Boolean(resource.isFreePreview),
+    addedAt: Date.now()
+  };
+
+  if (positionIndex >= 0 && positionIndex < items.length) {
+    items.splice(positionIndex, 0, newItem);
+  } else {
+    items.push(newItem);
+  }
+
+  const updated = await updateCommunityShare(shareId, { items });
+  return { ok: true, item: newItem, items, share: updated };
+}
+
+export function getShareDeepLink(shareId) {
+  if (typeof window === 'undefined') return `?share=${shareId}`;
+  const origin = window.location.origin || '';
+  const pathname = window.location.pathname || '/';
+  return `${origin}${pathname}#course/${shareId}`;
+}
+
