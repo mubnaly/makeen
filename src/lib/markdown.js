@@ -225,7 +225,8 @@ export function inlineMarkdown(str) {
   out = out.replace(/==([^=]+)==/g, '<mark class="md-highlight">$1</mark>');
 
   // Underline: <u>text</u> or ++text++
-  out = out.replace(/<u>([^<]+)<\/u>/gi, '<u class="md-underline">$1</u>');
+  out = out.replace(/&lt;u&gt;([\s\S]*?)&lt;\/u&gt;/gi, '<u class="md-underline">$1</u>');
+  out = out.replace(/<u>([\s\S]*?)<\/u>/gi, '<u class="md-underline">$1</u>');
   out = out.replace(/\+\+([^+]+)\+\+/g, '<u class="md-underline">$1</u>');
 
   // Spoiler / Blur: ||text||

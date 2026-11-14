@@ -1,6 +1,7 @@
 <script>
   import { onMount, tick, untrack } from 'svelte';
   import Icon from './Icon.svelte';
+  import PomodoroWidget from './PomodoroWidget.svelte';
   import { t, dir } from '../lib/lang.svelte.js';
   import { renderMarkdown, exportMarkdownFile, exportMarkdownAsPdf, toggleMarkdownTask } from '../lib/markdown.js';
   import { EMOJI_CATEGORIES } from '../lib/emojis.js';
@@ -48,6 +49,62 @@
   let showIconPicker = $state(false);
   let currentLinks = $state([]);
   let allAvailableNotes = $derived(listAllNotes().filter((n) => n.id !== activeNote?.id));
+
+  // --- Undo / Redo History Stack ---
+  let historyStack = $state([]);
+  let historyIndex = $state(-1);
+  let isPerformingUndoRedo = false;
+
+  function pushHistory(newContent, selStart = null, selEnd = null) {
+    if (isPerformingUndoRedo) return;
+    const currentEntry = historyIndex >= 0 ? historyStack[historyIndex] : null;
+    if (currentEntry && currentEntry.content === newContent) return;
+
+    const start = selStart ?? (textareaEl ? textareaEl.selectionStart : 0);
+    const end = selEnd ?? (textareaEl ? textareaEl.selectionEnd : 0);
+
+    // Truncate future if branched
+    const nextStack = historyStack.slice(0, historyIndex + 1);
+    nextStack.push({ content: newContent, selectionStart: start, selectionEnd: end });
+    if (nextStack.length > 80) nextStack.shift();
+
+    historyStack = nextStack;
+    historyIndex = historyStack.length - 1;
+  }
+
+  function handleUndo() {
+    if (historyIndex > 0) {
+      isPerformingUndoRedo = true;
+      historyIndex -= 1;
+      const entry = historyStack[historyIndex];
+      content = entry.content;
+      scheduleAutosave();
+      tick().then(() => {
+        if (textareaEl) {
+          textareaEl.focus();
+          textareaEl.setSelectionRange(entry.selectionStart, entry.selectionEnd);
+        }
+        isPerformingUndoRedo = false;
+      });
+    }
+  }
+
+  function handleRedo() {
+    if (historyIndex < historyStack.length - 1) {
+      isPerformingUndoRedo = true;
+      historyIndex += 1;
+      const entry = historyStack[historyIndex];
+      content = entry.content;
+      scheduleAutosave();
+      tick().then(() => {
+        if (textareaEl) {
+          textareaEl.focus();
+          textareaEl.setSelectionRange(entry.selectionStart, entry.selectionEnd);
+        }
+        isPerformingUndoRedo = false;
+      });
+    }
+  }
 
   function insertEmoji(emoji) {
     insertFormatting(emoji + ' ');
@@ -101,6 +158,8 @@
     activeNote = n;
     title = n.title || '';
     content = n.content || '';
+    historyStack = [{ content: content, selectionStart: 0, selectionEnd: 0 }];
+    historyIndex = 0;
     try {
       if (n?.id) {
         currentLinks = getNoteLinks(n.id) || [];
@@ -195,17 +254,36 @@
     if (!textareaEl) return;
     const start = textareaEl.selectionStart;
     const end = textareaEl.selectionEnd;
+    const savedScrollTop = textareaEl.scrollTop;
     const sel = content.substring(start, end);
     const replacement = prefix + (sel || placeholder) + suffix;
+
+    // Save previous state to history if not empty
+    pushHistory(content, start, end);
 
     content = content.substring(0, start) + replacement + content.substring(end);
     scheduleAutosave();
 
+    // Determine new selection boundaries
+    let newStart, newEnd;
+    if (sel) {
+      newStart = start + prefix.length;
+      newEnd = newStart + sel.length;
+    } else if (placeholder) {
+      newStart = start + prefix.length;
+      newEnd = newStart + placeholder.length;
+    } else {
+      newStart = start + prefix.length;
+      newEnd = newStart;
+    }
+
+    pushHistory(content, newStart, newEnd);
+
     tick().then(() => {
       if (!textareaEl) return;
       textareaEl.focus();
-      const newCursor = start + prefix.length + (sel ? sel.length : placeholder.length);
-      textareaEl.setSelectionRange(newCursor, newCursor);
+      textareaEl.setSelectionRange(newStart, newEnd);
+      textareaEl.scrollTop = savedScrollTop;
     });
   }
 
@@ -247,18 +325,42 @@
     notify?.(t('notes.exportingPdf') || 'Opening print dialog for PDF export...', 'ok');
   }
 
-  // Keyboard enhancements: auto-continue lists/tasks on Enter, indent/outdent on Tab
+  // Keyboard enhancements: auto-continue lists/tasks on Enter, indent/outdent on Tab, Undo/Redo
   function handleTextareaKeydown(e) {
+    // Keyboard shortcuts for Undo and Redo
+    if ((e.ctrlKey || e.metaKey) && !e.altKey) {
+      if (e.key === 'z' || e.key === 'Z') {
+        if (e.shiftKey) {
+          // Ctrl+Shift+Z => Redo
+          e.preventDefault();
+          handleRedo();
+          return;
+        } else {
+          // Ctrl+Z => Undo
+          e.preventDefault();
+          handleUndo();
+          return;
+        }
+      } else if (e.key === 'y' || e.key === 'Y') {
+        // Ctrl+Y => Redo
+        e.preventDefault();
+        handleRedo();
+        return;
+      }
+    }
+
     if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
       if (!textareaEl) return;
       const res = processMarkdownEnter(content, textareaEl.selectionStart, textareaEl.selectionEnd);
       if (res) {
         e.preventDefault();
+        pushHistory(content, textareaEl.selectionStart, textareaEl.selectionEnd);
         content = res.content;
         scheduleAutosave();
         setTimeout(() => {
           if (textareaEl) {
             textareaEl.selectionStart = textareaEl.selectionEnd = res.newCursor;
+            pushHistory(content, res.newCursor, res.newCursor);
           }
         }, 0);
       }
@@ -267,12 +369,14 @@
       const res = processMarkdownTab(content, textareaEl.selectionStart, textareaEl.selectionEnd, e.shiftKey);
       if (res) {
         e.preventDefault();
+        pushHistory(content, textareaEl.selectionStart, textareaEl.selectionEnd);
         content = res.content;
         scheduleAutosave();
         setTimeout(() => {
           if (textareaEl) {
             textareaEl.selectionStart = res.newStart;
             textareaEl.selectionEnd = res.newEnd;
+            pushHistory(content, res.newStart, res.newEnd);
           }
         }, 0);
       }
@@ -427,6 +531,13 @@
           <Icon name={isSaved ? 'check' : 'repeat'} size={13} />
         </span>
 
+        <!-- Pomodoro Timer in Header -->
+        {#if !compact}
+          <div class="header-pomodoro-wrapper">
+            <PomodoroWidget materialTitle={title || 'ملاحظة'} compact={true} />
+          </div>
+        {/if}
+
         <!-- Mode Switcher: Single button toggle (Eye for Viewer, Pencil for Editor) -->
         <button
           type="button"
@@ -454,10 +565,37 @@
     <!-- Quick Markdown Formatting & Export Bar (Shown when All Options is toggled) -->
     {#if showFormattingTools}
       <div class="md-format-bar">
+        <!-- Undo / Redo Actions -->
+        <button
+          type="button"
+          class="fmt-btn"
+          onmousedown={(e) => e.preventDefault()}
+          onclick={handleUndo}
+          disabled={historyIndex <= 0}
+          title={`${t('common.undo') || 'Undo'} (Ctrl+Z)`}
+        >
+          <Icon name="undo" size={13} />
+          <span>{t('common.undo') || 'تراجع'}</span>
+        </button>
+        <button
+          type="button"
+          class="fmt-btn"
+          onmousedown={(e) => e.preventDefault()}
+          onclick={handleRedo}
+          disabled={historyIndex >= historyStack.length - 1}
+          title={`${t('common.redo') || 'Redo'} (Ctrl+Y / Ctrl+Shift+Z)`}
+        >
+          <Icon name="redo" size={13} />
+          <span>{t('common.redo') || 'إعادة'}</span>
+        </button>
+
+        <div class="fmt-divider"></div>
+
         <!-- Export Actions (.MD & PDF) -->
         <button
           type="button"
           class="fmt-btn"
+          onmousedown={(e) => e.preventDefault()}
           onclick={handleExportMd}
           title={t('notes.exportMd') || 'Export as Markdown (.md)'}
         >
@@ -467,6 +605,7 @@
         <button
           type="button"
           class="fmt-btn primary-fmt"
+          onmousedown={(e) => e.preventDefault()}
           onclick={handleExportPdf}
           title={t('notes.exportPdf') || 'Export as PDF'}
         >
@@ -476,6 +615,7 @@
         <button
           type="button"
           class="fmt-btn"
+          onmousedown={(e) => e.preventDefault()}
           onclick={copyMarkdownContent}
           title={t('notes.copyMarkdown') || 'Copy Markdown'}
         >
@@ -489,6 +629,7 @@
         <button
           type="button"
           class="fmt-btn dir-toggle-btn"
+          onmousedown={(e) => e.preventDefault()}
           onclick={toggleDirection}
           title={textDirection === 'rtl' ? (t('notes.dirRtl') || 'RTL Direction') : (t('notes.dirLtr') || 'LTR Direction')}
         >
@@ -501,6 +642,7 @@
           <button
             type="button"
             class="fmt-btn {textAlign === 'right' ? 'active-fmt' : ''}"
+            onmousedown={(e) => e.preventDefault()}
             onclick={() => setAlignment('right')}
             title={t('notes.alignRight') || 'Align Right'}
           >
@@ -509,6 +651,7 @@
           <button
             type="button"
             class="fmt-btn {textAlign === 'center' ? 'active-fmt' : ''}"
+            onmousedown={(e) => e.preventDefault()}
             onclick={() => setAlignment('center')}
             title={t('notes.alignCenter') || 'Align Center'}
           >
@@ -517,6 +660,7 @@
           <button
             type="button"
             class="fmt-btn {textAlign === 'left' ? 'active-fmt' : ''}"
+            onmousedown={(e) => e.preventDefault()}
             onclick={() => setAlignment('left')}
             title={t('notes.alignLeft') || 'Align Left'}
           >
@@ -531,6 +675,7 @@
           <button
             type="button"
             class="fmt-btn emoji-toggle-btn"
+            onmousedown={(e) => e.preventDefault()}
             onclick={() => (showIconPicker = !showIconPicker)}
             title={t('notes.insertEmoji') || 'Insert Icon / Emoji'}
           >
@@ -554,6 +699,7 @@
                       <button
                         type="button"
                         class="emoji-item-btn"
+                        onmousedown={(e) => e.preventDefault()}
                         onclick={() => { insertEmoji(em); showIconPicker = false; }}
                         title={em}
                       >
@@ -570,23 +716,23 @@
         <div class="fmt-divider"></div>
 
         <!-- Headings -->
-        <button type="button" class="fmt-btn" onclick={() => insertFormatting('# ', '', 'عنوان 1')} title="Heading 1">H1</button>
-        <button type="button" class="fmt-btn" onclick={() => insertFormatting('## ', '', 'عنوان 2')} title="Heading 2">H2</button>
-        <button type="button" class="fmt-btn" onclick={() => insertFormatting('### ', '', 'عنوان 3')} title="Heading 3">H3</button>
+        <button type="button" class="fmt-btn" onmousedown={(e) => e.preventDefault()} onclick={() => insertFormatting('# ', '', 'عنوان 1')} title="Heading 1">H1</button>
+        <button type="button" class="fmt-btn" onmousedown={(e) => e.preventDefault()} onclick={() => insertFormatting('## ', '', 'عنوان 2')} title="Heading 2">H2</button>
+        <button type="button" class="fmt-btn" onmousedown={(e) => e.preventDefault()} onclick={() => insertFormatting('### ', '', 'عنوان 3')} title="Heading 3">H3</button>
 
         <div class="fmt-divider"></div>
 
         <!-- Bold, Italic, Underline, Strikethrough, Highlight -->
-        <button type="button" class="fmt-btn" onclick={() => insertFormatting('**', '**', 'نص عريض')} title="Bold (عريض)"><strong>B</strong></button>
-        <button type="button" class="fmt-btn" onclick={() => insertFormatting('*', '*', 'نص مائل')} title="Italic (مائل)"><em>I</em></button>
-        <button type="button" class="fmt-btn" onclick={() => insertFormatting('<u>', '</u>', 'نص مسطر')} title="Underline (تسطير)"><u>U</u></button>
-        <button type="button" class="fmt-btn" onclick={() => insertFormatting('~~', '~~', 'نص مشطوب')} title="Strikethrough (شطب)"><s>S</s></button>
-        <button type="button" class="fmt-btn highlight-btn hstack" style="gap:2px;" onclick={() => insertFormatting('==', '==', 'نص مميز')} title="Highlight (تمييز / تظليل)">
+        <button type="button" class="fmt-btn" onmousedown={(e) => e.preventDefault()} onclick={() => insertFormatting('**', '**', 'نص عريض')} title="Bold (عريض)"><strong>B</strong></button>
+        <button type="button" class="fmt-btn" onmousedown={(e) => e.preventDefault()} onclick={() => insertFormatting('*', '*', 'نص مائل')} title="Italic (مائل)"><em>I</em></button>
+        <button type="button" class="fmt-btn" onmousedown={(e) => e.preventDefault()} onclick={() => insertFormatting('<u>', '</u>', 'نص مسطر')} title="Underline (تسطير)"><u>U</u></button>
+        <button type="button" class="fmt-btn" onmousedown={(e) => e.preventDefault()} onclick={() => insertFormatting('~~', '~~', 'نص مشطوب')} title="Strikethrough (شطب)"><s>S</s></button>
+        <button type="button" class="fmt-btn highlight-btn hstack" style="gap:2px;" onmousedown={(e) => e.preventDefault()} onclick={() => insertFormatting('==', '==', 'نص مميز')} title="Highlight (تمييز / تظليل)">
           <Icon name="marker" size={13} />
           <span style="background:#fef08a; color:#1e293b; padding:0 3px; border-radius:3px; font-weight:700; font-size:10.5px;">H</span>
         </button>
-        <button type="button" class="fmt-btn" onclick={() => insertFormatting('`', '`', 'كود')} title="Inline Code (كود مضمن)"><code>`C`</code></button>
-        <button type="button" class="fmt-btn" onclick={() => insertFormatting('||', '||', 'نص مخفي')} title="Spoiler (نص مخفي / تعتيم)">||?||</button>
+        <button type="button" class="fmt-btn" onmousedown={(e) => e.preventDefault()} onclick={() => insertFormatting('`', '`', 'كود')} title="Inline Code (كود مضمن)"><code>`C`</code></button>
+        <button type="button" class="fmt-btn" onmousedown={(e) => e.preventDefault()} onclick={() => insertFormatting('||', '||', 'نص مخفي')} title="Spoiler (نص مخفي / تعتيم)">||?||</button>
 
         <div class="fmt-divider"></div>
 
@@ -594,6 +740,7 @@
         <button
           type="button"
           class="fmt-btn arabic-quotes-btn"
+          onmousedown={(e) => e.preventDefault()}
           onclick={() => insertFormatting('« ', ' »', 'اقتباس')}
           title={t('notes.insertArabicQuote') || 'Arabic Quotes « »'}
         >
@@ -604,6 +751,7 @@
         <button
           type="button"
           class="fmt-btn"
+          onmousedown={(e) => e.preventDefault()}
           onclick={() => insertFormatting('> ', '', 'اقتباس')}
           title={t('notes.insertQuote') || 'Blockquote'}
         >
@@ -615,6 +763,7 @@
           <button
             type="button"
             class="fmt-btn callout-toggle-btn"
+            onmousedown={(e) => e.preventDefault()}
             onclick={() => (showCalloutMenu = !showCalloutMenu)}
             title={t('notes.insertCallout') || 'Insert Callout'}
           >
@@ -624,19 +773,19 @@
 
           {#if showCalloutMenu}
             <div class="callout-popover">
-              <button type="button" class="callout-opt note" onclick={() => insertCallout('NOTE')}>
+              <button type="button" class="callout-opt note" onmousedown={(e) => e.preventDefault()} onclick={() => insertCallout('NOTE')}>
                 <span class="callout-badge note">NOTE</span>
                 <span>{t('notes.calloutNote') || 'ملاحظة زرقاء'}</span>
               </button>
-              <button type="button" class="callout-opt tip" onclick={() => insertCallout('TIP')}>
+              <button type="button" class="callout-opt tip" onmousedown={(e) => e.preventDefault()} onclick={() => insertCallout('TIP')}>
                 <span class="callout-badge tip">TIP</span>
                 <span>{t('notes.calloutTip') || 'فائدة / تلميح أخضر'}</span>
               </button>
-              <button type="button" class="callout-opt important" onclick={() => insertCallout('IMPORTANT')}>
+              <button type="button" class="callout-opt important" onmousedown={(e) => e.preventDefault()} onclick={() => insertCallout('IMPORTANT')}>
                 <span class="callout-badge important">IMPORTANT</span>
                 <span>{t('notes.calloutImportant') || 'هام جداً بنفسجي'}</span>
               </button>
-              <button type="button" class="callout-opt warning" onclick={() => insertCallout('WARNING')}>
+              <button type="button" class="callout-opt warning" onmousedown={(e) => e.preventDefault()} onclick={() => insertCallout('WARNING')}>
                 <span class="callout-badge warning">WARNING</span>
                 <span>{t('notes.calloutWarning') || 'تحذير أصفر'}</span>
               </button>
@@ -647,29 +796,29 @@
         <div class="fmt-divider"></div>
 
         <!-- Lists -->
-        <button type="button" class="fmt-btn" onclick={() => insertFormatting('- ', '', 'عنصر قائمة')} title="Bullet List">
+        <button type="button" class="fmt-btn" onmousedown={(e) => e.preventDefault()} onclick={() => insertFormatting('- ', '', 'عنصر قائمة')} title="Bullet List">
           <Icon name="list" size={13} />
         </button>
-        <button type="button" class="fmt-btn" onclick={() => insertFormatting('1. ', '', 'عنصر مرقم')} title="Numbered List">
+        <button type="button" class="fmt-btn" onmousedown={(e) => e.preventDefault()} onclick={() => insertFormatting('1. ', '', 'عنصر مرقم')} title="Numbered List">
           1.
         </button>
-        <button type="button" class="fmt-btn" onclick={() => insertFormatting('- [ ] ', '', 'مهمة')} title="Task List">
+        <button type="button" class="fmt-btn" onmousedown={(e) => e.preventDefault()} onclick={() => insertFormatting('- [ ] ', '', 'مهمة')} title="Task List">
           <Icon name="check-square" size={13} />
         </button>
 
         <div class="fmt-divider"></div>
 
         <!-- Code block, Table, Math & Divider -->
-        <button type="button" class="fmt-btn" onclick={() => insertFormatting('```\n', '\n```', 'كود')} title="Code Block">
+        <button type="button" class="fmt-btn" onmousedown={(e) => e.preventDefault()} onclick={() => insertFormatting('```\n', '\n```', 'كود')} title="Code Block">
           &lt;/&gt;
         </button>
-        <button type="button" class="fmt-btn" onclick={() => insertFormatting('\n| العمود 1 | العمود 2 |\n|---|---|\n| القيمة 1 | القيمة 2 |\n')} title="Table">
+        <button type="button" class="fmt-btn" onmousedown={(e) => e.preventDefault()} onclick={() => insertFormatting('\n| العمود 1 | العمود 2 |\n|---|---|\n| القيمة 1 | القيمة 2 |\n')} title="Table">
           <Icon name="columns" size={13} />
         </button>
-        <button type="button" class="fmt-btn" onclick={() => insertFormatting('$ ', ' $', 'E = mc^2')} title="Math Formula ($...$)">
+        <button type="button" class="fmt-btn" onmousedown={(e) => e.preventDefault()} onclick={() => insertFormatting('$ ', ' $', 'E = mc^2')} title="Math Formula ($...$)">
           $$
         </button>
-        <button type="button" class="fmt-btn" onclick={() => insertFormatting('\n\n---\n\n')} title="Horizontal Line (---)">
+        <button type="button" class="fmt-btn" onmousedown={(e) => e.preventDefault()} onclick={() => insertFormatting('\n\n---\n\n')} title="Horizontal Line (---)">
           <Icon name="minus" size={13} />
         </button>
 
@@ -678,6 +827,7 @@
           <button
             type="button"
             class="fmt-btn"
+            onmousedown={(e) => e.preventDefault()}
             onclick={() => (showNoteLinkPicker = !showNoteLinkPicker)}
             title={t('notes.connect') || 'Link Note'}
           >
@@ -689,7 +839,7 @@
               <div class="popover-heading">{t('notes.connectPlaceholder') || 'Select note to link:'}</div>
               <div class="popover-notes-list">
                 {#each allAvailableNotes as optNote (optNote.id)}
-                  <button type="button" class="link-item-row" onclick={() => handleInsertNoteLink(optNote)}>
+                  <button type="button" class="link-item-row" onmousedown={(e) => e.preventDefault()} onclick={() => handleInsertNoteLink(optNote)}>
                     <Icon name="file-text" size={12} />
                     <span class="link-item-title">{optNote.title}</span>
                   </button>
@@ -705,6 +855,7 @@
         <button
           type="button"
           class="fmt-btn"
+          onmousedown={(e) => e.preventDefault()}
           onclick={insertCurrentTimecode}
           title={t('notes.insertTimestamp') || 'Insert Video Timestamp'}
         >
@@ -717,6 +868,7 @@
             <button
               type="button"
               class="fmt-btn screenshot-btn"
+              onmousedown={(e) => e.preventDefault()}
               onclick={() => (showScreenshotPicker = !showScreenshotPicker)}
               title={t('notes.insertScreenshot') || 'Insert Screenshot'}
             >
@@ -737,7 +889,7 @@
                   {#each captures as cap (cap.id || cap.dataUrl || cap.image)}
                     {@const src = cap.dataUrl || cap.image || cap.url || cap.src}
                     {#if src}
-                      <button type="button" class="thumb-btn" onclick={() => insertScreenshot(cap)}>
+                      <button type="button" class="thumb-btn" onmousedown={(e) => e.preventDefault()} onclick={() => insertScreenshot(cap)}>
                         <img src={src} alt="Capture" loading="lazy" />
                         {#if cap.timecode}<span class="thumb-time">{cap.timecode}</span>{/if}
                       </button>
@@ -755,6 +907,7 @@
         <button
           type="button"
           class="fmt-btn voice-dictation-btn {isRecording ? 'recording' : ''} {isTranscribing ? 'transcribing' : ''}"
+          onmousedown={(e) => e.preventDefault()}
           onclick={toggleVoiceRecording}
           disabled={isTranscribing}
           title={isRecording ? (t('stt.recording') || 'Stop & Transcribe') : (t('stt.record') || 'Voice Typing')}
@@ -777,8 +930,8 @@
 
         <!-- Font Size Zoom -->
         <div class="fmt-group">
-          <button type="button" class="fmt-btn zoom-btn" onclick={() => adjustFontSize(1)} title={t('notes.fontSizeIncrease') || 'Increase Font Size'}>A+</button>
-          <button type="button" class="fmt-btn zoom-btn" onclick={() => adjustFontSize(-1)} title={t('notes.fontSizeDecrease') || 'Decrease Font Size'}>A-</button>
+          <button type="button" class="fmt-btn zoom-btn" onmousedown={(e) => e.preventDefault()} onclick={() => adjustFontSize(1)} title={t('notes.fontSizeIncrease') || 'Increase Font Size'}>A+</button>
+          <button type="button" class="fmt-btn zoom-btn" onmousedown={(e) => e.preventDefault()} onclick={() => adjustFontSize(-1)} title={t('notes.fontSizeDecrease') || 'Decrease Font Size'}>A-</button>
         </div>
       </div>
     {/if}

@@ -36,10 +36,12 @@ test('renderMarkdown handles tables', () => {
   assert.ok(html.includes('<td>Val 1</td>'));
 });
 
-test('inlineMarkdown parses bold, italic, links, and images', () => {
-  const res = inlineMarkdown('**bold** *italic* [link](https://example.com) ![pic](img.png)');
+test('inlineMarkdown parses bold, italic, links, images, underline, and highlight', () => {
+  const res = inlineMarkdown('**bold** *italic* [link](https://example.com) ![pic](img.png) <u>underlined</u> ==highlighted==');
   assert.ok(res.includes('<strong>bold</strong>'));
   assert.ok(res.includes('<em>italic</em>'));
   assert.ok(res.includes('<a class="md-link" href="https://example.com"'));
   assert.ok(res.includes('<img class="md-img" src="img.png" alt="pic"'));
+  assert.ok(res.includes('<u class="md-underline">underlined</u>'));
+  assert.ok(res.includes('<mark class="md-highlight">highlighted</mark>'));
 });

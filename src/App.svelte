@@ -2436,7 +2436,8 @@
       {:else if view === 'Flashcards'}
         <div class="section-head">
           <h2 style="margin:0">{t('flashcards.title')} ({cards.length})</h2>
-          <div class="hstack" style="gap:8px; flex-wrap:wrap;">
+          <div class="hstack" style="gap:8px; flex-wrap:wrap; align-items:center;">
+            <PomodoroWidget materialTitle={deckLabel(activeDeckName) || 'البطاقات'} compact={true} />
             <div class="view-toggle" role="group" aria-label={t('common.gridView')}>
               <button class={modeOf('flashcards') === 'grid' ? 'active' : ''} onclick={() => setMode('flashcards', 'grid')} title={t('common.gridView')} aria-label={t('common.gridView')} aria-pressed={modeOf('flashcards') === 'grid'}><Icon name="grid" size={15} /></button>
               <button class={modeOf('flashcards') === 'list' ? 'active' : ''} onclick={() => setMode('flashcards', 'list')} title={t('common.listView')} aria-label={t('common.listView')} aria-pressed={modeOf('flashcards') === 'list'}><Icon name="list" size={15} /></button>
@@ -2662,8 +2663,11 @@
         {@const card = reviewQueue[reviewIndex]}
         {#if card}
           <div class="review-stage">
-            <div class="muted">
-              {t('review.cardOf', { n: reviewIndex + 1, total: reviewQueue.length, sets: setsOf(card).map(deckLabel).join(' · ') })}
+            <div class="hstack" style="justify-content:space-between; align-items:center; width:100%; max-width:580px; margin-bottom:8px;">
+              <div class="muted">
+                {t('review.cardOf', { n: reviewIndex + 1, total: reviewQueue.length, sets: setsOf(card).map(deckLabel).join(' · ') })}
+              </div>
+              <PomodoroWidget materialTitle={deckLabel(activeDeckName) || 'مراجعة البطاقات'} compact={true} />
             </div>
             {#key reviewIndex}
             <div class="review-scene" class:revealed={reviewRevealed}>
