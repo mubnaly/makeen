@@ -37,7 +37,8 @@
     onRequestAuth = () => {},
     onImported = () => {},
     onOpenVideoDirectly = () => {},
-    initialShare = null
+    initialShare = null,
+    onClearInitialShare = () => {}
   } = $props();
 
   $effect(() => {
@@ -45,6 +46,11 @@
       selectedShareDetails = initialShare;
     }
   });
+
+  function closeShareDetails() {
+    selectedShareDetails = null;
+    onClearInitialShare?.();
+  }
 
   let shares = $state([]);
   let searchQuery = $state('');
@@ -175,7 +181,11 @@
   });
 
   const filteredShares = $derived.by(() => {
+    if (!Array.isArray(shares) || shares.length === 0) return [];
+
     let list = shares.filter((item) => {
+      if (!item) return false;
+
       if (activeFilter === 'my_shares') {
         return isShareOwner(item, currentUser);
       }
@@ -184,29 +194,47 @@
       }
       if (pricingFilter === 'free' && item.isPaid) return false;
       if (pricingFilter === 'paid' && !item.isPaid) return false;
-      if (activeFilter !== 'all' && item.type !== activeFilter) return false;
-      if (selectedTagFilter) {
-        const itemTags = (item.tags || []).map((t) => String(t).toLowerCase());
-        if (!itemTags.includes(selectedTagFilter.toLowerCase())) return false;
+
+      // Category matching
+      if (activeFilter !== 'all') {
+        const t = String(item.type || 'playlist').toLowerCase();
+        if (activeFilter === 'playlist' && (t === 'playlist' || t === 'video')) {
+          // matches playlist
+        } else if (t !== activeFilter.toLowerCase()) {
+          return false;
+        }
       }
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
+
+      // Tag filter (case-insensitive & hash-stripped)
+      if (selectedTagFilter && selectedTagFilter.trim()) {
+        const targetTag = selectedTagFilter.trim().replace(/^#+/, '').toLowerCase();
+        const rawTags = Array.isArray(item.tags)
+          ? item.tags
+          : (typeof item.tags === 'string' ? item.tags.split(/[,،\s]+/) : []);
+        const normItemTags = rawTags.map((tg) => String(tg).trim().replace(/^#+/, '').toLowerCase()).filter(Boolean);
+        if (!normItemTags.includes(targetTag)) return false;
+      }
+
+      // Search query
+      if (searchQuery && searchQuery.trim()) {
+        const q = searchQuery.trim().toLowerCase();
         const matchTitle = (item.title || '').toLowerCase().includes(q) || (item.titleEn || '').toLowerCase().includes(q);
         const matchAuthor = (item.author || '').toLowerCase().includes(q);
         const matchTeacher = (item.teacher || '').toLowerCase().includes(q);
         const matchDesc = (item.description || '').toLowerCase().includes(q);
-        const matchTags = (item.tags || []).some((t) => String(t).toLowerCase().includes(q));
+        const rawTags = Array.isArray(item.tags) ? item.tags : (typeof item.tags === 'string' ? item.tags.split(/[,،\s]+/) : []);
+        const matchTags = rawTags.some((tg) => String(tg).trim().replace(/^#+/, '').toLowerCase().includes(q));
         return matchTitle || matchAuthor || matchTeacher || matchDesc || matchTags;
       }
       return true;
     });
 
-    if (activeSort === 'popular') {
-      list = [...list].sort((a, b) => (b.visits || 0) - (a.visits || 0));
-    } else if (activeSort === 'rating') {
-      list = [...list].sort((a, b) => (b.rating || 0) - (a.rating || 0));
+    if (activeSort === 'rating') {
+      list = [...list].sort((a, b) => (Number(b.rating) || 0) - (Number(a.rating) || 0));
     } else if (activeSort === 'newest') {
-      list = [...list].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+      list = [...list].sort((a, b) => (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0));
+    } else {
+      list = [...list].sort((a, b) => (Number(b.visits) || 0) - (Number(a.visits) || 0));
     }
 
     return list;
@@ -222,15 +250,40 @@
     return shares.filter((s) => s.isPrivate && isShareOwner(s, currentUser)).length;
   });
 
-  // Unique tags with counts for quick discovery
+  // Category counts
+  const pathsCount = $derived.by(() => {
+    return shares.filter((s) => (s.type || '').toLowerCase() === 'path').length;
+  });
+
+  const playlistsCount = $derived.by(() => {
+    return shares.filter((s) => {
+      const t = (s.type || 'playlist').toLowerCase();
+      return t === 'playlist' || t === 'video';
+    }).length;
+  });
+
+  const pdfsCount = $derived.by(() => {
+    return shares.filter((s) => (s.type || '').toLowerCase() === 'pdf').length;
+  });
+
+  const cardsCount = $derived.by(() => {
+    return shares.filter((s) => (s.type || '').toLowerCase() === 'cards').length;
+  });
+
+  const notesCount = $derived.by(() => {
+    return shares.filter((s) => (s.type || '').toLowerCase() === 'notes').length;
+  });
+
+  // Unique tags with counts for quick discovery (properly hash-stripped)
   const availableTags = $derived.by(() => {
     const counts = {};
     for (const item of shares) {
-      if (item.tags && Array.isArray(item.tags)) {
-        for (const t of item.tags) {
-          const norm = String(t).trim();
-          if (norm) counts[norm] = (counts[norm] || 0) + 1;
-        }
+      const rawTags = Array.isArray(item.tags)
+        ? item.tags
+        : (typeof item.tags === 'string' ? item.tags.split(/[,،\s]+/) : []);
+      for (const t of rawTags) {
+        const norm = String(t).trim().replace(/^#+/, '');
+        if (norm) counts[norm] = (counts[norm] || 0) + 1;
       }
     }
     return Object.entries(counts).sort((a, b) => b[1] - a[1]);
@@ -836,6 +889,9 @@
             >
               <Icon name="layers" size={14} />
               <span>{ui.lang === 'ar' ? 'المسارات التعليمية' : 'Learning Paths'}</span>
+              {#if pathsCount > 0}
+                <span class="count-bubble">{pathsCount}</span>
+              {/if}
             </button>
 
             <button
@@ -845,6 +901,9 @@
             >
               <Icon name="video" size={14} />
               <span>{t('community.filterPlaylists')}</span>
+              {#if playlistsCount > 0}
+                <span class="count-bubble">{playlistsCount}</span>
+              {/if}
             </button>
 
             <button
@@ -854,6 +913,9 @@
             >
               <Icon name="reader" size={14} />
               <span>{t('community.filterPdfs')}</span>
+              {#if pdfsCount > 0}
+                <span class="count-bubble">{pdfsCount}</span>
+              {/if}
             </button>
 
             <button
@@ -863,6 +925,9 @@
             >
               <Icon name="flashcards" size={14} />
               <span>{t('community.filterCards')}</span>
+              {#if cardsCount > 0}
+                <span class="count-bubble">{cardsCount}</span>
+              {/if}
             </button>
 
             <button
@@ -872,6 +937,9 @@
             >
               <Icon name="file-text" size={14} />
               <span>{t('community.filterNotes')}</span>
+              {#if notesCount > 0}
+                <span class="count-bubble">{notesCount}</span>
+              {/if}
             </button>
           </div>
         </div>
@@ -1006,7 +1074,7 @@
     {@const isOwner = isShareOwner(share, currentUser)}
     <div class="share-details-page">
       <div class="details-nav-bar hstack" style="justify-content:space-between; margin-bottom:16px;">
-        <button class="secondary hstack" onclick={() => (selectedShareDetails = null)}>
+        <button class="secondary hstack" onclick={closeShareDetails}>
           <Icon name={ui.dir === 'rtl' ? 'arrow-right' : 'arrow-left'} size={15} />
           <span>{ui.lang === 'ar' ? 'العودة إلى قائمة المجتمع' : 'Back to Community'}</span>
         </button>
@@ -1253,14 +1321,31 @@
       <Icon name={activeFilter === 'my_shares' ? 'user' : 'globe'} size={42} />
       <h3>{activeFilter === 'my_shares' ? (ui.lang === 'ar' ? 'لم تنشر أي محتوى بعد' : 'No content published yet') : t('community.empty')}</h3>
       <p class="muted">
-        {activeFilter === 'my_shares'
-          ? (ui.lang === 'ar' ? 'يمكنك مشاركة كورسات، قوائم يوتيوب، ملفات PDF، أو بطاقات استذكار باسمك وإدارتها وتعديلها من هنا بكل سهولة.' : 'You can publish and manage your courses, playlists, PDFs, and flashcards here.')
-          : 'كن أول من يشارك محتوى تعليمي مفيد مع زملائك بالضغط على زر "مشاركة محتوى في المجتمع".'}
+        {#if shares.length > 0}
+          {ui.lang === 'ar' ? 'لا توجد نتائج تطابق خيارات التصفية أو البحث الحالية. يمكنك إظهار كافة المحتوى والدروس بالضغط على الزر أدناه.' : 'No items match your active filters or search. Click below to show all content.'}
+        {:else if activeFilter === 'my_shares'}
+          {ui.lang === 'ar' ? 'يمكنك مشاركة كورسات، قوائم يوتيوب، ملفات PDF، أو بطاقات استذكار باسمك وإدارتها وتعديلها من هنا بكل سهولة.' : 'You can publish and manage your courses, playlists, PDFs, and flashcards here.'}
+        {:else}
+          {ui.lang === 'ar' ? 'كن أول من يشارك محتوى تعليمي مفيد مع زملائك بالضغط على زر "مشاركة محتوى في المجتمع".' : 'Be the first to share useful educational content with your peers!'}
+        {/if}
       </p>
-      <button class="primary mt" onclick={openCreateShare}>
-        <Icon name="plus" size={15} />
-        <span>{t('community.shareContent')}</span>
-      </button>
+
+      <div class="hstack" style="gap:10px; flex-wrap:wrap; justify-content:center; margin-top:14px;">
+        {#if shares.length > 0}
+          <button
+            type="button"
+            class="secondary hstack"
+            onclick={() => { activeFilter = 'all'; pricingFilter = 'all'; selectedTagFilter = ''; searchQuery = ''; activeSort = 'popular'; }}
+          >
+            <Icon name="rotate-right" size={14} />
+            <span>{ui.lang === 'ar' ? `عرض كل المحتوى (${shares.length} مشاركة)` : `Show All Content (${shares.length})`}</span>
+          </button>
+        {/if}
+        <button class="primary hstack" onclick={openCreateShare}>
+          <Icon name="plus" size={15} />
+          <span>{t('community.shareContent')}</span>
+        </button>
+      </div>
     </div>
   {:else}
     <div class="shares-grid">

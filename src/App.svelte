@@ -2711,7 +2711,7 @@
           {notify}
           onOpenAuth={() => (authOpen = true)}
           onOpenCommunityShare={(share) => {
-            activeCommunityShare = share;
+            activeCommunityShare = { ...share };
             nav('Community');
           }}
         />
@@ -2720,6 +2720,7 @@
         <Community
           {notify}
           initialShare={activeCommunityShare}
+          onClearInitialShare={() => { activeCommunityShare = null; }}
           onOpenView={(target) => nav(target)}
           onRequestAuth={() => (authOpen = true)}
           onImported={() => { docs = library.listDocuments(); }}
