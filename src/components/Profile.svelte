@@ -15,7 +15,8 @@
     decks = [],
     projects = [],
     notify,
-    onOpenAuth = null
+    onOpenAuth = null,
+    onOpenCommunityShare = null
   } = $props();
 
   let avatar = $state(loadUserAvatar());
@@ -563,7 +564,15 @@
         <div class="gh-repo-grid">
           {#each userShares as s (s.id)}
             {@const totalDur = formatTotalDuration(computeShareTotalDuration(s))}
-            <div class="gh-repo-card card">
+            <!-- svelte-ignore a11y_click_events_have_key_events -->
+            <div
+              class="gh-repo-card card clickable"
+              role="button"
+              tabindex="0"
+              onclick={() => onOpenCommunityShare?.(s)}
+              onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && onOpenCommunityShare?.(s)}
+              title={ui.lang === 'ar' ? 'انقر لفتح وتصفح هذا المحتوى' : 'Click to view and open this content'}
+            >
               <div class="hstack" style="justify-content:space-between; align-items:flex-start; gap:8px;">
                 <div class="hstack" style="gap:8px; min-width:0;">
                   <span class="gh-repo-icon"><Icon name={s.type === 'path' ? 'layers' : (s.type === 'playlist' ? 'video' : 'reader')} size={15} /></span>
@@ -1258,11 +1267,15 @@
     background: var(--surface-2);
     border: 1px solid var(--border);
     border-radius: 8px;
-    transition: border-color 0.15s ease, transform 0.15s ease;
+    transition: border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+  }
+  .gh-repo-card.clickable {
+    cursor: pointer;
   }
   .gh-repo-card:hover {
     border-color: var(--accent);
     transform: translateY(-2px);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
   }
   .gh-repo-icon {
     color: var(--accent);

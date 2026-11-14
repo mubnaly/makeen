@@ -1,10 +1,10 @@
 apply plugin: 'com.android.application'
 
 android {
-    namespace = "com.makeen.app"
+    namespace = "com.dawwar.online.allama.makeen"
     compileSdk = rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "com.makeen.app"
+        applicationId "com.dawwar.online.allama.makeen"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

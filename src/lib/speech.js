@@ -48,23 +48,22 @@ export function startRealtimeSpeech({
     recognition.lang = lang || 'ar-SA';
 
     recognition.onresult = (event) => {
-      let interim = '';
-      let final = '';
+      let newFinalChunk = '';
+      let currentInterim = '';
 
       for (let i = event.resultIndex; i < event.results.length; ++i) {
         const item = event.results[i];
         const text = item[0]?.transcript || '';
         if (item.isFinal) {
-          final += text;
+          newFinalChunk += (newFinalChunk ? ' ' : '') + text;
         } else {
-          interim += text;
+          currentInterim += (currentInterim ? ' ' : '') + text;
         }
       }
 
       onResult({
-        final: final.trim(),
-        interim: interim.trim(),
-        full: (final + ' ' + interim).trim()
+        final: newFinalChunk.trim(),
+        interim: currentInterim.trim()
       });
     };
 

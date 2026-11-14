@@ -129,15 +129,8 @@ const WIPED_INITIAL_KEY = 'makeen.community.wiped_v2';
  * Checks if old mock data has been wiped. If not, cleans the database once.
  */
 export async function ensureFreshCommunityData() {
-  try {
-    if (!localStorage.getItem(WIPED_INITIAL_KEY)) {
-      const existing = await listCommunitySharesDb();
-      for (const item of existing) {
-        await deleteCommunityShareDb(item.id);
-      }
-      localStorage.setItem(WIPED_INITIAL_KEY, 'true');
-    }
-  } catch {}
+  // Safe no-op: never wipe user-created community shares
+  return;
 }
 
 export async function updateCommunityShare(shareId, updatedData) {
@@ -201,18 +194,26 @@ export function isShareOwner(share, user) {
  */
 export async function listCommunityShares() {
   const user = getCurrentUser();
+  let remote = [];
   try {
-    const remote = await apiFetchCommunityShares();
-    if (Array.isArray(remote) && remote.length > 0) {
-      return remote.filter((s) => !s.isPrivate || isShareOwner(s, user));
-    }
+    const res = await apiFetchCommunityShares();
+    if (Array.isArray(res)) remote = res;
   } catch {}
 
-  await ensureFreshCommunityData();
   const dbShares = await listCommunitySharesDb();
   const viewsMap = loadViewsMap();
 
-  return dbShares
+  const map = new Map();
+  // 1. Remote shares first
+  for (const s of remote) {
+    if (s?.id) map.set(s.id, s);
+  }
+  // 2. Local database shares (ensures user's created and published lists are always preserved)
+  for (const s of dbShares) {
+    if (s?.id) map.set(s.id, s);
+  }
+
+  return Array.from(map.values())
     .filter((s) => !s.isPrivate || isShareOwner(s, user))
     .map((s) => ({
       ...s,

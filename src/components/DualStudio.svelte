@@ -11,7 +11,7 @@
   import MarkdownEditor from './MarkdownEditor.svelte';
   import { t } from '../lib/lang.svelte.js';
   import { listProjects } from '../lib/projects.js';
-  import { getOrCreateNoteForMaterial } from '../lib/markdownStore.js';
+  import { getOrCreateNoteForMaterial, formatVideoNoteTitle } from '../lib/markdownStore.js';
 
   let {
     docs = [],
@@ -101,8 +101,8 @@
   );
   const studioNoteTitle = $derived(
     activeProject ? `${activeProject.name} — ${t('studio.notes') || 'Studio Notes'}`
-    : activeVideo && activePdf ? `${activeVideo.title || 'Video'} & ${activePdf.title || 'PDF'}`
-    : activeVideo ? (activeVideo.title || 'Video Notes')
+    : activeVideo && activePdf ? `${formatVideoNoteTitle(activeVideo)} & ${activePdf.title || 'PDF'}`
+    : activeVideo ? formatVideoNoteTitle(activeVideo)
     : activePdf ? (activePdf.title || 'PDF Notes')
     : 'Studio Session Notes'
   );

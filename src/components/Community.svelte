@@ -17,6 +17,7 @@
     formatTotalDuration,
     computeShareTotalDuration,
     isShareImported,
+    getImportedShareIds,
     normalizeTags
   } from '../lib/communityStore.js';
   import {
@@ -35,8 +36,15 @@
     onOpenView = () => {},
     onRequestAuth = () => {},
     onImported = () => {},
-    onOpenVideoDirectly = () => {}
+    onOpenVideoDirectly = () => {},
+    initialShare = null
   } = $props();
+
+  $effect(() => {
+    if (initialShare) {
+      selectedShareDetails = initialShare;
+    }
+  });
 
   let shares = $state([]);
   let searchQuery = $state('');
@@ -237,6 +245,14 @@
     return pendingOrders.filter((o) => myShareIds.includes(o.shareId) && o.status === 'pending').length;
   });
 
+  // Reactive imported shares tracking
+  let importedShareIds = $state(getImportedShareIds());
+
+  function checkIsImported(shareId) {
+    if (!shareId) return false;
+    return importedShareIds.includes(shareId) || isShareImported(shareId);
+  }
+
   async function handleImport(share) {
     if (share.isPaid && !isContentUnlocked(share, currentUser)) {
       openPaymentModal(share);
@@ -247,6 +263,7 @@
     try {
       const res = await importShareToMyLibrary(share);
       if (res.ok) {
+        importedShareIds = Array.from(new Set([...getImportedShareIds(), share.id]));
         window.dispatchEvent(new CustomEvent('studyos:library-changed'));
         onImported?.(res);
         notify(t('community.addedToLibrary') || 'تمت الإضافة إلى مكتبتك بنجاح!', 'ok');
@@ -1071,7 +1088,7 @@
                 </button>
               {/if}
 
-              {#if isShareImported(share.id)}
+              {#if checkIsImported(share.id)}
                 <button
                   class="secondary hstack in-library-btn"
                   disabled={true}
@@ -1079,7 +1096,7 @@
                   title="موجود في مكتبتك"
                 >
                   <Icon name="check" size={14} />
-                  <span>{ui.lang === 'ar' ? 'مضاف في مكتبتك' : 'In Library'}</span>
+                  <span>{ui.lang === 'ar' ? 'في مكتبتك' : 'In Library'}</span>
                 </button>
               {:else}
                 <button
@@ -1416,7 +1433,7 @@
                 </button>
               {/if}
 
-              {#if isShareImported(item.id)}
+              {#if checkIsImported(item.id)}
                 <button
                   class="secondary small hstack in-library-btn"
                   disabled={true}
@@ -1424,7 +1441,7 @@
                   title="موجود بالفعل في مكتبتك"
                 >
                   <Icon name="check" size={13} />
-                  <span>{ui.lang === 'ar' ? 'مضاف في مكتبتك' : 'In Library'}</span>
+                  <span>{ui.lang === 'ar' ? 'في مكتبتك' : 'In Library'}</span>
                 </button>
               {:else}
                 <button
@@ -2666,7 +2683,7 @@
     left: auto;
     transform: none;
     margin: auto;
-    z-index: 100 !important;
+    z-index: 100000 !important;
     pointer-events: auto !important;
   }
   .share-modal {

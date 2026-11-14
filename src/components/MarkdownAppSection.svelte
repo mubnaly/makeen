@@ -806,9 +806,25 @@
     color: var(--text);
     cursor: pointer;
   }
-  .icon-action-btn:hover {
-    background: var(--surface-2);
-    border-color: var(--accent);
+  .new-note-btn {
+    height: 26px !important;
+    min-height: 26px !important;
+    max-height: 26px !important;
+    line-height: 1 !important;
+    padding: 0 8px !important;
+    font-size: 11.5px !important;
+    white-space: nowrap !important;
+    border-radius: 6px !important;
+    flex-shrink: 0 !important;
+    align-self: center !important;
+  }
+
+  .folder-row.drag-over {
+    background: var(--accent-soft) !important;
+    border: 1px dashed var(--accent) !important;
+  }
+  .folder-row.drag-over * {
+    pointer-events: none;
   }
 
   .search-box {

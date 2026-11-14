@@ -291,12 +291,45 @@ export function deleteNote(id) {
   return false;
 }
 
+// Helper to format video note titles: "[Video Title] - [Channel Name]"
+export function formatVideoNoteTitle(videoOrTitle, channelName = '') {
+  if (!videoOrTitle) return 'Video Notes';
+  let title = typeof videoOrTitle === 'string' ? videoOrTitle : (videoOrTitle.title || videoOrTitle.filename || 'Video Notes');
+  title = String(title || '').trim();
+  let channel = channelName;
+  if (!channel && typeof videoOrTitle === 'object') {
+    channel = videoOrTitle.author || videoOrTitle.channel || videoOrTitle.channelTitle || videoOrTitle.uploader || '';
+  }
+  channel = String(channel || '').trim();
+
+  if (channel && !title.toLowerCase().includes(channel.toLowerCase())) {
+    return `${title} - ${channel}`;
+  }
+  return title;
+}
+
 // Get or create a note linked to a PDF or Video
 export function getOrCreateNoteForMaterial(materialId, materialType = 'pdf', defaultTitle = '') {
   if (!materialId) return null;
   const state = loadState();
   let note = state.notes.find((n) => n.materialId === materialId);
-  if (note) return note;
+  if (note) {
+    // If a more descriptive title (e.g. with channel name) is provided, sync note title
+    if (defaultTitle && defaultTitle !== note.title) {
+      const isPlaceholder = note.title.startsWith('VIDEO') || note.title.startsWith('Video') || note.title === 'New Note';
+      const hasChannelSuffix = defaultTitle.includes(' - ') && !note.title.includes(' - ');
+      if (isPlaceholder || hasChannelSuffix) {
+        const oldTitle = note.title;
+        note.title = defaultTitle;
+        if (note.content && note.content.startsWith(`# ${oldTitle}`)) {
+          note.content = `# ${defaultTitle}${note.content.slice(oldTitle.length + 2)}`;
+        }
+        note.updatedAt = Date.now();
+        persistState(state);
+      }
+    }
+    return note;
+  }
 
   note = {
     id: uid(),

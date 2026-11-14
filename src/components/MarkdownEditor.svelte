@@ -132,8 +132,33 @@
     }
   }
 
+  // Extract first H1 heading (# ...) from markdown to synchronize title
+  function syncTitleFromFirstH1(mdContent) {
+    if (!mdContent) return;
+    const match = mdContent.match(/^\s*#\s+([^\n\r]+)/m);
+    if (match) {
+      const extracted = match[1].trim();
+      if (extracted && extracted !== title) {
+        title = extracted;
+        if (activeNote) {
+          activeNote.title = extracted;
+        }
+      }
+    }
+  }
+
+  function handleTitleInput(e) {
+    title = e.target.value;
+    const h1Regex = /^(\s*#\s+)[^\n\r]+/m;
+    if (h1Regex.test(content)) {
+      content = content.replace(h1Regex, `$1${title}`);
+    }
+    scheduleAutosave();
+  }
+
   function scheduleAutosave() {
     isSaved = false;
+    syncTitleFromFirstH1(content);
     if (saveTimer) clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
       saveNow();
@@ -142,6 +167,7 @@
 
   function saveNow() {
     if (!activeNote?.id) return;
+    syncTitleFromFirstH1(content);
     const updated = updateNote(activeNote.id, { title, content, direction: textDirection });
     if (updated) {
       activeNote = updated;
@@ -283,19 +309,27 @@
 
     if (!isRecording) {
       // 1. Try real-time Web Speech API first
+      let pendingInterim = '';
       const realtimeEngine = startRealtimeSpeech({
         lang: dir() === 'rtl' ? 'ar-SA' : 'en-US',
         onResult: ({ final, interim }) => {
-          const phrase = final || interim;
-          if (phrase) {
-            insertFormatting(phrase + ' ');
+          if (final && final.trim()) {
+            pendingInterim = '';
+            insertFormatting(final.trim() + ' ');
             scheduleAutosave();
+          } else if (interim) {
+            pendingInterim = interim.trim();
           }
         },
         onError: (err) => {
           console.warn('Realtime speech error:', err);
         },
         onEnd: () => {
+          if (pendingInterim) {
+            insertFormatting(pendingInterim + ' ');
+            pendingInterim = '';
+            scheduleAutosave();
+          }
           if (isRecording) {
             isRecording = false;
             if (recordingInterval) clearInterval(recordingInterval);
@@ -379,7 +413,7 @@
         class="md-title-input"
         placeholder={t('notes.noteTitlePlaceholder') || 'Note title...'}
         bind:value={title}
-        oninput={scheduleAutosave}
+        oninput={handleTitleInput}
         dir={textDirection}
       />
       <div class="md-header-actions">
@@ -542,10 +576,17 @@
 
         <div class="fmt-divider"></div>
 
-        <!-- Bold, Italic, Strikethrough -->
-        <button type="button" class="fmt-btn" onclick={() => insertFormatting('**', '**', 'نص عريض')} title="Bold"><strong>B</strong></button>
-        <button type="button" class="fmt-btn" onclick={() => insertFormatting('*', '*', 'نص مائل')} title="Italic"><em>I</em></button>
-        <button type="button" class="fmt-btn" onclick={() => insertFormatting('~~', '~~', 'نص مشطوب')} title="Strikethrough"><s>S</s></button>
+        <!-- Bold, Italic, Underline, Strikethrough, Highlight -->
+        <button type="button" class="fmt-btn" onclick={() => insertFormatting('**', '**', 'نص عريض')} title="Bold (عريض)"><strong>B</strong></button>
+        <button type="button" class="fmt-btn" onclick={() => insertFormatting('*', '*', 'نص مائل')} title="Italic (مائل)"><em>I</em></button>
+        <button type="button" class="fmt-btn" onclick={() => insertFormatting('<u>', '</u>', 'نص مسطر')} title="Underline (تسطير)"><u>U</u></button>
+        <button type="button" class="fmt-btn" onclick={() => insertFormatting('~~', '~~', 'نص مشطوب')} title="Strikethrough (شطب)"><s>S</s></button>
+        <button type="button" class="fmt-btn highlight-btn hstack" style="gap:2px;" onclick={() => insertFormatting('==', '==', 'نص مميز')} title="Highlight (تمييز / تظليل)">
+          <Icon name="marker" size={13} />
+          <span style="background:#fef08a; color:#1e293b; padding:0 3px; border-radius:3px; font-weight:700; font-size:10.5px;">H</span>
+        </button>
+        <button type="button" class="fmt-btn" onclick={() => insertFormatting('`', '`', 'كود')} title="Inline Code (كود مضمن)"><code>`C`</code></button>
+        <button type="button" class="fmt-btn" onclick={() => insertFormatting('||', '||', 'نص مخفي')} title="Spoiler (نص مخفي / تعتيم)">||?||</button>
 
         <div class="fmt-divider"></div>
 
@@ -1455,6 +1496,33 @@
   :global(.md-rendered-content .md-callout-important) {
     background: rgba(147, 51, 234, 0.08);
     border-inline-start-color: #9333ea;
+  }
+  :global(.md-rendered-content mark.md-highlight) {
+    background: #fef08a;
+    color: #1e293b;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-weight: 600;
+  }
+  :global(.md-rendered-content .md-underline) {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  :global(.md-rendered-content .md-spoiler) {
+    background: var(--surface-3, rgba(0,0,0,0.1));
+    filter: blur(5px);
+    cursor: pointer;
+    user-select: none;
+    transition: filter 0.2s ease, background 0.2s ease;
+    padding: 1px 5px;
+    border-radius: 3px;
+    display: inline-block;
+  }
+  :global(.md-rendered-content .md-spoiler:hover),
+  :global(.md-rendered-content .md-spoiler.revealed) {
+    filter: none;
+    background: transparent;
+    user-select: auto;
   }
   :global(.md-rendered-content .md-callout-warning),
   :global(.md-rendered-content .md-callout-caution) {

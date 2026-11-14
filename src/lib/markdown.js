@@ -221,6 +221,20 @@ export function inlineMarkdown(str) {
     return `<a class="md-link" href="${url}" target="_blank" rel="noopener noreferrer">${text}</a>`;
   });
 
+  // Highlight: ==text==
+  out = out.replace(/==([^=]+)==/g, '<mark class="md-highlight">$1</mark>');
+
+  // Underline: <u>text</u> or ++text++
+  out = out.replace(/<u>([^<]+)<\/u>/gi, '<u class="md-underline">$1</u>');
+  out = out.replace(/\+\+([^+]+)\+\+/g, '<u class="md-underline">$1</u>');
+
+  // Spoiler / Blur: ||text||
+  out = out.replace(/\|\|([^|]+)\|\|/g, '<span class="md-spoiler" title="اضغط للإظهار" onclick="this.classList.toggle(\'revealed\')">$1</span>');
+
+  // Subscript & Superscript: ~sub~ and ^sup^
+  out = out.replace(/~([^~]+)~/g, '<sub>$1</sub>');
+  out = out.replace(/\^([^^]+)\^/g, '<sup>$1</sup>');
+
   // Inline code: `code`
   out = out.replace(/`([^`]+)`/g, '<code class="md-inline-code">$1</code>');
 

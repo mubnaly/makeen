@@ -60,48 +60,48 @@
 
   const NAV = [
     { id: 'Today', icon: 'today' },
-    { id: 'Profile', icon: 'user' },
-    { id: 'Library', icon: 'library' },
-    { id: 'Community', icon: 'globe' },
-    { id: 'Projects', icon: 'projects' },
     { id: 'Notes', icon: 'file-text' },
-    { id: 'Habits', icon: 'check' },
+    { id: 'Flashcards', icon: 'flashcards' },
+    { id: 'Community', icon: 'globe' },
     { id: 'Reader', icon: 'reader' },
     { id: 'Video', icon: 'video' },
-    { id: 'Studio', icon: 'dualStudio' },
+    { id: 'Library', icon: 'library' },
+    { id: 'Projects', icon: 'projects' },
     { id: 'Planner', icon: 'planner' },
+    { id: 'Habits', icon: 'check' },
+    { id: 'Studio', icon: 'dualStudio' },
     { id: 'Gallery', icon: 'gallery' },
-    { id: 'Flashcards', icon: 'flashcards' },
+    { id: 'Profile', icon: 'user' },
     { id: 'Trash', icon: 'trash' },
     { id: 'Guide', icon: 'book' },
     { id: 'Settings', icon: 'settings' }
   ];
   const NAV_LABEL = {
-    Today: 'nav.today', Profile: 'nav.profile', Library: 'nav.library', Community: 'nav.community', Projects: 'nav.projects',
-    Notes: 'nav.notes', Habits: 'nav.habits', Reader: 'nav.reader', Video: 'nav.video',
-    Studio: 'nav.dualStudio', Planner: 'nav.planner', Gallery: 'nav.gallery', Flashcards: 'nav.flashcards', Trash: 'nav.trash', Guide: 'nav.guide', Settings: 'nav.settings'
+    Today: 'nav.today', Notes: 'nav.notes', Flashcards: 'nav.flashcards', Community: 'nav.community', Reader: 'nav.reader', Video: 'nav.video',
+    Library: 'nav.library', Projects: 'nav.projects', Planner: 'nav.planner', Habits: 'nav.habits', Studio: 'nav.dualStudio',
+    Gallery: 'nav.gallery', Profile: 'nav.profile', Trash: 'nav.trash', Guide: 'nav.guide', Settings: 'nav.settings'
   };
 
   const MOBILE_NAV = [
     { id: 'Today', icon: 'today', labelKey: 'nav.today' },
-    { id: 'Projects', icon: 'projects', labelKey: 'nav.projects' },
+    { id: 'Notes', icon: 'file-text', labelKey: 'nav.notes' },
+    { id: 'Flashcards', icon: 'flashcards', labelKey: 'nav.flashcards' },
     { id: 'Reader', icon: 'reader', labelKey: 'nav.reader' },
-    { id: 'Video', icon: 'video', labelKey: 'nav.video' },
-    { id: 'Notes', icon: 'file-text', labelKey: 'nav.notes' }
+    { id: 'Video', icon: 'video', labelKey: 'nav.video' }
   ];
 
   const DRAWER_NAV = [
-    { id: 'Library', icon: 'library', labelKey: 'nav.library' },
     { id: 'Community', icon: 'globe', labelKey: 'nav.community' },
-    { id: 'Habits', icon: 'check', labelKey: 'nav.habits' },
+    { id: 'Library', icon: 'library', labelKey: 'nav.library' },
+    { id: 'Projects', icon: 'projects', labelKey: 'nav.projects' },
     { id: 'Planner', icon: 'planner', labelKey: 'nav.planner' },
-    { id: 'Gallery', icon: 'gallery', labelKey: 'nav.gallery' },
-    { id: 'Flashcards', icon: 'flashcards', labelKey: 'nav.flashcards' },
+    { id: 'Habits', icon: 'check', labelKey: 'nav.habits' },
     { id: 'Studio', icon: 'dualStudio', labelKey: 'nav.dualStudio' },
+    { id: 'Gallery', icon: 'gallery', labelKey: 'nav.gallery' },
+    { id: 'Profile', icon: 'user', labelKey: 'nav.profile' },
     { id: 'Trash', icon: 'trash', labelKey: 'nav.trash' },
     { id: 'Guide', icon: 'book', labelKey: 'nav.guide' },
-    { id: 'Settings', icon: 'settings', labelKey: 'nav.settings' },
-    { id: 'Profile', icon: 'user', labelKey: 'nav.profile' }
+    { id: 'Settings', icon: 'settings', labelKey: 'nav.settings' }
   ];
 
   let view = $state('Today');
@@ -117,6 +117,7 @@
   let activeDoc = $state(null);
   let openTabs = $state([]);
   let activeVideo = $state(null);
+  let activeCommunityShare = $state(null);
   let backgroundAudio = $state(true);
   try {
     const savedBgAudio = localStorage.getItem('makeen.bgAudio');
@@ -1723,10 +1724,10 @@
         <Icon name="help" size={18} />
       </button>
       <button class="import-btn" onclick={pickPdf} title="PDF (Ctrl+O)">
-        <Icon name="upload" size={14} /><span>PDF</span>
+        <Icon name="reader" size={14} /><span>{t('topbar.importPdf')}</span>
       </button>
-      <button class="import-btn" onclick={pickVideo} title={t('topbar.importMedia') || 'فيديو أو صوت'}>
-        <Icon name="video" size={14} /><span>{importingVideo ? t('video.importing') : (ui.lang === 'ar' ? 'فيديو وصوت' : 'Video & Audio')}</span>
+      <button class="import-btn" onclick={pickVideo} title={t('topbar.importMedia') || 'فيديو / صوت'}>
+        <Icon name="video" size={14} /><span>{importingVideo ? t('video.importing') : (t('topbar.importMedia') || 'فيديو / صوت')}</span>
       </button>
       <button class="import-btn recorder-btn" onclick={() => (recorderOpen = true)} title={t('recorder.recordScreen')}>
         <Icon name="camera" size={14} /><span>{t('recorder.recordScreen')}</span>
@@ -2567,11 +2568,16 @@
           {projects}
           {notify}
           onOpenAuth={() => (authOpen = true)}
+          onOpenCommunityShare={(share) => {
+            activeCommunityShare = share;
+            nav('Community');
+          }}
         />
 
       {:else if view === 'Community'}
         <Community
           {notify}
+          initialShare={activeCommunityShare}
           onOpenView={(target) => nav(target)}
           onRequestAuth={() => (authOpen = true)}
           onImported={() => { docs = library.listDocuments(); }}

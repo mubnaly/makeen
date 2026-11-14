@@ -1,4 +1,4 @@
-package com.makeen.app;
+package com.dawwar.online.allama.makeen;
 
 import android.os.Bundle;
 import android.webkit.WebSettings;
@@ -30,4 +30,3 @@ public class MainActivity extends BridgeActivity {
         } catch (Exception ignored) {}
     }
 }
-

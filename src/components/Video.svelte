@@ -31,7 +31,7 @@
   import { savePdfBytes } from '../lib/storage.js';
   import PomodoroWidget from './PomodoroWidget.svelte';
   import MarkdownEditor from './MarkdownEditor.svelte';
-  import { getOrCreateNoteForMaterial, updateNote } from '../lib/markdownStore.js';
+  import { getOrCreateNoteForMaterial, updateNote, formatVideoNoteTitle } from '../lib/markdownStore.js';
 
   let {
     video = null,
@@ -390,22 +390,20 @@
     }
   }
 
-  // Draggable sidebar resize handle (flexible splitter matching DualStudio: 15% to 75% width, RTL-aware)
+  // Draggable sidebar resize handle (flexible splitter matching DualStudio: 15% to 75% width)
   function startSidebarResize(e) {
     e.preventDefault();
     isResizing = true;
     document.body.style.userSelect = 'none';
     document.body.style.cursor = 'col-resize';
     try { e.currentTarget?.setPointerCapture?.(e.pointerId); } catch {}
-    const isRtl = document.dir === 'rtl' || (typeof ui !== 'undefined' && ui.lang === 'ar');
     const onPointerMove = (ev) => {
       if (!isResizing || !workspaceEl) return;
       const rect = workspaceEl.getBoundingClientRect();
       const minW = Math.max(240, Math.round(rect.width * 0.15));
       const maxW = Math.round(rect.width * 0.70);
-      // In RTL layout sidebar is docked on left side: width is from left edge
-      // In LTR layout sidebar is docked on right side: width is from right edge
-      const calculatedW = isRtl ? (ev.clientX - rect.left) : (rect.right - ev.clientX);
+      // In .video-workspace (direction: ltr), the sidebar is docked on the right side
+      const calculatedW = rect.right - ev.clientX;
       sidebarWidth = Math.max(minW, Math.min(maxW, Math.round(calculatedW)));
     };
     const onPointerUp = () => {
@@ -684,11 +682,14 @@
     ytFrameUrl = '';
   }
 
+  let activePlayingVideoId = null;
+
   async function loadVideo(id) {
     // Persist position of previous video before destroying player
-    if (video?.id && current > 0) {
-      setPlaybackPosition(video.id, current);
+    if (activePlayingVideoId && activePlayingVideoId !== id && current > 0) {
+      setPlaybackPosition(activePlayingVideoId, current);
     }
+    activePlayingVideoId = id;
     if (positionTimer) {
       clearTimeout(positionTimer);
       positionTimer = null;
@@ -1455,7 +1456,7 @@
   function addTranscriptToMarkdown() {
     if (!transcript?.cues || !transcript.cues.length) return;
     const matId = video?.id || 'video-notes';
-    const matTitle = video?.title || video?.filename || 'Video Notes';
+    const matTitle = formatVideoNoteTitle(video);
     const note = getOrCreateNoteForMaterial(matId, 'video', matTitle);
     const langLabel = transcriptLang || subtitleActiveLang || 'ar';
     const lines = transcript.cues.map((c) => `- **[${formatTimecode(c.start)}]** ${c.text}`);
@@ -1833,14 +1834,11 @@
       else if (ratio > 0.65) frameNum = '3';
 
       const candidateUrls = [
-        `https://img.youtube.com/vi/${videoId}/hq${frameNum}.jpg`,
-        `https://i.ytimg.com/vi/${videoId}/hq${frameNum}.jpg`,
-        `https://img.youtube.com/vi/${videoId}/sd${frameNum}.jpg`,
-        `https://img.youtube.com/vi/${videoId}/maxres${frameNum}.jpg`,
+        `https://img.youtube.com/vi/${videoId}/${frameNum}.jpg`,
+        `https://i.ytimg.com/vi/${videoId}/${frameNum}.jpg`,
         `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`,
         `https://img.youtube.com/vi/${videoId}/sddefault.jpg`,
-        `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`,
-        `https://img.youtube.com/vi/${videoId}/${frameNum}.jpg`
+        `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`
       ];
 
       function tryLoad(index) {
@@ -1851,11 +1849,6 @@
         const img = new Image();
         img.crossOrigin = 'anonymous';
         img.onload = () => {
-          // If not the last fallback, skip tiny 120x90 placeholder to get higher resolution
-          if (img.naturalWidth <= 120 && index < candidateUrls.length - 1) {
-            tryLoad(index + 1);
-            return;
-          }
           try {
             const canvas = document.createElement('canvas');
             const natW = img.naturalWidth || 1280;
@@ -2828,7 +2821,7 @@
             <MarkdownEditor
               materialId={video?.id}
               materialType="video"
-              materialTitle={video?.title || video?.filename || 'Video Notes'}
+              materialTitle={formatVideoNoteTitle(video)}
               captures={videoCaptures}
               compact={true}
               {notify}
