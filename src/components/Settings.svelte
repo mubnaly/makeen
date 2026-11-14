@@ -56,6 +56,8 @@
   let activeCategory = $state('general'); // 'general' | 'prayer' | 'habits' | 'markdown' | 'study' | 'backup' | 'about'
 
   let prayerSettings = $state(loadPrayerSettings());
+  let savedLangPref = $state(typeof localStorage !== 'undefined' ? (localStorage.getItem('studyos.lang') || 'system') : 'system');
+  let savedThemePref = $state(typeof localStorage !== 'undefined' ? (localStorage.getItem('makeen.theme_pref') || 'system') : 'system');
   let dailyTemplate = $state(getDailyTemplate());
   let videoQuality = $state(loadDefaultVideoQuality());
   let screenshotRes = $state(loadScreenshotResolution());
@@ -283,7 +285,16 @@
         <div class="section-title" style="margin-top:0;">{t('settings.language')}</div>
         <div class="hstack" style="gap:10px;">
           <Icon name="globe" size={16} />
-          <select value={ui.lang} onchange={(e) => setLang(e.currentTarget.value)} aria-label={t('settings.language')}>
+          <select
+            value={savedLangPref}
+            onchange={(e) => {
+              savedLangPref = e.currentTarget.value;
+              setLang(savedLangPref);
+              notify(t('settings.saved') || 'Saved', 'ok');
+            }}
+            aria-label={t('settings.language')}
+          >
+            <option value="system">{ui.lang === 'ar' ? 'تلقائي (حسب نظام الجهاز)' : 'System Default'}</option>
             {#each LANGS as l}<option value={l.code}>{l.label}</option>{/each}
           </select>
           <span class="muted" style="font-size:12px">{t('settings.languageHelp')}</span>
@@ -310,16 +321,40 @@
 
         <div class="section-title mt">{t('settings.appearance')}</div>
         <p class="muted" style="font-size:13px">{t('settings.themeHint')}</p>
+
+        <!-- System Default Theme Option Card -->
+        <div class="system-theme-toggle hstack card" style="padding:12px; margin-bottom:14px; justify-content:space-between; background:var(--surface-2); border-radius:8px; border:1px solid var(--border);">
+          <div>
+            <div style="font-weight:600; font-size:13px;">{ui.lang === 'ar' ? 'السمة التلقائية حسب نظام الجهاز' : 'Match System Theme'}</div>
+            <div class="muted" style="font-size:11.5px; margin-top:2px;">{ui.lang === 'ar' ? 'تبديل المظهر تلقائياً بين الفاتح والداكن وفقاً لإعدادات جهازك' : 'Automatically switch light and dark modes based on OS settings'}</div>
+          </div>
+          <button
+            type="button"
+            class="toggle-btn {savedThemePref === 'system' ? 'active' : ''}"
+            onclick={() => {
+              savedThemePref = savedThemePref === 'system' ? theme : 'system';
+              setTheme(savedThemePref);
+              notify(t('settings.saved') || 'Saved', 'ok');
+            }}
+            style="padding:6px 14px; border-radius:6px; font-size:12px; font-weight:600; cursor:pointer; background:{savedThemePref === 'system' ? 'var(--accent)' : 'var(--surface)'}; color:{savedThemePref === 'system' ? '#fff' : 'var(--text)'}; border:1px solid var(--border);"
+          >
+            {savedThemePref === 'system' ? (ui.lang === 'ar' ? 'مُفعّل' : 'Enabled') : (ui.lang === 'ar' ? 'تعيين كسمة النظام' : 'Use System')}
+          </button>
+        </div>
+
         {#each ['light', 'dark'] as mode}
           <div class="theme-group-label">{mode === 'light' ? t('settings.lightThemes') : t('settings.darkThemes')}</div>
           <div class="theme-grid">
             {#each THEMES.filter((th) => th.mode === mode) as th (th.id)}
               <button
                 class="theme-card"
-                class:active={theme === th.id}
-                aria-pressed={theme === th.id}
+                class:active={savedThemePref !== 'system' && theme === th.id}
+                aria-pressed={savedThemePref !== 'system' && theme === th.id}
                 style={`--sw-bg:${th.bg}; --sw-surface:${th.surface}; --sw-accent:${th.accent}`}
-                onclick={() => setTheme(th.id)}
+                onclick={() => {
+                  savedThemePref = th.id;
+                  setTheme(th.id);
+                }}
                 title={t(themeLabelKey(th.id))}
               >
                 <span class="theme-preview" aria-hidden="true">
@@ -562,6 +597,22 @@
       <div class="card settings-section-card">
         <h3>{t('settings.catPrayer')}</h3>
         <p class="muted" style="font-size:13px;">{t('settings.prayerHelp')}</p>
+
+        <!-- Toggle to show/hide prayer card on the home screen -->
+        <label class="hstack mt card" style="cursor:pointer; gap:12px; margin-bottom:14px; padding:12px; background:var(--surface-2); border-radius:8px; border:1px solid var(--border);">
+          <input
+            type="checkbox"
+            checked={prayerSettings.showPrayerCard !== false}
+            onchange={(e) => {
+              prayerSettings = savePrayerSettings({ showPrayerCard: e.currentTarget.checked });
+              notify(t('settings.saved'), 'ok');
+            }}
+          />
+          <div>
+            <div style="font-weight:600; font-size:13px;">{ui.lang === 'ar' ? 'عرض مواقيت الصلاة والتقويم الهجري في الصفحة الرئيسية' : 'Show Prayer Times & Hijri Calendar on Home Page'}</div>
+            <div class="muted" style="font-size:11.5px; margin-top:2px;">{ui.lang === 'ar' ? 'يمكنك تفعيل أو إلغاء ظهور بطاقة مواقيت الصلاة في الصفحة الرئيسية' : 'Toggle visibility of the prayer times banner on your main dashboard'}</div>
+          </div>
+        </label>
 
         <!-- City & Region Picker -->
         <div class="section-title mt">{t('settings.prayerCity')}</div>

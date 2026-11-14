@@ -115,9 +115,12 @@ export function computeShareTotalDuration(share) {
 
 export async function listUserCommunityShares(userId, authorName) {
   const all = await listCommunityShares();
+  const user = getCurrentUser();
   return all.filter((s) => {
+    if (isShareOwner(s, user)) return true;
+    if (s.isLocal) return true;
     if (userId && s.creatorId && String(s.creatorId) === String(userId)) return true;
-    if (authorName && s.author && s.author.toLowerCase() === authorName.toLowerCase()) return true;
+    if (authorName && s.author && String(s.author).toLowerCase() === String(authorName).toLowerCase()) return true;
     return false;
   });
 }
@@ -183,9 +186,14 @@ export async function deleteCommunityShare(shareId) {
 }
 
 export function isShareOwner(share, user) {
-  if (!share || !user) return false;
-  if (share.creatorId && user.id && String(share.creatorId) === String(user.id)) return true;
-  if (share.author && (share.author === user.name || share.author === user.username)) return true;
+  if (!share) return false;
+  // Any share authored or stored in this device's local database belongs to this device's user
+  if (share.isLocal) return true;
+  if (user) {
+    if (share.creatorId && user.id && String(share.creatorId) === String(user.id)) return true;
+    if (share.author && user.name && String(share.author).toLowerCase() === String(user.name).toLowerCase()) return true;
+    if (share.author && user.username && String(share.author).toLowerCase() === String(user.username).toLowerCase()) return true;
+  }
   return false;
 }
 
@@ -210,7 +218,9 @@ export async function listCommunityShares() {
   }
   // 2. Local database shares (ensures user's created and published lists are always preserved)
   for (const s of dbShares) {
-    if (s?.id) map.set(s.id, s);
+    if (s?.id) {
+      map.set(s.id, { ...s, isLocal: true });
+    }
   }
 
   return Array.from(map.values())
@@ -270,6 +280,7 @@ export async function publishCommunityShare(shareData) {
     cardsData: shareData.cardsData || null,
     pdfData: shareData.pdfData || null,
     noteContent: shareData.noteContent || '',
+    isLocal: true,
     createdAt: Date.now()
   };
 

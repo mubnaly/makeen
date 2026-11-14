@@ -70,6 +70,7 @@ const CACHE_KEY = 'makeen.prayer.cache';
 
 export const DEFAULT_PRAYER_SETTINGS = {
   cityId: 'cairo',
+  showPrayerCard: true,
   reminderEnabled: true,
   reminderMinutes: 5,
   soundTone: 'soft-chime',

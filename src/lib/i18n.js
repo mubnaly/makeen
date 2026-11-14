@@ -78,6 +78,13 @@ export function dictKeys(lang) {
 export function loadLang(storage = globalThis.localStorage) {
   try {
     const raw = storage?.getItem(LANG_KEY);
+    if (raw === 'system') {
+      const navLangs = globalThis.navigator?.languages || [globalThis.navigator?.language || ''];
+      for (const l of navLangs) {
+        if (typeof l === 'string' && l.toLowerCase().startsWith('ar')) return 'ar';
+      }
+      return 'en';
+    }
     if (raw) return normalizeLang(raw);
     const navLangs = globalThis.navigator?.languages || [globalThis.navigator?.language || ''];
     for (const l of navLangs) {
@@ -91,6 +98,14 @@ export function loadLang(storage = globalThis.localStorage) {
 
 export function saveLang(lang, storage = globalThis.localStorage) {
   try {
+    if (lang === 'system') {
+      storage?.setItem(LANG_KEY, 'system');
+      const navLangs = globalThis.navigator?.languages || [globalThis.navigator?.language || ''];
+      for (const l of navLangs) {
+        if (typeof l === 'string' && l.toLowerCase().startsWith('ar')) return 'ar';
+      }
+      return 'en';
+    }
     storage?.setItem(LANG_KEY, normalizeLang(lang));
   } catch {
     /* private mode: the session still switches, it just will not persist */

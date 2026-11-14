@@ -214,13 +214,11 @@
 
   // Count user's own shares
   const mySharesCount = $derived.by(() => {
-    if (isGuest) return 0;
     return shares.filter((s) => isShareOwner(s, currentUser)).length;
   });
 
   // Count user's private items
   const privateSharesCount = $derived.by(() => {
-    if (isGuest) return 0;
     return shares.filter((s) => s.isPrivate && isShareOwner(s, currentUser)).length;
   });
 
@@ -739,8 +737,8 @@
 
   <!-- Search & Filter Controls -->
   <div class="controls-card card">
-    <div class="search-row">
-      <div class="search-input-box">
+    <div class="search-row" style="display:flex; gap:10px; align-items:center;">
+      <div class="search-input-box" style="flex:1;">
         <Icon name="search" size={16} />
         <input
           type="text"
@@ -754,205 +752,221 @@
         {/if}
       </div>
 
-      <!-- Sorting Pill Bar -->
-      <div class="sort-bar">
-        <button
-          class="sort-pill {activeSort === 'popular' ? 'active' : ''}"
-          onclick={() => (activeSort = 'popular')}
-        >
-          <Icon name="flame" size={13} />
-          <span>{t('community.sortMostPopular')}</span>
-        </button>
-        <button
-          class="sort-pill {activeSort === 'rating' ? 'active' : ''}"
-          onclick={() => (activeSort = 'rating')}
-        >
-          <Icon name="star" size={13} />
-          <span>{t('community.sortTopRated')}</span>
-        </button>
-        <button
-          class="sort-pill {activeSort === 'newest' ? 'active' : ''}"
-          onclick={() => (activeSort = 'newest')}
-        >
-          <Icon name="clock" size={13} />
-          <span>{t('community.sortNewest')}</span>
-        </button>
-      </div>
+      <!-- Unified Filter Toggle Button -->
+      <button
+        type="button"
+        class="filter-dropdown-btn hstack {activeFilterCount > 0 ? 'active' : ''}"
+        onclick={() => (filterDropdownOpen = !filterDropdownOpen)}
+        title="تصفية المحتوى والخيارات"
+        style="gap:6px; padding:8px 14px; border-radius:8px; border:1px solid var(--border); background:{filterDropdownOpen ? 'var(--accent-soft)' : 'var(--surface-2)'}; color:{filterDropdownOpen ? 'var(--accent)' : 'var(--text)'}; font-size:13px; font-weight:600; cursor:pointer; flex-shrink:0;"
+      >
+        <Icon name="filter" size={15} />
+        <span>{ui.lang === 'ar' ? 'تصفية' : 'Filter'}</span>
+        {#if activeFilterCount > 0}
+          <span class="count-bubble" style="background:var(--accent); color:#fff; font-size:10.5px; padding:1px 6px; border-radius:999px;">{activeFilterCount}</span>
+        {/if}
+        <Icon name={filterDropdownOpen ? 'chevron-up' : 'chevron-down'} size={13} />
+      </button>
+    </div>
 
-      <!-- Unified Filter Dropdown Button -->
-      <div class="filter-dropdown-container" style="position:relative;">
-        <button
-          type="button"
-          class="filter-dropdown-btn hstack {activeFilterCount > 0 ? 'active' : ''}"
-          onclick={() => (filterDropdownOpen = !filterDropdownOpen)}
-          title="تصفية المحتوى والخيارات المتقدمة"
-          style="gap:6px; padding:6px 12px; border-radius:8px; border:1px solid var(--border); background:var(--surface-2); font-size:12.5px; font-weight:600; cursor:pointer;"
-        >
-          <Icon name="filter" size={13} />
-          <span>{ui.lang === 'ar' ? 'تصفية' : 'Filter'}</span>
+    <!-- Collapsible Full Filters Panel: appears when clicking "تصفية" -->
+    {#if filterDropdownOpen}
+      <div class="filters-expanded-panel mt" style="padding:14px; background:var(--surface-2); border-radius:10px; border:1px solid var(--border); display:flex; flex-direction:column; gap:12px;">
+        <!-- Header with Reset -->
+        <div class="hstack" style="justify-content:space-between; align-items:center;">
+          <strong style="font-size:13px; display:inline-flex; align-items:center; gap:6px;">
+            <Icon name="filter" size={14} />
+            <span>{ui.lang === 'ar' ? 'خيارات التصفية والفرز' : 'Filter & Sort Options'}</span>
+          </strong>
           {#if activeFilterCount > 0}
-            <span class="count-bubble" style="background:var(--accent); color:#fff; font-size:10.5px; padding:1px 6px; border-radius:999px;">{activeFilterCount}</span>
+            <button
+              type="button"
+              class="small secondary"
+              style="font-size:11.5px; padding:3px 10px; border-radius:6px;"
+              onclick={() => { activeFilter = 'all'; pricingFilter = 'all'; selectedTagFilter = ''; activeSort = 'popular'; }}
+            >
+              {ui.lang === 'ar' ? 'إعادة ضبط الكل' : 'Reset All'}
+            </button>
           {/if}
-          <Icon name={filterDropdownOpen ? 'chevron-up' : 'chevron-down'} size={12} />
-        </button>
+        </div>
 
-        {#if filterDropdownOpen}
-          <div class="dropdown-backdrop" style="position:fixed; inset:0; z-index:90;" onclick={() => (filterDropdownOpen = false)}></div>
+        <!-- 1. Content Categories / Types -->
+        <div class="filter-section">
+          <span class="filter-section-title muted" style="font-size:11.5px; font-weight:600; margin-bottom:6px; display:block;">
+            {ui.lang === 'ar' ? 'نوع المحتوى والقسم:' : 'Content Type & Category:'}
+          </span>
+          <div class="filter-bar" style="margin:0; padding:0; flex-wrap:wrap;">
+            <button
+              type="button"
+              class="filter-pill {activeFilter === 'all' ? 'active' : ''}"
+              onclick={() => (activeFilter = 'all')}
+            >
+              <span>{t('community.filterAll')}</span>
+              <span class="count-bubble">{shares.length}</span>
+            </button>
 
-          <div class="community-filter-menu card" style="position:absolute; top:calc(100% + 6px); inset-inline-end:0; z-index:95; min-width:270px; padding:14px; background:var(--surface); border:1px solid var(--border); border-radius:10px; box-shadow:0 12px 32px rgba(0,0,0,0.4); display:flex; flex-direction:column; gap:12px;">
-            <div class="hstack" style="justify-content:space-between; align-items:center; border-bottom:1px solid var(--border); padding-bottom:8px;">
-              <strong style="font-size:13px; display:inline-flex; align-items:center; gap:5px;"><Icon name="filter" size={13} /> {ui.lang === 'ar' ? 'خيارات التصفية' : 'Filters'}</strong>
-              {#if activeFilterCount > 0}
+            <button
+              type="button"
+              class="filter-pill {activeFilter === 'my_shares' ? 'active my-shares-active' : ''}"
+              onclick={() => (activeFilter = 'my_shares')}
+            >
+              <Icon name="user" size={14} />
+              <span>{ui.lang === 'ar' ? 'محتواي ومشاركاتي' : 'My Content'}</span>
+              {#if mySharesCount > 0}
+                <span class="count-bubble">{mySharesCount}</span>
+              {/if}
+            </button>
+
+            {#if privateSharesCount > 0}
+              <button
+                type="button"
+                class="filter-pill {activeFilter === 'private' ? 'active' : ''}"
+                onclick={() => (activeFilter = 'private')}
+              >
+                <Icon name="lock" size={14} />
+                <span>{ui.lang === 'ar' ? 'محتواي الخاص' : 'Private'}</span>
+                <span class="count-bubble">{privateSharesCount}</span>
+              </button>
+            {/if}
+
+            <button
+              type="button"
+              class="filter-pill {activeFilter === 'path' ? 'active' : ''}"
+              onclick={() => (activeFilter = 'path')}
+            >
+              <Icon name="layers" size={14} />
+              <span>{ui.lang === 'ar' ? 'المسارات التعليمية' : 'Learning Paths'}</span>
+            </button>
+
+            <button
+              type="button"
+              class="filter-pill {activeFilter === 'playlist' ? 'active' : ''}"
+              onclick={() => (activeFilter = 'playlist')}
+            >
+              <Icon name="video" size={14} />
+              <span>{t('community.filterPlaylists')}</span>
+            </button>
+
+            <button
+              type="button"
+              class="filter-pill {activeFilter === 'pdf' ? 'active' : ''}"
+              onclick={() => (activeFilter = 'pdf')}
+            >
+              <Icon name="reader" size={14} />
+              <span>{t('community.filterPdfs')}</span>
+            </button>
+
+            <button
+              type="button"
+              class="filter-pill {activeFilter === 'cards' ? 'active' : ''}"
+              onclick={() => (activeFilter = 'cards')}
+            >
+              <Icon name="flashcards" size={14} />
+              <span>{t('community.filterCards')}</span>
+            </button>
+
+            <button
+              type="button"
+              class="filter-pill {activeFilter === 'notes' ? 'active' : ''}"
+              onclick={() => (activeFilter = 'notes')}
+            >
+              <Icon name="file-text" size={14} />
+              <span>{t('community.filterNotes')}</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 2. Sort by & Pricing -->
+        <div class="hstack" style="gap:16px; flex-wrap:wrap; align-items:flex-start;">
+          <!-- Sorting -->
+          <div style="flex:1; min-width:220px;">
+            <span class="filter-section-title muted" style="font-size:11.5px; font-weight:600; margin-bottom:6px; display:block;">
+              {ui.lang === 'ar' ? 'ترتيب النتائج:' : 'Sort By:'}
+            </span>
+            <div class="sort-bar" style="margin:0;">
+              <button
+                type="button"
+                class="sort-pill {activeSort === 'popular' ? 'active' : ''}"
+                onclick={() => (activeSort = 'popular')}
+              >
+                <Icon name="flame" size={13} />
+                <span>{t('community.sortMostPopular')}</span>
+              </button>
+              <button
+                type="button"
+                class="sort-pill {activeSort === 'rating' ? 'active' : ''}"
+                onclick={() => (activeSort = 'rating')}
+              >
+                <Icon name="star" size={13} />
+                <span>{t('community.sortTopRated')}</span>
+              </button>
+              <button
+                type="button"
+                class="sort-pill {activeSort === 'newest' ? 'active' : ''}"
+                onclick={() => (activeSort = 'newest')}
+              >
+                <Icon name="clock" size={13} />
+                <span>{t('community.sortNewest')}</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Pricing -->
+          <div style="flex:1; min-width:200px;">
+            <span class="filter-section-title muted" style="font-size:11.5px; font-weight:600; margin-bottom:6px; display:block;">
+              {ui.lang === 'ar' ? 'التسعير:' : 'Pricing:'}
+            </span>
+            <div class="pricing-filter-group hstack">
+              <button
+                type="button"
+                class="price-filter-pill {pricingFilter === 'all' ? 'active' : ''}"
+                onclick={() => (pricingFilter = 'all')}
+              >
+                {ui.lang === 'ar' ? 'الكل' : 'All'}
+              </button>
+              <button
+                type="button"
+                class="price-filter-pill {pricingFilter === 'free' ? 'active' : ''}"
+                onclick={() => (pricingFilter = 'free')}
+              >
+                <span class="dot-free"></span>
+                <span>{ui.lang === 'ar' ? 'مجاني فقط' : 'Free'}</span>
+              </button>
+              <button
+                type="button"
+                class="price-filter-pill {pricingFilter === 'paid' ? 'active' : ''}"
+                onclick={() => (pricingFilter = 'paid')}
+              >
+                <span class="dot-paid"></span>
+                <span>{ui.lang === 'ar' ? 'مدفوع فقط' : 'Paid'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3. Popular Tags -->
+        {#if availableTags && availableTags.length > 0}
+          <div class="filter-section">
+            <span class="filter-section-title muted" style="font-size:11.5px; font-weight:600; margin-bottom:6px; display:block;">
+              {ui.lang === 'ar' ? 'الوسوم الشائعة:' : 'Popular Tags:'}
+            </span>
+            <div class="hstack" style="gap:6px; flex-wrap:wrap;">
+              {#each availableTags.slice(0, 10) as [tag, count]}
                 <button
                   type="button"
-                  class="small secondary"
-                  style="font-size:11px; padding:2px 8px; border-radius:4px;"
-                  onclick={() => { activeFilter = 'all'; pricingFilter = 'all'; selectedTagFilter = ''; }}
+                  class="tag-pill-btn {selectedTagFilter === tag ? 'active' : ''}"
+                  style="border-radius:999px; padding:3px 10px; font-size:11.5px; border:1px solid var(--border); background:{selectedTagFilter === tag ? 'var(--accent)' : 'var(--surface)'}; color:{selectedTagFilter === tag ? '#fff' : 'var(--text)'}; cursor:pointer;"
+                  onclick={() => (selectedTagFilter = selectedTagFilter === tag ? '' : tag)}
                 >
-                  {ui.lang === 'ar' ? 'إعادة ضبط' : 'Reset'}
+                  #{tag} ({count})
                 </button>
-              {/if}
+              {/each}
             </div>
-
-            <!-- Content Type Filter Section -->
-            <div class="filter-section">
-              <span class="filter-label muted" style="font-size:11px; font-weight:600; display:block; margin-bottom:6px;">{ui.lang === 'ar' ? 'نوع المحتوى:' : 'Content Type:'}</span>
-              <div class="filter-options-grid" style="display:grid; grid-template-columns:1fr 1fr; gap:5px;">
-                <button type="button" class="opt-btn {activeFilter === 'all' ? 'active' : ''}" onclick={() => (activeFilter = 'all')}>الكل</button>
-                <button type="button" class="opt-btn {activeFilter === 'path' ? 'active' : ''}" onclick={() => (activeFilter = 'path')}>مسارات تعليمية</button>
-                <button type="button" class="opt-btn {activeFilter === 'playlist' ? 'active' : ''}" onclick={() => (activeFilter = 'playlist')}>قوائم وكورسات</button>
-                <button type="button" class="opt-btn {activeFilter === 'pdf' ? 'active' : ''}" onclick={() => (activeFilter = 'pdf')}>كتب ومستندات</button>
-                <button type="button" class="opt-btn {activeFilter === 'cards' ? 'active' : ''}" onclick={() => (activeFilter = 'cards')}>بطاقات ذكية</button>
-                <button type="button" class="opt-btn {activeFilter === 'notes' ? 'active' : ''}" onclick={() => (activeFilter = 'notes')}>ملاحظات</button>
-              </div>
-            </div>
-
-            <!-- Pricing Filter Section -->
-            <div class="filter-section">
-              <span class="filter-label muted" style="font-size:11px; font-weight:600; display:block; margin-bottom:6px;">{ui.lang === 'ar' ? 'التسعير:' : 'Pricing:'}</span>
-              <div class="hstack" style="gap:5px;">
-                <button type="button" class="opt-btn grow {pricingFilter === 'all' ? 'active' : ''}" onclick={() => (pricingFilter = 'all')}>الكل</button>
-                <button type="button" class="opt-btn grow {pricingFilter === 'free' ? 'active' : ''}" onclick={() => (pricingFilter = 'free')}>مجاني</button>
-                <button type="button" class="opt-btn grow {pricingFilter === 'paid' ? 'active' : ''}" onclick={() => (pricingFilter = 'paid')}>مدفوع</button>
-              </div>
-            </div>
-
-            <!-- Ownership / Privacy Filter Section -->
-            {#if !isGuest}
-              <div class="filter-section">
-                <span class="filter-label muted" style="font-size:11px; font-weight:600; display:block; margin-bottom:6px;">{ui.lang === 'ar' ? 'الملكية والخصوصية:' : 'Ownership:'}</span>
-                <div class="hstack" style="gap:5px;">
-                  <button type="button" class="opt-btn grow {activeFilter === 'my_shares' ? 'active' : ''}" onclick={() => (activeFilter = 'my_shares')}>مشاركاتي</button>
-                  <button type="button" class="opt-btn grow {activeFilter === 'private' ? 'active' : ''}" onclick={() => (activeFilter = 'private')}>خاص بي</button>
-                </div>
-              </div>
-            {/if}
           </div>
         {/if}
       </div>
-
-      <!-- Free vs Paid Pricing Filter -->
-      <div class="pricing-filter-group hstack">
-        <button
-          type="button"
-          class="price-filter-pill {pricingFilter === 'all' ? 'active' : ''}"
-          onclick={() => (pricingFilter = 'all')}
-        >
-          {ui.lang === 'ar' ? 'الكل' : 'All'}
-        </button>
-        <button
-          type="button"
-          class="price-filter-pill {pricingFilter === 'free' ? 'active' : ''}"
-          onclick={() => (pricingFilter = 'free')}
-        >
-          <span class="dot-free"></span>
-          <span>{ui.lang === 'ar' ? 'مجاني فقط' : 'Free'}</span>
-        </button>
-        <button
-          type="button"
-          class="price-filter-pill {pricingFilter === 'paid' ? 'active' : ''}"
-          onclick={() => (pricingFilter = 'paid')}
-        >
-          <span class="dot-paid"></span>
-          <span>{ui.lang === 'ar' ? 'مدفوع فقط' : 'Paid'}</span>
-        </button>
-      </div>
-    </div>
-
-    <!-- Filter Buttons Bar with Horizontal Scroll for Mobile -->
-    <div class="filter-bar">
-      <button
-        class="filter-pill {activeFilter === 'all' ? 'active' : ''}"
-        onclick={() => (activeFilter = 'all')}
-      >
-        <span>{t('community.filterAll')}</span>
-        <span class="count-bubble">{shares.length}</span>
-      </button>
-
-      {#if !isGuest}
-        <button
-          class="filter-pill {activeFilter === 'my_shares' ? 'active my-shares-active' : ''}"
-          onclick={() => (activeFilter = 'my_shares')}
-        >
-          <Icon name="user" size={14} />
-          <span>{ui.lang === 'ar' ? 'محتواي ومشاركاتي' : 'My Content'}</span>
-          {#if mySharesCount > 0}
-            <span class="count-bubble">{mySharesCount}</span>
-          {/if}
-        </button>
-      {/if}
-
-      {#if !isGuest && privateSharesCount > 0}
-        <button
-          class="filter-pill {activeFilter === 'private' ? 'active' : ''}"
-          onclick={() => (activeFilter = 'private')}
-        >
-          <Icon name="lock" size={14} />
-          <span>{ui.lang === 'ar' ? 'محتواي الخاص' : 'Private'}</span>
-          <span class="count-bubble">{privateSharesCount}</span>
-        </button>
-      {/if}
-
-      <button
-        class="filter-pill {activeFilter === 'path' ? 'active' : ''}"
-        onclick={() => (activeFilter = 'path')}
-      >
-        <Icon name="layers" size={14} />
-        <span>{ui.lang === 'ar' ? 'المسارات التعليمية' : 'Learning Paths'}</span>
-      </button>
-
-      <button
-        class="filter-pill {activeFilter === 'playlist' ? 'active' : ''}"
-        onclick={() => (activeFilter = 'playlist')}
-      >
-        <Icon name="video" size={14} />
-        <span>{t('community.filterPlaylists')}</span>
-      </button>
-
-      <button
-        class="filter-pill {activeFilter === 'pdf' ? 'active' : ''}"
-        onclick={() => (activeFilter = 'pdf')}
-      >
-        <Icon name="reader" size={14} />
-        <span>{t('community.filterPdfs')}</span>
-      </button>
-
-      <button
-        class="filter-pill {activeFilter === 'cards' ? 'active' : ''}"
-        onclick={() => (activeFilter = 'cards')}
-      >
-        <Icon name="flashcards" size={14} />
-        <span>{t('community.filterCards')}</span>
-      </button>
-
-      <button
-        class="filter-pill {activeFilter === 'notes' ? 'active' : ''}"
-        onclick={() => (activeFilter = 'notes')}
-      >
-        <Icon name="file-text" size={14} />
-        <span>{t('community.filterNotes')}</span>
-      </button>
-    </div>
+    {/if}
+  </div>
 
     <!-- Active Tag Filter Indicator -->
     {#if selectedTagFilter}
@@ -983,7 +997,6 @@
         {/each}
       </div>
     {/if}
-  </div>
 
   <!-- Shares Grid -->
   <!-- Course / Playlist Dedicated Details View -->

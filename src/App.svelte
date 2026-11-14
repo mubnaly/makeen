@@ -86,12 +86,17 @@
     { id: 'Today', icon: 'today', labelKey: 'nav.today' },
     { id: 'Notes', icon: 'file-text', labelKey: 'nav.notes' },
     { id: 'Flashcards', icon: 'flashcards', labelKey: 'nav.flashcards' },
-    { id: 'Reader', icon: 'reader', labelKey: 'nav.reader' },
-    { id: 'Video', icon: 'video', labelKey: 'nav.video' }
+    { id: 'Community', icon: 'globe', labelKey: 'nav.community' },
+    { id: '__MORE__', icon: 'menu', labelKey: 'nav.more' }
   ];
 
   const DRAWER_NAV = [
+    { id: 'Today', icon: 'today', labelKey: 'nav.today' },
+    { id: 'Notes', icon: 'file-text', labelKey: 'nav.notes' },
+    { id: 'Flashcards', icon: 'flashcards', labelKey: 'nav.flashcards' },
     { id: 'Community', icon: 'globe', labelKey: 'nav.community' },
+    { id: 'Reader', icon: 'reader', labelKey: 'nav.reader' },
+    { id: 'Video', icon: 'video', labelKey: 'nav.video' },
     { id: 'Library', icon: 'library', labelKey: 'nav.library' },
     { id: 'Projects', icon: 'projects', labelKey: 'nav.projects' },
     { id: 'Planner', icon: 'planner', labelKey: 'nav.planner' },
@@ -99,14 +104,16 @@
     { id: 'Studio', icon: 'dualStudio', labelKey: 'nav.dualStudio' },
     { id: 'Gallery', icon: 'gallery', labelKey: 'nav.gallery' },
     { id: 'Profile', icon: 'user', labelKey: 'nav.profile' },
-    { id: 'Trash', icon: 'trash', labelKey: 'nav.trash' },
+    { id: 'Settings', icon: 'settings', labelKey: 'nav.settings' },
     { id: 'Guide', icon: 'book', labelKey: 'nav.guide' },
-    { id: 'Settings', icon: 'settings', labelKey: 'nav.settings' }
+    { id: 'Trash', icon: 'trash', labelKey: 'nav.trash' }
   ];
 
   let view = $state('Today');
   let railCollapsed = $state(false);
   let mobileDrawerOpen = $state(false);
+  let mobileActionsOpen = $state(false);
+  let themePreference = $state(loadThemePreference());
   let theme = $state(initialTheme());
   let imageQuality = $state(loadImageQuality());
   let projects = $state([]);
@@ -289,16 +296,33 @@
   const sidecarStore = createSidecarStore();
   const undoManager = createUndoManager();
 
+  function loadThemePreference() {
+    try {
+      return globalThis.localStorage?.getItem('makeen.theme_pref') || 'system';
+    } catch {
+      return 'system';
+    }
+  }
+
+  function resolveSystemTheme() {
+    try {
+      if (globalThis.window?.matchMedia?.('(prefers-color-scheme: dark)')?.matches) {
+        return 'midnight';
+      }
+      return 'light';
+    } catch {
+      return 'light';
+    }
+  }
+
   function initialTheme() {
     try {
-      const saved = globalThis.localStorage?.getItem('makeen.theme') || globalThis.localStorage?.getItem('studyos.theme');
-      if (saved) return normalizeTheme(saved);
-      if (globalThis.window?.matchMedia?.('(prefers-color-scheme: light)').matches) {
-        return 'nordic-frost';
-      }
-      return 'midnight';
+      const pref = loadThemePreference();
+      if (pref === 'system') return resolveSystemTheme();
+      return normalizeTheme(pref);
+    } catch {
+      return DEFAULT_THEME;
     }
-    catch { return DEFAULT_THEME; }
   }
 
   // Language is the one setting that changes the document element (lang, dir,
@@ -346,6 +370,17 @@
     try { cards = await listCards(); } catch (e) { notify(t('toast.loadCardsFailed'), 'error'); }
     startDueReminderLoop();
     refreshEnrolledCourses();
+
+    window.addEventListener('touchstart', handleTouchStart, { passive: true });
+    window.addEventListener('touchend', handleTouchEnd, { passive: true });
+    const mediaQuery = globalThis.window?.matchMedia?.('(prefers-color-scheme: dark)');
+    const handleThemeChange = (e) => {
+      if (themePreference === 'system') {
+        theme = e.matches ? 'midnight' : 'light';
+        applyTheme();
+      }
+    };
+    mediaQuery?.addEventListener?.('change', handleThemeChange);
 
     // Track active application open duration and update study summary
     setInterval(() => {
@@ -455,8 +490,79 @@
   }
 
   function setTheme(id) {
-    theme = normalizeTheme(id);
+    if (id === 'system') {
+      themePreference = 'system';
+      try { localStorage.setItem('makeen.theme_pref', 'system'); } catch {}
+      theme = resolveSystemTheme();
+    } else {
+      themePreference = id;
+      try { localStorage.setItem('makeen.theme_pref', id); } catch {}
+      theme = normalizeTheme(id);
+    }
     applyTheme();
+  }
+
+  // Edge swipe detection for mobile drawer navigation
+  let touchStartX = 0;
+  let touchStartY = 0;
+  let lbTouchStartX = 0;
+
+  function handleTouchStart(e) {
+    if (!e.touches || e.touches.length !== 1) return;
+    touchStartX = e.touches[0].clientX;
+    touchStartY = e.touches[0].clientY;
+  }
+
+  function handleLbTouchStart(e) {
+    if (e.touches && e.touches.length === 1) lbTouchStartX = e.touches[0].clientX;
+  }
+
+  function handleLbTouchEnd(e, curIdx, totalCaptures) {
+    if (!e.changedTouches || e.changedTouches.length !== 1 || totalCaptures <= 1) return;
+    const deltaX = e.changedTouches[0].clientX - lbTouchStartX;
+    if (Math.abs(deltaX) < 40) return;
+    if (deltaX > 40) {
+      if (curIdx > 0) previewCapture = captures[curIdx - 1];
+      else previewCapture = captures[totalCaptures - 1];
+    } else if (deltaX < -40) {
+      if (curIdx < totalCaptures - 1) previewCapture = captures[curIdx + 1];
+      else previewCapture = captures[0];
+    }
+  }
+
+  function handleTouchEnd(e) {
+    if (!e.changedTouches || e.changedTouches.length !== 1) return;
+    const touchEndX = e.changedTouches[0].clientX;
+    const touchEndY = e.changedTouches[0].clientY;
+    const deltaX = touchEndX - touchStartX;
+    const deltaY = touchEndY - touchStartY;
+
+    if (Math.abs(deltaX) < 45 || Math.abs(deltaY) > Math.abs(deltaX) * 1.5) return;
+
+    const isRtlLang = ui.lang === 'ar' || ui.dir === 'rtl';
+    const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 400;
+
+    if (!mobileDrawerOpen) {
+      if (isRtlLang) {
+        if (screenWidth - touchStartX < 50 && deltaX < -40) {
+          mobileDrawerOpen = true;
+        }
+      } else {
+        if (touchStartX < 50 && deltaX > 40) {
+          mobileDrawerOpen = true;
+        }
+      }
+    } else {
+      if (isRtlLang) {
+        if (deltaX > 40) {
+          mobileDrawerOpen = false;
+        }
+      } else {
+        if (deltaX < -40) {
+          mobileDrawerOpen = false;
+        }
+      }
+    }
   }
 
   function setImageQuality(value) {
@@ -1697,8 +1803,6 @@
       </div>
       <span style="flex:1"></span>
 
-      <PomodoroWidget compact={true} />
-
       <!-- Custom Reminder / Notification Bell Button (Quick Add) -->
       <button
         class="icon-btn"
@@ -1720,16 +1824,52 @@
         <span>مساعد مَكِين</span>
       </button>
 
-      <button class="icon-btn" onclick={openHelp} title={t('topbar.help')} aria-label={t('topbar.help')} aria-haspopup="dialog">
+      <!-- Mobile Quick Tools Trigger (Visible on screens <= 768px) -->
+      <div class="mobile-tools-wrapper">
+        <button
+          type="button"
+          class="icon-btn mobile-tools-trigger"
+          onclick={() => (mobileActionsOpen = !mobileActionsOpen)}
+          title="أدوات سريعة"
+          aria-label="أدوات سريعة"
+        >
+          <Icon name="plus" size={17} />
+        </button>
+
+        {#if mobileActionsOpen}
+          <!-- svelte-ignore a11y_click_events_have_key_events -->
+          <div class="mobile-actions-menu card" onclick={() => (mobileActionsOpen = false)} role="menu" tabindex="-1">
+            <button type="button" class="mobile-menu-action hstack" onclick={pickPdf}>
+              <Icon name="reader" size={15} />
+              <span>PDF (مستند)</span>
+            </button>
+            <button type="button" class="mobile-menu-action hstack" onclick={pickVideo}>
+              <Icon name="video" size={15} />
+              <span>فيديو أو صوت</span>
+            </button>
+            <button type="button" class="mobile-menu-action hstack" onclick={() => (recorderOpen = true)}>
+              <Icon name="camera" size={15} />
+              <span>تسجيل الشاشة</span>
+            </button>
+            <button type="button" class="mobile-menu-action hstack" onclick={openHelp}>
+              <Icon name="help" size={15} />
+              <span>{t('topbar.help')}</span>
+            </button>
+          </div>
+        {/if}
+      </div>
+
+      <!-- Desktop Action Buttons: Sleek modern design without redundant 'استيراد' word -->
+      <button class="icon-btn desktop-only" onclick={openHelp} title={t('topbar.help')} aria-label={t('topbar.help')} aria-haspopup="dialog">
         <Icon name="help" size={18} />
       </button>
-      <button class="import-btn" onclick={pickPdf} title="PDF (Ctrl+O)">
-        <Icon name="reader" size={14} /><span>{t('topbar.importPdf')}</span>
+      <button class="import-btn desktop-only" onclick={pickPdf} title="PDF (Ctrl+O)">
+        <Icon name="reader" size={14} /><span>PDF</span>
       </button>
-      <button class="import-btn" onclick={pickVideo} title={t('topbar.importMedia') || 'فيديو / صوت'}>
-        <Icon name="video" size={14} /><span>{importingVideo ? t('video.importing') : (t('topbar.importMedia') || 'فيديو / صوت')}</span>
+      <button class="import-btn desktop-only" onclick={pickVideo} title={t('topbar.importMedia') || 'فيديو / صوت'}>
+        <Icon name="video" size={14} /><span>{importingVideo ? t('video.importing') : 'فيديو / صوت'}</span>
       </button>
-      <button class="import-btn recorder-btn" onclick={() => (recorderOpen = true)} title={t('recorder.recordScreen')}>
+      <button class="import-btn recorder-btn desktop-only" onclick={() => (recorderOpen = true)} title={t('recorder.recordScreen')}>
         <Icon name="camera" size={14} /><span>{t('recorder.recordScreen')}</span>
       </button>
       <button class="more-drawer-btn" onclick={() => (mobileDrawerOpen = !mobileDrawerOpen)} title={t('nav.other')} aria-label={t('nav.other')}>
@@ -1745,8 +1885,10 @@
         <div class="hero"><h1>{t('today.welcome')}</h1></div>
         <p class="muted" style="margin-bottom:16px;">{t('today.tagline')}</p>
 
-        <!-- Islamic Prayer Times & Hijri Calendar Banner -->
-        <PrayerCard {notify} onOpenSettings={() => nav('Settings')} />
+        <!-- Islamic Prayer Times & Hijri Calendar Banner (Configurable in Settings) -->
+        {#if prayerSettings.showPrayerCard !== false}
+          <PrayerCard {notify} onOpenSettings={() => { prayerSettings = loadPrayerSettings(); nav('Settings'); }} />
+        {/if}
 
         <!-- Today's Study Activity & Time Metrics Dashboard -->
         <div class="today-metrics-card">
@@ -2700,7 +2842,17 @@
   <!-- Mobile Bottom Navigation Bar (5 Items Only) -->
   <nav class="mobile-bottom-nav">
     {#each MOBILE_NAV as item}
-      <button class="mobile-nav-btn {view === item.id ? 'active' : ''}" onclick={() => nav(item.id)} title={t(item.labelKey)}>
+      <button
+        class="mobile-nav-btn {item.id === '__MORE__' ? (mobileDrawerOpen ? 'active' : '') : (view === item.id ? 'active' : '')}"
+        onclick={() => {
+          if (item.id === '__MORE__') {
+            mobileDrawerOpen = !mobileDrawerOpen;
+          } else {
+            nav(item.id);
+          }
+        }}
+        title={t(item.labelKey)}
+      >
         <span class="mobile-nav-icon"><Icon name={item.icon} size={20} /></span>
         <span class="mobile-nav-label">{t(item.labelKey)}</span>
       </button>
@@ -2787,7 +2939,11 @@
         </button>
       </div>
 
-      <div style="position:relative; flex:1; overflow:hidden; display:flex; align-items:center; justify-content:center; min-height:220px;">
+      <div
+        ontouchstart={handleLbTouchStart}
+        ontouchend={(e) => handleLbTouchEnd(e, curIdx, totalCaptures)}
+        style="position:relative; flex:1; overflow:hidden; display:flex; align-items:center; justify-content:center; min-height:220px;"
+      >
         {#if totalCaptures > 1}
           <button
             type="button"
